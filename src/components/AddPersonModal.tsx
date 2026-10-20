@@ -542,16 +542,16 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                         return (
                           <div
                             key={ch.id}
-                            className={`p-2.5 rounded-xl border transition space-y-2 ${
+                            className={`p-3 rounded-xl border transition space-y-2 ${
                               isExcluded
                                 ? 'bg-amber-50/70 border-amber-200'
                                 : 'bg-white border-emerald-200/80'
                             }`}
                           >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-1.5 flex-wrap">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <div className="flex items-start gap-1.5 flex-wrap min-w-0">
                                 <span
-                                  className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold break-words leading-snug ${
                                     ch.gender === 'male'
                                       ? 'bg-emerald-50 text-[#0F4C3A] border border-emerald-200'
                                       : 'bg-rose-50 text-rose-800 border border-rose-200'
@@ -560,17 +560,17 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                                   {ch.fullName}
                                 </span>
                                 <span
-                                  className={`text-[10px] font-bold ${
+                                  className={`text-[10px] font-bold self-center ${
                                     isExcluded ? 'text-amber-800' : 'text-emerald-700'
                                   }`}
                                 >
                                   ({isExcluded
                                     ? ch.gender === 'male'
-                                      ? 'مستثنى من أن تكون أمّه - من أم أخرى'
-                                      : 'مستثناة من أن تكون أمّها - من أم أخرى'
+                                      ? 'مستثنى - من أم أخرى'
+                                      : 'مستثناة - من أم أخرى'
                                     : ch.gender === 'male'
-                                    ? 'ابنها - هذه المرأة أمّه افتراضياً'
-                                    : 'ابنتها - هذه المرأة أمّها افتراضياً'})
+                                    ? 'ابنها افتراضياً'
+                                    : 'ابنتها افتراضياً'})
                                 </span>
                               </div>
 
@@ -588,7 +588,7 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                                     setExcludedChildIds(prev => [...prev, ch.id]);
                                   }
                                 }}
-                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition shrink-0 ${
+                                className={`w-full sm:w-auto min-h-[36px] px-3 py-1.5 rounded-lg text-[11px] font-bold transition shrink-0 cursor-pointer ${
                                   isExcluded
                                     ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                                     : 'bg-amber-100 text-amber-900 hover:bg-amber-200 border border-amber-300'
@@ -767,15 +767,15 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs overflow-y-auto">
-      <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-right my-8 max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs overflow-y-auto">
+      <div className="relative w-full max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-right my-0 sm:my-8 max-h-[94vh] sm:max-h-[90vh] flex flex-col">
         
         {/* Header */}
-        <div className="p-5 bg-gradient-to-r from-[#0F4C3A] to-[#15664F] text-white flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2">
-            <User className="w-5 h-5 text-[#D4AF37]" />
-            <div>
-              <h3 className="text-base font-bold font-display">
+        <div className="p-4 sm:p-5 bg-gradient-to-r from-[#0F4C3A] to-[#15664F] text-white flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <User className="w-5 h-5 text-[#D4AF37] shrink-0" />
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-bold font-display break-words leading-snug">
                 {editPerson
                   ? 'تعديل بيانات الفرد'
                   : selectedFather
@@ -791,7 +791,7 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-full bg-white/20 hover:bg-white/30 text-white transition"
+            className="p-2 rounded-full bg-white/20 hover:bg-white/30 text-white transition shrink-0 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -799,54 +799,54 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
 
         {/* Success Notice for rapid continuous addition */}
         {successNotice && (
-          <div className="mx-6 mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-xs text-emerald-900 flex items-center gap-2 shrink-0 animate-fade-in">
+          <div className="mx-4 sm:mx-6 mt-3.5 sm:mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-xs text-emerald-900 flex items-center gap-2 shrink-0 animate-fade-in">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span className="font-semibold">{successNotice}</span>
+            <span className="font-semibold break-words">{successNotice}</span>
           </div>
         )}
 
         {/* Error message */}
         {errorMessage && (
-          <div className="mx-6 mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800 flex items-center gap-2 shrink-0">
+          <div className="mx-4 sm:mx-6 mt-3.5 sm:mt-4 p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800 flex items-center gap-2 shrink-0">
             <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-            <span>{errorMessage}</span>
+            <span className="break-words">{errorMessage}</span>
           </div>
         )}
 
         {/* Mode Selector Tabs (only when not editing) */}
         {!editPerson && selectedFather && (
-          <div className="px-6 pt-4 shrink-0">
-            <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl border border-slate-200/80">
+          <div className="px-4 sm:px-6 pt-3.5 sm:pt-4 shrink-0">
+            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-2xl border border-slate-200/80">
               <button
                 type="button"
                 onClick={() => setEntryMode('quick')}
-                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                className={`py-2 px-2 sm:px-3 rounded-xl text-[11px] sm:text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
                   entryMode === 'quick'
                     ? 'bg-white text-[#0F4C3A] shadow-xs ring-1 ring-slate-200'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <Zap className="w-3.5 h-3.5 text-[#D4AF37]" />
-                <span>الاسم الأول فقط (تلقائي)</span>
+                <Zap className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
+                <span>الاسم الأول</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setEntryMode('batch')}
-                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                className={`py-2 px-2 sm:px-3 rounded-xl text-[11px] sm:text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
                   entryMode === 'batch'
                     ? 'bg-white text-[#0F4C3A] shadow-xs ring-1 ring-slate-200'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <ListPlus className="w-3.5 h-3.5 text-emerald-600" />
-                <span>إضافة دفعة أبناء معاً</span>
+                <ListPlus className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>دفعة أبناء</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setEntryMode('manual')}
-                className={`py-2 px-3 rounded-xl text-xs font-semibold transition ${
+                className={`py-2 px-2 sm:px-3 rounded-xl text-[11px] sm:text-xs font-semibold transition flex items-center justify-center cursor-pointer ${
                   entryMode === 'manual'
                     ? 'bg-white text-slate-900 shadow-xs ring-1 ring-slate-200'
                     : 'text-slate-500 hover:text-slate-800'
@@ -859,7 +859,7 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
         )}
 
         {/* Form Body */}
-        <div className="p-6 space-y-4 overflow-y-auto flex-1">
+        <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
           
           {/* FATHER SELECTION CARD */}
           <div>
@@ -869,12 +869,14 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
 
             {selectedFather ? (
               <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-2 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="min-w-0">
                     <span className="text-emerald-700 text-[10px] block font-semibold">
                       الأب / الجد المباشر المختار (يُنسب الابن وفروعه إليه):
                     </span>
-                    <strong className="text-emerald-950 font-bold text-sm">{selectedFather.fullName}</strong>
+                    <strong className="text-emerald-950 font-bold text-sm break-words leading-snug block">
+                      {selectedFather.fullName}
+                    </strong>
                   </div>
                   <button
                     type="button"
@@ -883,13 +885,13 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                       setEntryMode('manual');
                       setFullName((prev) => extractGivenName(prev) || prev);
                     }}
-                    className="text-[11px] text-[#0F4C3A] bg-white hover:bg-emerald-100 border border-emerald-200 font-bold px-2.5 py-1 rounded-xl transition shrink-0"
+                    className="self-start sm:self-center text-[11px] text-[#0F4C3A] bg-white hover:bg-emerald-100 border border-emerald-200 font-bold px-3 py-1.5 rounded-xl transition shrink-0 cursor-pointer"
                   >
                     {editPerson ? 'تغيير الأب / نقل الفرع لجد أعلى' : 'تغيير أو شجرة مستقلة'}
                   </button>
                 </div>
                 {editPerson && editPerson.fatherId !== selectedFather.id && (
-                  <div className="p-2 rounded-xl bg-white border border-emerald-200 text-[11px] text-emerald-900 font-semibold">
+                  <div className="p-2.5 rounded-xl bg-white border border-emerald-200 text-[11px] text-emerald-900 font-semibold leading-relaxed break-words">
                     سيتم تلقائياً نقل «{extractGivenName(editPerson.fullName)}» وجميع أبنائه وأحفاده تحت «{selectedFather.fullName}» وتحديث أسمائهم وعلاقاتهم حسب التسلسل الصحيح.
                   </div>
                 )}
@@ -902,12 +904,12 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                     value={fatherSearch}
                     onChange={(e) => setFatherSearch(e.target.value)}
                     placeholder="ابحث لاختيار الأب أو الجد الأعلى لنقل الفرع إليه..."
-                    className="w-full h-10 pr-9 pl-3 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+                    className="w-full h-11 pr-9 pl-3 rounded-xl border border-slate-200 bg-slate-50 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]"
                   />
-                  <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
+                  <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3.5" />
                 </div>
 
-                <div className="border border-slate-200 rounded-xl max-h-36 overflow-y-auto divide-y divide-slate-100 bg-white shadow-inner">
+                <div className="border border-slate-200 rounded-xl max-h-40 overflow-y-auto divide-y divide-slate-100 bg-white shadow-inner">
                   <button
                     type="button"
                     onClick={() => {
@@ -933,13 +935,13 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                           setEntryMode('quick');
                         }
                       }}
-                      className="w-full text-right p-2.5 text-xs hover:bg-slate-50 flex items-center justify-between group transition"
+                      className="w-full text-right p-2.5 text-xs hover:bg-slate-50 flex items-center justify-between gap-2 group transition"
                     >
-                      <span className="font-bold text-slate-800 group-hover:text-[#0F4C3A]">
+                      <span className="font-bold text-slate-800 group-hover:text-[#0F4C3A] break-words leading-snug">
                         {f.fullName}
                       </span>
-                      <span className="text-[10px] text-emerald-700 font-semibold">
-                        {editPerson ? 'نقل الفرع إليه كأب/جد' : 'اختيار كأب'}
+                      <span className="text-[10px] text-emerald-700 font-semibold shrink-0">
+                        {editPerson ? 'نقل الفرع إليه' : 'اختيار كأب'}
                       </span>
                     </button>
                   ))}
@@ -1266,11 +1268,11 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
               </div>
 
               {/* Action buttons */}
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <div className="pt-3 border-t border-slate-100 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition"
+                  className="min-h-[42px] px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
                 >
                   إلغاء
                 </button>
@@ -1278,7 +1280,7 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                   type="button"
                   onClick={() => handleSaveSingle(false)}
                   disabled={submitting}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white shadow-xs transition disabled:opacity-50"
+                  className="min-h-[42px] px-5 py-2 rounded-xl text-xs font-bold bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white shadow-xs transition disabled:opacity-50 cursor-pointer"
                 >
                   {submitting ? 'جارٍ الحفظ...' : editPerson ? 'حفظ التعديلات' : 'إضافة الفرد'}
                 </button>

@@ -832,9 +832,9 @@ export const TreeView: React.FC<TreeViewProps> = ({
             </div>
 
             {/* Name */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-start gap-2">
               <div
-                className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
                   person.gender === 'male'
                     ? 'bg-[#0F4C3A] text-[#D4AF37]'
                     : 'bg-rose-500 text-white'
@@ -842,8 +842,11 @@ export const TreeView: React.FC<TreeViewProps> = ({
               >
                 <User className="w-4 h-4" />
               </div>
-              <div className="truncate">
-                <h4 className="text-sm font-bold text-slate-900 group-hover:text-[#0F4C3A] transition truncate">
+              <div className="min-w-0 flex-1">
+                <h4
+                  className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-[#0F4C3A] transition break-words leading-snug line-clamp-2"
+                  title={person.fullName}
+                >
                   {person.fullName}
                 </h4>
               </div>
@@ -871,7 +874,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
               ) : (
                 <span>
                   {person.husbandName ? (
-                    <span className="text-rose-700 font-bold text-[10px] truncate block max-w-[180px]">
+                    <span className="text-rose-700 font-bold text-[10px] break-words line-clamp-1 block max-w-[180px]">
                       زوجة: {person.husbandName}
                     </span>
                   ) : (
@@ -904,7 +907,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
                 e.stopPropagation();
                 onOpenAddModalWithFather(person.id);
               }}
-              className="absolute -bottom-3 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 rounded-full bg-[#0F4C3A] text-white flex items-center justify-center shadow-md hover:scale-110 z-20"
+              className="absolute -bottom-3 left-1/2 -translate-x-1/2 opacity-95 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity w-6 h-6 rounded-full bg-[#0F4C3A] text-white flex items-center justify-center shadow-md hover:scale-110 z-20"
               title="إضافة ابن أو بنت"
             >
               <Plus className="w-3.5 h-3.5" />

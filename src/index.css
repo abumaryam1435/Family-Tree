@@ -3,12 +3,33 @@
 @layer base {
   :root {
     font-family: 'Cairo', 'Tajawal', system-ui, -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
   }
 
+  html,
   body {
     background-color: #FBF9F5;
     color: #1E293B;
+    overflow-x: hidden;
   }
+
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  label {
+    touch-action: manipulation;
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Custom scrollbars for clean tree view */

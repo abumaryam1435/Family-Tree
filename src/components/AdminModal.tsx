@@ -272,27 +272,28 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs overflow-y-auto">
-      <div className="relative w-full max-w-3xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-right my-8">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs overflow-y-auto">
+      <div className="relative w-full max-w-3xl bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-right my-0 sm:my-8 max-h-[94vh] sm:max-h-[90vh] flex flex-col">
         
         {/* Header */}
-        <div className="p-5 bg-gradient-to-r from-[#0F4C3A] via-[#092e23] to-[#0F4C3A] text-white flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-[#D4AF37]/20 flex items-center justify-center text-[#D4AF37]">
+        <div className="p-4 sm:p-5 bg-gradient-to-r from-[#0F4C3A] via-[#092e23] to-[#0F4C3A] text-white flex items-start sm:items-center justify-between gap-2 shrink-0">
+          <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-[#D4AF37]/20 flex items-center justify-center text-[#D4AF37] shrink-0">
               <Shield className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="text-base font-bold font-display">
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-bold font-display leading-snug">
                 لوحة إعدادات المشرف وقفل التعديل
               </h3>
-              <p className="text-[11px] text-white/70">
+              <p className="text-[11px] text-white/75 leading-relaxed mt-0.5">
                 إدارة الصلاحيات، النسخ الاحتياطي، وفحص سلامة الأنساب
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-full bg-white/20 hover:bg-white/30 text-white transition"
+            className="w-9 h-9 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white transition shrink-0"
+            aria-label="إغلاق"
           >
             <X className="w-4 h-4" />
           </button>
@@ -300,13 +301,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
         {/* If not authenticated as Admin: Show Passcode Challenge */}
         {!isAdmin ? (
-          <form onSubmit={handleLogin} className="p-8 max-w-md mx-auto space-y-5 text-center">
+          <form onSubmit={handleLogin} className="p-5 sm:p-8 max-w-md w-full mx-auto space-y-5 text-center overflow-y-auto">
             <div className="w-12 h-12 rounded-2xl bg-[#0F4C3A]/10 text-[#0F4C3A] flex items-center justify-center mx-auto">
               <Key className="w-6 h-6 text-[#D4AF37]" />
             </div>
 
             <div>
-              <h4 className="text-lg font-bold text-slate-900 font-display">
+              <h4 className="text-base sm:text-lg font-bold text-slate-900 font-display">
                 {!settings.hasAdminPasscode ? 'تعيين رمز المشرف لأول مرة' : 'تسجيل دخول المشرف'}
               </h4>
               <p className="text-xs text-slate-500 mt-1 leading-relaxed">
@@ -336,19 +337,19 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
             <button
               type="submit"
-              className="w-full h-11 rounded-xl text-xs font-bold bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white shadow-xs transition"
+              className="w-full min-h-[44px] h-11 rounded-xl text-xs font-bold bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white shadow-xs transition"
             >
               {!settings.hasAdminPasscode ? 'حفظ الرمز السري والمتابعة' : 'تأكيد ودخول المشرف'}
             </button>
           </form>
         ) : (
           /* Admin Dashboard Content */
-          <div>
+          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             {/* Tabs Bar */}
-            <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto text-xs font-semibold">
+            <div className="px-4 sm:px-6 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto text-xs font-semibold shrink-0">
               <button
                 onClick={() => setActiveTab('status')}
-                className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                className={`min-h-[36px] px-3 py-1.5 rounded-xl transition whitespace-nowrap ${
                   activeTab === 'status' ? 'bg-[#0F4C3A] text-white' : 'text-slate-600 hover:bg-slate-200'
                 }`}
               >
@@ -356,7 +357,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               </button>
               <button
                 onClick={() => setActiveTab('logs')}
-                className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                className={`min-h-[36px] px-3 py-1.5 rounded-xl transition whitespace-nowrap ${
                   activeTab === 'logs' ? 'bg-[#0F4C3A] text-white' : 'text-slate-600 hover:bg-slate-200'
                 }`}
               >
@@ -364,7 +365,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               </button>
               <button
                 onClick={() => setActiveTab('merges')}
-                className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                className={`min-h-[36px] px-3 py-1.5 rounded-xl transition whitespace-nowrap ${
                   activeTab === 'merges' ? 'bg-[#0F4C3A] text-white' : 'text-slate-600 hover:bg-slate-200'
                 }`}
               >
@@ -372,7 +373,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               </button>
               <button
                 onClick={() => setActiveTab('backup')}
-                className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                className={`min-h-[36px] px-3 py-1.5 rounded-xl transition whitespace-nowrap ${
                   activeTab === 'backup' ? 'bg-[#0F4C3A] text-white' : 'text-slate-600 hover:bg-slate-200'
                 }`}
               >
@@ -380,7 +381,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               </button>
               <button
                 onClick={() => setActiveTab('passcode')}
-                className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+                className={`min-h-[36px] px-3 py-1.5 rounded-xl transition whitespace-nowrap ${
                   activeTab === 'passcode' ? 'bg-[#0F4C3A] text-white' : 'text-slate-600 hover:bg-slate-200'
                 }`}
               >
@@ -388,418 +389,420 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               </button>
             </div>
 
-            {/* Tab 1: Supervisor Tools & Permissions */}
-            {activeTab === 'status' && (
-              <div className="p-6 space-y-6">
-                {actionMessage && (
-                  <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">
-                    {actionMessage}
-                  </div>
-                )}
+            <div className="overflow-y-auto flex-1">
+              {/* Tab 1: Supervisor Tools & Permissions */}
+              {activeTab === 'status' && (
+                <div className="p-4 sm:p-6 space-y-5 sm:space-y-6">
+                  {actionMessage && (
+                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">
+                      {actionMessage}
+                    </div>
+                  )}
 
-                <div className="p-5 rounded-2xl border border-emerald-200 bg-emerald-50/60 space-y-3">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="p-4 sm:p-5 rounded-2xl border border-emerald-200 bg-emerald-50/60 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div>
+                        <h4 className="text-sm font-bold text-[#0F4C3A]">وضع صلاحيات النظام:</h4>
+                        <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+                          الإضافة والتعديل والحذف ودمج الفروع متاحة <strong>حصرياً للمشرف</strong>، بينما يظهر لبقية الزوار عرض الصفحات والبيانات الجاهزة فقط.
+                        </p>
+                      </div>
+
+                      <span className="self-start sm:self-center text-xs font-bold text-[#0F4C3A] bg-white border border-emerald-200 px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-2xs shrink-0">
+                        <Shield className="w-3.5 h-3.5 text-[#D4AF37]" />
+                        <span>أنت مسجل الدخول كمشرف</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Quick Supervisor Actions */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-slate-800">
+                      الإجراءات السريعة للمشرف (الإضافة والتعديل والأصول والدمج):
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {onOpenAddModal && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            onOpenAddModal();
+                          }}
+                          className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 bg-white hover:border-[#0F4C3A] hover:bg-[#FBF9F5] transition text-right flex items-start gap-3 group"
+                        >
+                          <div className="w-9 h-9 rounded-xl bg-[#0F4C3A] text-white flex items-center justify-center shrink-0">
+                            <Plus className="w-4 h-4 text-[#D4AF37]" />
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-slate-900 group-hover:text-[#0F4C3A]">
+                              إضافة فرد أو فرع جديد
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                              إضافة ابن أو بنت أو زوج أو بداية شجرة جديدة
+                            </div>
+                          </div>
+                        </button>
+                      )}
+
+                      {onOpenAddRootAncestor && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            onOpenAddRootAncestor();
+                          }}
+                          className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 bg-white hover:border-[#0F4C3A] hover:bg-[#FBF9F5] transition text-right flex items-start gap-3 group"
+                        >
+                          <div className="w-9 h-9 rounded-xl bg-emerald-100 text-[#0F4C3A] flex items-center justify-center shrink-0">
+                            <ArrowUp className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-slate-900 group-hover:text-[#0F4C3A]">
+                              نقل الابن وفروعه إلى الجد الأعلى / + جد
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                              نقل ابن وفروعه لجد أعلى أو إضافة جد أو أكثر من جد فوق الأصول الحالية
+                            </div>
+                          </div>
+                        </button>
+                      )}
+
+                      {onOpenMergeModal && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            onOpenMergeModal();
+                          }}
+                          className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 bg-white hover:border-[#0F4C3A] hover:bg-[#FBF9F5] transition text-right flex items-start gap-3 group"
+                        >
+                          <div className="w-9 h-9 rounded-xl bg-[#D4AF37]/20 text-[#8C6D1F] flex items-center justify-center shrink-0">
+                            <GitMerge className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-slate-900 group-hover:text-[#0F4C3A]">
+                              دمج الأشجار تحت أصل مشترك
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                              توحيد شجرتين عند التوصل لنفس الأصل التاريخي
+                            </div>
+                          </div>
+                        </button>
+                      )}
+
+                      {onNavigateToList && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            onNavigateToList();
+                          }}
+                          className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 bg-white hover:border-[#0F4C3A] hover:bg-[#FBF9F5] transition text-right flex items-start gap-3 group"
+                        >
+                          <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
+                            <Users className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-slate-900 group-hover:text-[#0F4C3A]">
+                              إدارة وتعديل وحذف الأفراد
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                              فتح سجل الأفراد الكامل للتعديل أو الحذف المباشر
+                            </div>
+                          </div>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 2: Audit Log */}
+              {activeTab === 'logs' && (
+                <div className="p-4 sm:p-6 space-y-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-sm font-bold text-[#0F4C3A]">
+                      سجل التعديلات والعمليات ({auditLogs.length})
+                    </h4>
+                    <button
+                      onClick={loadAdminData}
+                      className="min-h-[34px] px-2.5 py-1 rounded-lg text-xs text-slate-600 hover:text-[#0F4C3A] flex items-center gap-1"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>تحديث</span>
+                    </button>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-2xl max-h-96 overflow-y-auto divide-y divide-slate-100 bg-white">
+                    {auditLogs.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-slate-400">
+                        لا توجد سجلات مسجلة بعد
+                      </div>
+                    ) : (
+                      auditLogs.map((log) => (
+                        <div key={log.id} className="p-3 hover:bg-slate-50 text-xs space-y-1">
+                          <div className="flex items-center justify-between gap-2 flex-wrap text-slate-500">
+                            <span className="font-semibold text-slate-700">
+                              {log.actor}: {log.actionType}
+                            </span>
+                            <span className="text-[10px] tabular-nums">
+                              {new Date(log.timestamp).toLocaleString('ar-SA')}
+                            </span>
+                          </div>
+                          <p className="text-slate-900 font-medium leading-relaxed break-words">{log.description}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 3: Change Requests */}
+              {activeTab === 'requests' && (
+                <div className="p-4 sm:p-6 space-y-4">
+                  <h4 className="text-sm font-bold text-[#0F4C3A]">
+                    طلبات التصحيح والدمج المقترحة من أفراد العائلة ({changeRequests.length})
+                  </h4>
+
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {changeRequests.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-slate-400 border border-slate-200 rounded-2xl">
+                        لا توجد طلبات معلقة حالياً
+                      </div>
+                    ) : (
+                      changeRequests.map((req) => (
+                        <div key={req.id} className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-2 text-xs">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="font-bold text-slate-900">
+                              {req.type === 'correction' ? 'طلب تصحيح اسم / بيانات' : req.type === 'merge_proposal' ? 'اقتراح دمج' : 'طلب إضافة فرد'}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              req.status === 'pending'
+                                ? 'bg-amber-100 text-amber-800'
+                                : req.status === 'approved'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}>
+                              {req.status === 'pending' ? 'قيد المراجعة' : req.status === 'approved' ? 'مقبول' : 'مرفوض'}
+                            </span>
+                          </div>
+
+                          <div className="break-words">المقدم: <strong>{req.requesterName}</strong></div>
+                          {req.targetPersonName && (
+                            <div className="break-words">الفرد المعني: <strong>{req.targetPersonName}</strong></div>
+                          )}
+                          <div className="text-slate-600 bg-white p-2.5 rounded-xl border border-slate-200 leading-relaxed break-words">
+                            {req.requesterNotes}
+                          </div>
+
+                          {req.status === 'pending' && (
+                            <div className="grid grid-cols-2 sm:flex items-center gap-2 pt-2">
+                              <button
+                                onClick={() => handleResolveRequest(req.id, 'approved')}
+                                className="min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs"
+                              >
+                                قبول وتطبيق التعديل
+                              </button>
+                              <button
+                                onClick={() => handleResolveRequest(req.id, 'rejected')}
+                                className="min-h-[38px] px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs"
+                              >
+                                رفض الطلب
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 4: Merge Operations & Rollback */}
+              {activeTab === 'merges' && (
+                <div className="p-4 sm:p-6 space-y-4">
+                  <h4 className="text-sm font-bold text-[#0F4C3A]">
+                    سجل عمليات الدمج وإمكانية التراجع الآمن ({mergeOperations.length})
+                  </h4>
+
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {mergeOperations.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-slate-400 border border-slate-200 rounded-2xl">
+                        لم يتم تنفيذ أي عملية دمج حتى الآن
+                      </div>
+                    ) : (
+                      mergeOperations.map((m) => (
+                        <div key={m.id} className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-900 leading-snug break-words">
+                              دمج: {m.sourcePersonName} في {m.targetPersonName}
+                            </div>
+                            <div className="text-slate-500 text-[11px] mt-0.5">
+                              تم نقل {m.movedChildrenIds.length} فروع · {new Date(m.timestamp).toLocaleString('ar-SA')}
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => handleUndoMerge(m.id)}
+                            className="w-full sm:w-auto min-h-[38px] px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition shrink-0"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>التراجع عن هذا الدمج</span>
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 5: Backup & Restore */}
+              {activeTab === 'backup' && (
+                <div className="p-4 sm:p-6 space-y-5 sm:space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Backup Card */}
+                    <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
+                      <div className="flex items-center gap-2 text-[#0F4C3A]">
+                        <Download className="w-5 h-5 text-[#D4AF37]" />
+                        <h4 className="font-bold text-sm">تنزيل نسخة احتياطية (JSON)</h4>
+                      </div>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        تصدير كامل بيانات الشجرة والأفراد وسجلات التعديل في ملف JSON آمن وخالٍ من كلمات المرور.
+                      </p>
+                      <a
+                        href={apiClient.getBackupDownloadUrl()}
+                        download
+                        className="w-full sm:w-auto min-h-[42px] inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-[#0F4C3A] text-white hover:bg-[#0c3c2e] text-xs font-bold transition shadow-xs"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>تنزيل النسخة الاحتياطية الآن</span>
+                      </a>
+                    </div>
+
+                    {/* Restore Card */}
+                    <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
+                      <div className="flex items-center gap-2 text-[#0F4C3A]">
+                        <Upload className="w-5 h-5 text-[#D4AF37]" />
+                        <h4 className="font-bold text-sm">استعادة نسخة احتياطية</h4>
+                      </div>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        رفع ملف JSON تم تصديره سابقاً، مع التحقق الأوتوماتيكي الصارم من سلامة العلاقات ومنع الدورات.
+                      </p>
+                      <label className="w-full sm:w-auto min-h-[42px] inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-slate-800 text-white hover:bg-slate-900 text-xs font-bold transition cursor-pointer">
+                        <Upload className="w-4 h-4" />
+                        <span>اختيار ملف النسخة الاحتياطية</span>
+                        <input
+                          type="file"
+                          accept=".json"
+                          onChange={handleFileRestore}
+                          className="hidden"
+                        />
+                      </label>
+
+                      {restoreStatus && (
+                        <div className="text-xs font-semibold text-[#0F4C3A] bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                          {restoreStatus}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Sample / Reset Section */}
+                  <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
-                      <h4 className="text-sm font-bold text-[#0F4C3A]">وضع صلاحيات النظام:</h4>
-                      <p className="text-xs text-slate-600 mt-0.5">
-                        الإضافة والتعديل والحذف ودمج الفروع متاحة <strong>حصرياً للمشرف</strong>، بينما يظهر لبقية الزوار عرض الصفحات والبيانات الجاهزة فقط.
+                      <h5 className="text-xs font-bold text-slate-900">إدارة البيانات النموذجية</h5>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                        يمكنك إعادة تحميل بيانات عائلية نموذجية للتجربة، أو تفريغ الشجرة تماماً لبدء العمل الحقيقي.
                       </p>
                     </div>
-
-                    <span className="text-xs font-bold text-[#0F4C3A] bg-white border border-emerald-200 px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-2xs">
-                      <Shield className="w-3.5 h-3.5 text-[#D4AF37]" />
-                      <span>أنت مسجل الدخول كمشرف</span>
-                    </span>
+                    <div className="grid grid-cols-1 sm:flex items-center gap-2 shrink-0 w-full sm:w-auto">
+                      <button
+                        onClick={handleResetSample}
+                        className="min-h-[40px] px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 transition"
+                      >
+                        تحميل عينة نموذجية
+                      </button>
+                      <button
+                        onClick={handleClearAll}
+                        className="min-h-[40px] px-3 py-2 rounded-xl border border-red-300 bg-white text-red-600 hover:bg-red-50 text-xs font-semibold transition"
+                      >
+                        تفريغ الشجرة لبدء عائلتك
+                      </button>
+                    </div>
                   </div>
                 </div>
+              )}
 
-                {/* Quick Supervisor Actions */}
-                <div className="space-y-3">
-                  <h4 className="text-xs font-bold text-slate-800">
-                    الإجراءات السريعة للمشرف (الإضافة والتعديل والأصول والدمج):
+              {/* Tab 6: Change Passcode */}
+              {activeTab === 'passcode' && (
+                <form onSubmit={handleChangePasscode} className="p-4 sm:p-6 max-w-md mx-auto space-y-4">
+                  <h4 className="text-sm font-bold text-slate-900">
+                    تغيير الرمز السري للمشرف
                   </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {onOpenAddModal && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          onOpenAddModal();
-                        }}
-                        className="p-4 rounded-2xl border border-slate-200 bg-white hover:border-[#0F4C3A] hover:bg-[#FBF9F5] transition text-right flex items-start gap-3 group"
-                      >
-                        <div className="w-9 h-9 rounded-xl bg-[#0F4C3A] text-white flex items-center justify-center shrink-0">
-                          <Plus className="w-4 h-4 text-[#D4AF37]" />
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-slate-900 group-hover:text-[#0F4C3A]">
-                            إضافة فرد أو فرع جديد
-                          </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            إضافة ابن أو بنت أو زوج أو بداية شجرة جديدة
-                          </div>
-                        </div>
-                      </button>
-                    )}
 
-                    {onOpenAddRootAncestor && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          onOpenAddRootAncestor();
-                        }}
-                        className="p-4 rounded-2xl border border-slate-200 bg-white hover:border-[#0F4C3A] hover:bg-[#FBF9F5] transition text-right flex items-start gap-3 group"
-                      >
-                        <div className="w-9 h-9 rounded-xl bg-emerald-100 text-[#0F4C3A] flex items-center justify-center shrink-0">
-                          <ArrowUp className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-slate-900 group-hover:text-[#0F4C3A]">
-                            إضافة أصل للأصول الموجودة
-                          </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            ترقية أصول الأشجار صعوداً (مثلاً إضافة «راشد» فوق «عبدالله»)
-                          </div>
-                        </div>
-                      </button>
-                    )}
-
-                    {onOpenMergeModal && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          onOpenMergeModal();
-                        }}
-                        className="p-4 rounded-2xl border border-slate-200 bg-white hover:border-[#0F4C3A] hover:bg-[#FBF9F5] transition text-right flex items-start gap-3 group"
-                      >
-                        <div className="w-9 h-9 rounded-xl bg-[#D4AF37]/20 text-[#8C6D1F] flex items-center justify-center shrink-0">
-                          <GitMerge className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-slate-900 group-hover:text-[#0F4C3A]">
-                            دمج الأشجار تحت أصل مشترك
-                          </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            توحيد شجرتين عند التوصل لنفس الأصل التاريخي
-                          </div>
-                        </div>
-                      </button>
-                    )}
-
-                    {onNavigateToList && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClose();
-                          onNavigateToList();
-                        }}
-                        className="p-4 rounded-2xl border border-slate-200 bg-white hover:border-[#0F4C3A] hover:bg-[#FBF9F5] transition text-right flex items-start gap-3 group"
-                      >
-                        <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
-                          <Users className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold text-slate-900 group-hover:text-[#0F4C3A]">
-                            إدارة وتعديل وحذف الأفراد
-                          </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5">
-                            فتح سجل الأفراد الكامل للتعديل أو الحذف المباشر
-                          </div>
-                        </div>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Tab 2: Audit Log (Requirement 7 & 8) */}
-            {activeTab === 'logs' && (
-              <div className="p-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-bold text-[#0F4C3A]">
-                    سجل التعديلات والعمليات ({auditLogs.length})
-                  </h4>
-                  <button
-                    onClick={loadAdminData}
-                    className="text-xs text-slate-600 hover:text-[#0F4C3A] flex items-center gap-1"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    <span>تحديث</span>
-                  </button>
-                </div>
-
-                <div className="border border-slate-200 rounded-2xl max-h-96 overflow-y-auto divide-y divide-slate-100 bg-white">
-                  {auditLogs.length === 0 ? (
-                    <div className="p-8 text-center text-xs text-slate-400">
-                      لا توجد سجلات مسجلة بعد
+                  {passcodeMessage && (
+                    <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">
+                      {passcodeMessage}
                     </div>
-                  ) : (
-                    auditLogs.map((log) => (
-                      <div key={log.id} className="p-3 hover:bg-slate-50 text-xs space-y-1">
-                        <div className="flex items-center justify-between text-slate-500">
-                          <span className="font-semibold text-slate-700">
-                            {log.actor}: {log.actionType}
-                          </span>
-                          <span className="text-[10px] tabular-nums">
-                            {new Date(log.timestamp).toLocaleString('ar-SA')}
-                          </span>
-                        </div>
-                        <p className="text-slate-900 font-medium">{log.description}</p>
-                      </div>
-                    ))
                   )}
-                </div>
-              </div>
-            )}
 
-            {/* Tab 3: Change Requests */}
-            {activeTab === 'requests' && (
-              <div className="p-6 space-y-4">
-                <h4 className="text-sm font-bold text-[#0F4C3A]">
-                  طلبات التصحيح والدمج المقترحة من أفراد العائلة ({changeRequests.length})
-                </h4>
-
-                <div className="space-y-3 max-h-96 overflow-y-auto">
-                  {changeRequests.length === 0 ? (
-                    <div className="p-8 text-center text-xs text-slate-400 border border-slate-200 rounded-2xl">
-                      لا توجد طلبات معلقة حالياً
-                    </div>
-                  ) : (
-                    changeRequests.map((req) => (
-                      <div key={req.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-2 text-xs">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-slate-900">
-                            {req.type === 'correction' ? 'طلب تصحيح اسم / بيانات' : req.type === 'merge_proposal' ? 'اقتراح دمج' : 'طلب إضافة فرد'}
-                          </span>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            req.status === 'pending'
-                              ? 'bg-amber-100 text-amber-800'
-                              : req.status === 'approved'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}>
-                            {req.status === 'pending' ? 'قيد المراجعة' : req.status === 'approved' ? 'مقبول' : 'مرفوض'}
-                          </span>
-                        </div>
-
-                        <div>المقدم: <strong>{req.requesterName}</strong></div>
-                        {req.targetPersonName && (
-                          <div>الفرد المعني: <strong>{req.targetPersonName}</strong></div>
-                        )}
-                        <div className="text-slate-600 bg-white p-2.5 rounded-xl border border-slate-200">
-                          {req.requesterNotes}
-                        </div>
-
-                        {req.status === 'pending' && (
-                          <div className="flex items-center gap-2 pt-2">
-                            <button
-                              onClick={() => handleResolveRequest(req.id, 'approved')}
-                              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs"
-                            >
-                              قبول وتطبيق التعديل
-                            </button>
-                            <button
-                              onClick={() => handleResolveRequest(req.id, 'rejected')}
-                              className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold text-xs"
-                            >
-                              رفض الطلب
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Tab 4: Merge Operations & Rollback */}
-            {activeTab === 'merges' && (
-              <div className="p-6 space-y-4">
-                <h4 className="text-sm font-bold text-[#0F4C3A]">
-                  سجل عمليات الدمج وإمكانية التراجع الآمن ({mergeOperations.length})
-                </h4>
-
-                <div className="space-y-3 max-h-96 overflow-y-auto">
-                  {mergeOperations.length === 0 ? (
-                    <div className="p-8 text-center text-xs text-slate-400 border border-slate-200 rounded-2xl">
-                      لم يتم تنفيذ أي عملية دمج حتى الآن
-                    </div>
-                  ) : (
-                    mergeOperations.map((m) => (
-                      <div key={m.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-4 text-xs">
-                        <div>
-                          <div className="font-bold text-slate-900">
-                            دمج: {m.sourcePersonName} في {m.targetPersonName}
-                          </div>
-                          <div className="text-slate-500 text-[11px] mt-0.5">
-                            تم نقل {m.movedChildrenIds.length} فروع · {new Date(m.timestamp).toLocaleString('ar-SA')}
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={() => handleUndoMerge(m.id)}
-                          className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 transition"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                          <span>التراجع عن هذا الدمج</span>
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Tab 5: Backup & Restore */}
-            {activeTab === 'backup' && (
-              <div className="p-6 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Backup Card */}
-                  <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-                    <div className="flex items-center gap-2 text-[#0F4C3A]">
-                      <Download className="w-5 h-5 text-[#D4AF37]" />
-                      <h4 className="font-bold text-sm">تنزيل نسخة احتياطية (JSON)</h4>
-                    </div>
-                    <p className="text-xs text-slate-500 leading-relaxed">
-                      تصدير كامل بيانات الشجرة والأفراد وسجلات التعديل في ملف JSON آمن وخالٍ من كلمات المرور.
-                    </p>
-                    <a
-                      href={apiClient.getBackupDownloadUrl()}
-                      download
-                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0F4C3A] text-white hover:bg-[#0c3c2e] text-xs font-bold transition shadow-xs"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>تنزيل النسخة الاحتياطية الآن</span>
-                    </a>
-                  </div>
-
-                  {/* Restore Card */}
-                  <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-                    <div className="flex items-center gap-2 text-[#0F4C3A]">
-                      <Upload className="w-5 h-5 text-[#D4AF37]" />
-                      <h4 className="font-bold text-sm">استعادة نسخة احتياطية</h4>
-                    </div>
-                    <p className="text-xs text-slate-500 leading-relaxed">
-                      رفع ملف JSON تم تصديره سابقاً، مع التحقق الأوتوماتيكي الصارم من سلامة العلاقات ومنع الدورات.
-                    </p>
-                    <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 text-white hover:bg-slate-900 text-xs font-bold transition cursor-pointer">
-                      <Upload className="w-4 h-4" />
-                      <span>اختيار ملف النسخة الاحتياطية</span>
-                      <input
-                        type="file"
-                        accept=".json"
-                        onChange={handleFileRestore}
-                        className="hidden"
-                      />
-                    </label>
-
-                    {restoreStatus && (
-                      <div className="text-xs font-semibold text-[#0F4C3A] bg-emerald-50 p-2 rounded-lg border border-emerald-200">
-                        {restoreStatus}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Sample / Reset Section */}
-                <div className="p-5 rounded-2xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h5 className="text-xs font-bold text-slate-900">إدارة البيانات النموذجية</h5>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      يمكنك إعادة تحميل بيانات عائلية نموذجية للتجربة، أو تفريغ الشجرة تماماً لبدء العمل الحقيقي.
-                    </p>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      الرمز السري الحالي:
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={enteredPasscode}
+                      onChange={(e) => setEnteredPasscode(e.target.value)}
+                      className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+                    />
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={handleResetSample}
-                      className="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-white text-xs font-semibold text-slate-700 transition"
-                    >
-                      تحميل عينة نموذجية
-                    </button>
-                    <button
-                      onClick={handleClearAll}
-                      className="px-3 py-1.5 rounded-lg border border-red-300 text-red-600 hover:bg-red-50 text-xs font-semibold transition"
-                    >
-                      تفريغ الشجرة لبدء عائلتك
-                    </button>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      الرمز السري الجديد:
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={newPasscode}
+                      onChange={(e) => setNewPasscode(e.target.value)}
+                      className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+                    />
                   </div>
-                </div>
-              </div>
-            )}
 
-            {/* Tab 6: Change Passcode */}
-            {activeTab === 'passcode' && (
-              <form onSubmit={handleChangePasscode} className="p-6 max-w-md mx-auto space-y-4">
-                <h4 className="text-sm font-bold text-slate-900">
-                  تغيير الرمز السري للمشرف
-                </h4>
-
-                {passcodeMessage && (
-                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">
-                    {passcodeMessage}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      تأكيد الرمز السري الجديد:
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      value={confirmPasscode}
+                      onChange={(e) => setConfirmPasscode(e.target.value)}
+                      className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+                    />
                   </div>
-                )}
 
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    الرمز السري الحالي:
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={enteredPasscode}
-                    onChange={(e) => setEnteredPasscode(e.target.value)}
-                    className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    الرمز السري الجديد:
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={newPasscode}
-                    onChange={(e) => setNewPasscode(e.target.value)}
-                    className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    تأكيد الرمز السري الجديد:
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={confirmPasscode}
-                    onChange={(e) => setConfirmPasscode(e.target.value)}
-                    className="w-full h-10 px-3 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-2.5 rounded-xl text-xs font-bold bg-[#0F4C3A] text-white hover:bg-[#0c3c2e] transition"
-                >
-                  حفظ الرمز السري الجديد
-                </button>
-              </form>
-            )}
+                  <button
+                    type="submit"
+                    className="w-full min-h-[42px] py-2.5 rounded-xl text-xs font-bold bg-[#0F4C3A] text-white hover:bg-[#0c3c2e] transition"
+                  >
+                    حفظ الرمز السري الجديد
+                  </button>
+                </form>
+              )}
+            </div>
 
             {/* Admin Footer with Logout */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs">
+            <div className="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2 text-xs shrink-0">
               <span className="text-slate-500">
                 جلسة المشرف نشطة وآمنة
               </span>
               <button
                 onClick={onLogout}
-                className="text-red-600 hover:underline font-semibold"
+                className="min-h-[34px] px-2.5 py-1 rounded-lg text-red-600 hover:bg-red-50 font-semibold transition"
               >
                 تسجيل الخروج من وضع المشرف
               </button>

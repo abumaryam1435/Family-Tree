@@ -232,23 +232,23 @@ export default function App() {
       {/* Toast Notification Banner */}
       {toastMessage && (
         <div
-          className={`fixed top-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-5 py-3 rounded-2xl shadow-xl text-xs font-bold transition-all duration-300 animate-bounce ${
+          className={`fixed top-16 sm:top-20 left-3 right-3 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:max-w-lg z-50 flex items-start sm:items-center gap-2 px-4 sm:px-5 py-3 rounded-2xl shadow-xl text-xs font-bold transition-all duration-300 ${
             toastMessage.type === 'success'
               ? 'bg-[#0F4C3A] text-white border border-[#D4AF37]/40'
               : 'bg-red-600 text-white border border-red-500'
           }`}
         >
           {toastMessage.type === 'success' ? (
-            <CheckCircle className="w-4 h-4 text-[#D4AF37]" />
+            <CheckCircle className="w-4 h-4 text-[#D4AF37] shrink-0 mt-0.5 sm:mt-0" />
           ) : (
-            <AlertCircle className="w-4 h-4 text-white" />
+            <AlertCircle className="w-4 h-4 text-white shrink-0 mt-0.5 sm:mt-0" />
           )}
-          <span>{toastMessage.text}</span>
+          <span className="leading-snug break-words">{toastMessage.text}</span>
         </div>
       )}
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6">
         {loading && persons.length === 0 ? (
           <div className="py-32 text-center space-y-4">
             <div className="w-12 h-12 rounded-2xl bg-[#0F4C3A]/10 text-[#0F4C3A] flex items-center justify-center mx-auto animate-spin">

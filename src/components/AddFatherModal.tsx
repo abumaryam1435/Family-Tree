@@ -369,46 +369,47 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs overflow-y-auto">
-      <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-right my-8">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs overflow-y-auto">
+      <div className="relative w-full max-w-2xl bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-right my-0 sm:my-8 max-h-[94vh] sm:max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="p-5 bg-gradient-to-r from-[#0F4C3A] to-[#15664F] text-white flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-[#D4AF37]/20 flex items-center justify-center text-[#D4AF37]">
+        <div className="p-4 sm:p-5 bg-gradient-to-r from-[#0F4C3A] to-[#15664F] text-white flex items-start sm:items-center justify-between gap-2 shrink-0">
+          <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-[#D4AF37]/20 flex items-center justify-center text-[#D4AF37] shrink-0">
               <ArrowUp className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="text-base font-bold font-display">
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-bold font-display leading-snug">
                 نقل الابن وفروعه إلى الجد الأعلى / إضافة جد أو أكثر من جد
               </h3>
-              <p className="text-[11px] text-white/80">
+              <p className="text-[11px] text-white/80 leading-relaxed mt-0.5">
                 تحديث مواقع الابن وجميع أبنائه وأحفاده تلقائياً حسب التسلسل الصحيح والعلاقات الصحيحة
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-full bg-white/20 hover:bg-white/30 text-white transition"
+            className="w-9 h-9 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white transition shrink-0"
+            aria-label="إغلاق"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[82vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
           {/* Selected Son / Branch Banner + Switcher */}
-          <div className="p-3.5 rounded-2xl bg-[#FBF9F5] border border-slate-200/90 space-y-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="w-7 h-7 rounded-lg bg-[#0F4C3A] text-[#D4AF37] flex items-center justify-center text-xs font-bold">
+          <div className="p-3 sm:p-3.5 rounded-2xl bg-[#FBF9F5] border border-slate-200/90 space-y-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-start gap-2 min-w-0">
+                <span className="w-7 h-7 rounded-lg bg-[#0F4C3A] text-[#D4AF37] flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
                   <Users className="w-4 h-4" />
                 </span>
-                <div>
+                <div className="min-w-0 flex-1">
                   <span className="text-[10px] text-slate-500 block font-semibold">
                     الابن / الأب المراد نقله مع فروعه:
                   </span>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <strong className="text-sm font-bold text-[#0F4C3A]">
+                  <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                    <strong className="text-xs sm:text-sm font-bold text-[#0F4C3A] leading-snug break-words">
                       «{person.fullName}»
                     </strong>
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 font-bold">
@@ -418,12 +419,12 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5">
+              <div className="grid grid-cols-1 sm:flex items-center gap-1.5 w-full sm:w-auto">
                 {onSelectTargetPerson && (
                   <button
                     type="button"
                     onClick={() => setShowBranchSwitcher(!showBranchSwitcher)}
-                    className="text-[11px] font-bold text-[#0F4C3A] bg-white hover:bg-emerald-50 px-2.5 py-1 rounded-xl border border-slate-200 transition"
+                    className="min-h-[36px] text-[11px] font-bold text-[#0F4C3A] bg-white hover:bg-emerald-50 px-3 py-1.5 rounded-xl border border-slate-200 transition text-center"
                   >
                     {showBranchSwitcher ? 'إخفاء قائمة الاختيار' : 'تغيير الابن / الفرع المختار'}
                   </button>
@@ -435,9 +436,9 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                       onClose();
                       onOpenMergeModal();
                     }}
-                    className="text-[11px] font-bold text-[#8C6D1F] bg-[#D4AF37]/20 hover:bg-[#D4AF37]/30 px-2.5 py-1 rounded-xl flex items-center gap-1 transition"
+                    className="min-h-[36px] text-[11px] font-bold text-[#8C6D1F] bg-[#D4AF37]/20 hover:bg-[#D4AF37]/30 px-3 py-1.5 rounded-xl flex items-center justify-center gap-1 transition"
                   >
-                    <GitMerge className="w-3 h-3" />
+                    <GitMerge className="w-3.5 h-3.5 shrink-0" />
                     <span>دمج الأشجار</span>
                   </button>
                 )}
@@ -458,7 +459,7 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                         setSuccessNotice(null);
                         onSelectTargetPerson(root);
                       }}
-                      className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition border ${
+                      className={`min-h-[32px] px-2.5 py-1 rounded-lg text-[11px] font-bold transition border leading-snug break-words text-right ${
                         isSelected
                           ? 'bg-[#0F4C3A] text-white border-[#0F4C3A]'
                           : 'bg-white text-slate-700 border-slate-200 hover:border-[#0F4C3A]/40'
@@ -480,11 +481,11 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                     value={branchSearch}
                     onChange={e => setBranchSearch(e.target.value)}
                     placeholder="ابحث عن أي ابن أو أب في الشجرة لنقله مع فروعه..."
-                    className="w-full h-9 pr-8 pl-3 rounded-xl border border-slate-200 bg-white text-xs focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+                    className="w-full h-10 pr-8 pl-3 rounded-xl border border-slate-200 bg-white text-xs focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
                   />
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5" />
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-3" />
                 </div>
-                <div className="max-h-36 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
+                <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
                   {switchableBranches.map(item => (
                     <button
                       key={item.id}
@@ -494,14 +495,14 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                         setShowBranchSwitcher(false);
                         setBranchSearch('');
                       }}
-                      className={`w-full text-right px-3 py-2 text-xs flex items-center justify-between transition ${
+                      className={`w-full text-right px-3 py-2.5 text-xs flex items-start sm:items-center justify-between gap-2 transition ${
                         item.id === person.id
                           ? 'bg-[#0F4C3A] text-white font-bold'
                           : 'hover:bg-slate-50 text-slate-800'
                       }`}
                     >
-                      <span>{item.fullName}</span>
-                      <span className="text-[10px] opacity-75">
+                      <span className="leading-snug break-words flex-1">{item.fullName}</span>
+                      <span className="text-[10px] opacity-75 shrink-0">
                         {treeRootIds.has(item.id) ? 'أصل شجرة' : 'فرع في الشجرة'}
                       </span>
                     </button>
@@ -514,81 +515,81 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
           {successNotice && (
             <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-xs text-emerald-900 flex items-start gap-2 font-bold">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-              <span>{successNotice}</span>
+              <span className="leading-relaxed break-words">{successNotice}</span>
             </div>
           )}
 
           {errorMessage && (
-            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-              <span>{errorMessage}</span>
+            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+              <span className="leading-relaxed">{errorMessage}</span>
             </div>
           )}
 
           {/* Mode Tabs: 1. Add 1 or More New Higher Grandfathers vs 2. Move Son & Branches to Existing Higher Grandfather */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-1 bg-slate-100 rounded-2xl">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-2xl">
             <button
               type="button"
               onClick={() => setMode('new')}
-              className={`py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+              className={`min-h-[40px] py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
                 mode === 'new'
                   ? 'bg-white text-[#0F4C3A] shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-3.5 h-3.5 shrink-0" />
               <span>إضافة جد أعلى أو أكثر من جد (جديد)</span>
             </button>
             <button
               type="button"
               onClick={() => setMode('existing')}
-              className={`py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+              className={`min-h-[40px] py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
                 mode === 'existing'
                   ? 'bg-white text-[#0F4C3A] shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <GitMerge className="w-3.5 h-3.5" />
+              <GitMerge className="w-3.5 h-3.5 shrink-0" />
               <span>نقل الابن وفروعه إلى جد أعلى موجود</span>
             </button>
           </div>
 
           {/* Current Father handling when in 'new' mode */}
           {currentFather && mode === 'new' && (
-            <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <strong>
+            <div className="p-3 sm:p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <strong className="leading-snug break-words">
                   الأب المسجل حالياً لـ «{extractGivenName(person.fullName)}» هو: ({currentFather.fullName})
                 </strong>
                 {onSelectTargetPerson && (
                   <button
                     type="button"
                     onClick={() => onSelectTargetPerson(currentFather)}
-                    className="px-2.5 py-1 rounded-lg bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-bold text-[11px] transition"
+                    className="min-h-[34px] px-3 py-1.5 rounded-xl bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-bold text-[11px] transition leading-snug break-words text-center"
                   >
                     الانتقال لإضافة جد فوق ({currentFather.fullName})
                   </button>
                 )}
               </div>
 
-              <div className="flex flex-wrap gap-2 pt-1">
-                <label className="flex items-center gap-1.5 cursor-pointer text-[11px] font-semibold">
+              <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 pt-1">
+                <label className="flex items-start gap-2 cursor-pointer text-[11px] font-semibold">
                   <input
                     type="radio"
                     checked={!keepCurrentFatherAsTop}
                     onChange={() => setKeepCurrentFatherAsTop(false)}
-                    className="text-[#0F4C3A]"
+                    className="mt-0.5 text-[#0F4C3A]"
                   />
-                  <span>نقل الابن وفروعه ليكون تحت الجد الجديد مباشرة</span>
+                  <span className="leading-snug">نقل الابن وفروعه ليكون تحت الجد الجديد مباشرة</span>
                 </label>
-                <label className="flex items-center gap-1.5 cursor-pointer text-[11px] font-semibold">
+                <label className="flex items-start gap-2 cursor-pointer text-[11px] font-semibold">
                   <input
                     type="radio"
                     checked={keepCurrentFatherAsTop}
                     onChange={() => setKeepCurrentFatherAsTop(true)}
-                    className="text-[#0F4C3A]"
+                    className="mt-0.5 text-[#0F4C3A]"
                   />
-                  <span>إدراج الأب/الجد الجديد بين ({extractGivenName(person.fullName)}) وبين ({currentFather.fullName})</span>
+                  <span className="leading-snug">إدراج الأب/الجد الجديد بين ({extractGivenName(person.fullName)}) وبين ({currentFather.fullName})</span>
                 </label>
               </div>
             </div>
@@ -612,15 +613,15 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
 
                   return (
                     <div key={idx} className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold text-slate-700">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-xs font-bold text-slate-700 leading-snug">
                           {labelText} {idx === 0 && <span className="text-red-500">*</span>}
                         </label>
                         {ancestorLevels.length > 1 && (
                           <button
                             type="button"
                             onClick={() => handleRemoveLevel(idx, false)}
-                            className="text-[11px] text-red-600 hover:underline flex items-center gap-1"
+                            className="text-[11px] text-red-600 hover:underline flex items-center gap-1 shrink-0"
                           >
                             <Trash2 className="w-3 h-3" />
                             <span>إزالة</span>
@@ -636,31 +637,31 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                             ? 'مثال: راشد (أو اكتب السلسلة كاملة: راشد بن عبدالله بن عامر)'
                             : 'مثال: عبدالله'
                         }
-                        className="w-full h-10 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]"
+                        className="w-full h-11 px-3.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]"
                       />
                     </div>
                   );
                 })}
 
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
                   <button
                     type="button"
                     onClick={() => handleAddLevel(false)}
-                    className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F4C3A] border border-emerald-200 text-xs font-bold transition inline-flex items-center gap-1.5"
+                    className="min-h-[38px] px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F4C3A] border border-emerald-200 text-xs font-bold transition inline-flex items-center justify-center gap-1.5"
                   >
-                    <Plus className="w-3.5 h-3.5" />
+                    <Plus className="w-3.5 h-3.5 shrink-0" />
                     <span>+ إضافة جد أعلى آخر فوقه (إدخال أكثر من جد)</span>
                   </button>
 
                   {ancestorLevels.some(v => /\s+(?:بن|بنت|ابن)\s+/i.test(v)) && (
-                    <label className="flex items-center gap-1.5 text-[11px] text-slate-600 cursor-pointer select-none">
+                    <label className="flex items-start gap-2 text-[11px] text-slate-600 cursor-pointer select-none">
                       <input
                         type="checkbox"
                         checked={splitCompoundName}
                         onChange={e => setSplitCompoundName(e.target.checked)}
-                        className="rounded text-[#0F4C3A]"
+                        className="mt-0.5 rounded text-[#0F4C3A]"
                       />
-                      <span>تفكيك الأسماء المركبة بـ «بن» إلى درجات أجداد متسلسلة تلقائياً</span>
+                      <span className="leading-snug">تفكيك الأسماء المركبة بـ «بن» إلى درجات أجداد متسلسلة تلقائياً</span>
                     </label>
                   )}
                 </div>
@@ -670,10 +671,10 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
               {matchingExistingRoots.length > 0 && (
                 <div className="p-3.5 rounded-2xl bg-amber-50 border border-[#D4AF37] text-xs text-amber-950 space-y-2">
                   <div className="flex items-center gap-1.5 font-bold text-[#8C6D1F]">
-                    <Sparkles className="w-4 h-4 text-[#D4AF37]" />
+                    <Sparkles className="w-4 h-4 text-[#D4AF37] shrink-0" />
                     <span>تم رصد جد أعلى مطابق بالاسم في شجرة أخرى!</span>
                   </div>
-                  <p className="text-[11px] leading-relaxed">
+                  <p className="text-[11px] leading-relaxed break-words">
                     يوجد بالفعل أصل باسم <strong>«{matchingExistingRoots[0].fullName}»</strong>. يمكنك نقل «{person.fullName}» وفروعه مباشرة إلى ذلك الجد الأعلى لتوحيد الفرعين فوراً:
                   </p>
                   <button
@@ -686,10 +687,10 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                         setIntermediateLevels(intermediate);
                       }
                     }}
-                    className="px-3 py-1.5 rounded-xl bg-[#0F4C3A] text-white text-[11px] font-bold hover:bg-[#0c3c2e] transition inline-flex items-center gap-1.5"
+                    className="w-full sm:w-auto min-h-[38px] px-3 py-2 rounded-xl bg-[#0F4C3A] text-white text-[11px] font-bold hover:bg-[#0c3c2e] transition inline-flex items-center justify-center gap-1.5"
                   >
-                    <GitMerge className="w-3.5 h-3.5 text-[#D4AF37]" />
-                    <span>نقل مباشر إلى الجد الأعلى الموجود ({matchingExistingRoots[0].fullName})</span>
+                    <GitMerge className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
+                    <span className="leading-snug break-words">نقل مباشر إلى الجد الأعلى الموجود ({matchingExistingRoots[0].fullName})</span>
                   </button>
                 </div>
               )}
@@ -724,13 +725,13 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                     value={existingSearch}
                     onChange={e => setExistingSearch(e.target.value)}
                     placeholder="ابحث بالاسم أو بجزء غير متتالٍ من الاسم (مثال: راشد أو مح زا)..."
-                    className="w-full h-10 pr-9 pl-3 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]"
+                    className="w-full h-11 pr-9 pl-3 rounded-xl border border-slate-200 bg-slate-50 text-xs focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]"
                   />
-                  <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
+                  <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3.5" />
                 </div>
               </div>
 
-              <div className="border border-slate-200 rounded-2xl max-h-44 overflow-y-auto divide-y divide-slate-100 bg-white">
+              <div className="border border-slate-200 rounded-2xl max-h-48 overflow-y-auto divide-y divide-slate-100 bg-white">
                 {candidateFathers.length === 0 ? (
                   <div className="p-4 text-center text-xs text-slate-400">
                     لا يوجد جد / أصل مطابق للبحث
@@ -744,13 +745,13 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                         key={cand.id}
                         type="button"
                         onClick={() => setExistingFatherId(cand.id)}
-                        className={`w-full text-right p-2.5 text-xs transition flex items-center justify-between ${
+                        className={`w-full text-right p-3 text-xs transition flex items-start sm:items-center justify-between gap-2 ${
                           isSelected
                             ? 'bg-[#0F4C3A] text-white font-bold'
                             : 'hover:bg-slate-50 text-slate-800'
                         }`}
                       >
-                        <span className="truncate">{cand.fullName}</span>
+                        <span className="leading-snug break-words flex-1">{cand.fullName}</span>
                         <span
                           className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
                             isSelected
@@ -771,16 +772,16 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
               {/* Optional Intermediate Fathers between the moved Son and the Selected Higher Grandfather */}
               {selectedExistingFather && (
                 <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold text-slate-700">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-slate-700 leading-snug">
                       هل يوجد أب أو جد وسيط بين «{extractGivenName(person.fullName)}» وبين الجد الأعلى «{extractGivenName(selectedExistingFather.fullName)}»؟
                     </span>
                     <button
                       type="button"
                       onClick={() => handleAddLevel(true)}
-                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-50 text-[#0F4C3A] border border-emerald-200 text-[11px] font-bold transition inline-flex items-center gap-1"
+                      className="min-h-[34px] px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-50 text-[#0F4C3A] border border-emerald-200 text-[11px] font-bold transition inline-flex items-center justify-center gap-1"
                     >
-                      <Plus className="w-3 h-3" />
+                      <Plus className="w-3 h-3 shrink-0" />
                       <span>+ إضافة أب / جد وسيط بينهما</span>
                     </button>
                   </div>
@@ -798,15 +799,15 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                                 ? `الأب المباشر لـ «${extractGivenName(person.fullName)}» (أو سلسلة آباء بـ بن)`
                                 : `الجد الوسيط رقم ${idx + 1}`
                             }
-                            className="flex-1 h-9 px-3 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+                            className="flex-1 h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
                           />
                           <button
                             type="button"
                             onClick={() => handleRemoveLevel(idx, true)}
-                            className="p-2 rounded-lg text-red-600 hover:bg-red-50 transition"
+                            className="w-9 h-9 flex items-center justify-center rounded-xl text-red-600 hover:bg-red-50 transition shrink-0"
                             title="حذف الوسيط"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       ))}
@@ -819,10 +820,10 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
 
           {/* Live Hierarchy, Positions & Automatic Descendant Names Preview */}
           {simulationPreview && (
-            <div className="p-4 rounded-2xl bg-[#FBF9F5] border-2 border-[#0F4C3A]/25 space-y-3 text-xs">
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-[#FBF9F5] border-2 border-[#0F4C3A]/25 space-y-3 text-xs">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <span className="font-bold text-[#0F4C3A] flex items-center gap-1.5">
-                  <Network className="w-4 h-4 text-[#D4AF37]" />
+                  <Network className="w-4 h-4 text-[#D4AF37] shrink-0" />
                   <span>معاينة التسلسل الجديد والمواقع بعد النقل التلقائي:</span>
                 </span>
                 <span className="text-[10px] font-bold bg-emerald-100 text-emerald-900 px-2.5 py-0.5 rounded-full">
@@ -834,7 +835,7 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
               <div className="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center gap-1.5 flex-wrap text-[11px]">
                 {simulationPreview.topAnchorName && (
                   <>
-                    <span className="px-2 py-1 rounded-lg bg-[#5C3A21] text-white font-bold">
+                    <span className="px-2.5 py-1 rounded-lg bg-[#5C3A21] text-white font-bold leading-snug break-words">
                       الجد الأعلى: {simulationPreview.topAnchorName}
                     </span>
                     <span className="text-slate-400 font-bold">⬅️</span>
@@ -842,19 +843,19 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                 )}
                 {simulationPreview.chainTopDown.map((anc, idx) => (
                   <React.Fragment key={idx}>
-                    <span className="px-2 py-1 rounded-lg bg-[#0F4C3A] text-white font-bold">
+                    <span className="px-2.5 py-1 rounded-lg bg-[#0F4C3A] text-white font-bold leading-snug break-words">
                       {anc.roleLabel}: {anc.fullName}
                     </span>
                     <span className="text-slate-400 font-bold">⬅️</span>
                   </React.Fragment>
                 ))}
-                <span className="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-950 border border-emerald-300 font-bold">
+                <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-950 border border-emerald-300 font-bold leading-snug break-words">
                   الابن المنقول: {simulationPreview.newPersonFullName}
                 </span>
                 {simulationPreview.totalDescendantsCount > 0 && (
                   <>
                     <span className="text-slate-400 font-bold">⬅️</span>
-                    <span className="px-2 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 font-bold">
+                    <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 font-bold">
                       جميع أبنائه وفروعه ({simulationPreview.totalDescendantsCount})
                     </span>
                   </>
@@ -866,24 +867,24 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                 <div className="text-[11px] font-bold text-slate-700">
                   التعديل التلقائي للأسماء والمواقع والعلاقات (الابن وفروعه):
                 </div>
-                <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
-                  <div className="p-2 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between gap-2 text-[11px]">
-                    <span className="text-slate-500 line-through truncate max-w-[42%]">
+                <div className="max-h-44 overflow-y-auto space-y-1.5 pr-0.5">
+                  <div className="p-2.5 rounded-xl bg-white border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-[11px]">
+                    <span className="text-slate-500 line-through leading-snug break-words">
                       {person.fullName}
                     </span>
-                    <span className="text-emerald-700 font-bold truncate">
+                    <span className="text-emerald-700 font-bold leading-snug break-words">
                       ⬅️ {simulationPreview.newPersonFullName}
                     </span>
                   </div>
                   {simulationPreview.sampleDescendantChanges.map(item => (
                     <div
                       key={item.id}
-                      className="p-1.5 rounded-lg bg-white/80 border border-slate-100 flex items-center justify-between gap-2 text-[11px]"
+                      className="p-2 rounded-xl bg-white/80 border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px]"
                     >
-                      <span className="text-slate-400 line-through truncate max-w-[42%]">
+                      <span className="text-slate-400 line-through leading-snug break-words">
                         {item.oldName}
                       </span>
-                      <span className="text-[#0F4C3A] font-bold truncate">
+                      <span className="text-[#0F4C3A] font-bold leading-snug break-words">
                         ⬅️ {item.newName}
                       </span>
                     </div>
@@ -911,25 +912,25 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
           )}
 
           {/* Footer Buttons */}
-          <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+          <div className="pt-3 border-t border-slate-100 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition"
+              className="w-full sm:w-auto min-h-[42px] px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition"
             >
               إلغاء
             </button>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
               {mode === 'new' && onSelectTargetPerson && (
                 <button
                   type="button"
                   disabled={submitting || resolvedNewChain.length === 0}
                   onClick={() => executeSave(true)}
-                  className="px-3.5 py-2 rounded-xl text-xs font-bold border border-[#0F4C3A] text-[#0F4C3A] hover:bg-[#0F4C3A]/10 transition disabled:opacity-40 flex items-center gap-1"
+                  className="min-h-[42px] px-3.5 py-2 rounded-xl text-xs font-bold border border-[#0F4C3A] text-[#0F4C3A] hover:bg-[#0F4C3A]/10 transition disabled:opacity-40 flex items-center justify-center gap-1"
                   title="حفظ ثم البقاء في النافذة لإضافة جد أعلى آخر فوق الجد الجديد"
                 >
-                  <ArrowUp className="w-3.5 h-3.5" />
+                  <ArrowUp className="w-3.5 h-3.5 shrink-0" />
                   <span>حفظ ثم إضافة جد أعلى فوقه</span>
                 </button>
               )}
@@ -940,7 +941,7 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                   submitting ||
                   (mode === 'new' ? resolvedNewChain.length === 0 : !existingFatherId)
                 }
-                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white shadow-xs transition disabled:opacity-50"
+                className="min-h-[42px] px-5 py-2.5 rounded-xl text-xs font-bold bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white shadow-xs transition disabled:opacity-50"
               >
                 {submitting
                   ? 'جارٍ النقل وتحديث التسلسل...'
