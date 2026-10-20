@@ -1,0 +1,104 @@
+{
+  "entities": {
+    "Person": {
+      "title": "Person",
+      "description": "Represents a family member in the family tree",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "fullName": { "type": "string", "maxLength": 200 },
+        "gender": { "type": "string", "enum": ["male", "female"] },
+        "fatherId": { "type": "string", "maxLength": 128 },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "birthYear": { "type": "string", "maxLength": 20 },
+        "isLiving": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "fullName", "gender"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Global application configuration and admin lock state",
+      "type": "object",
+      "properties": {
+        "editingEnabled": { "type": "boolean" },
+        "hasAdminPasscode": { "type": "boolean" },
+        "adminPasscodeHash": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["editingEnabled"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Audit trail of modifications made to the family tree",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "actor": { "type": "string", "maxLength": 50 },
+        "actionType": { "type": "string", "maxLength": 50 },
+        "targetPersonId": { "type": "string", "maxLength": 128 },
+        "targetPersonName": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "actor", "actionType", "description", "timestamp"]
+    },
+    "MergeOperation": {
+      "title": "MergeOperation",
+      "description": "Snapshot of merged tree records with undo capability",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "sourcePersonId": { "type": "string", "maxLength": 128 },
+        "sourcePersonName": { "type": "string", "maxLength": 200 },
+        "targetPersonId": { "type": "string", "maxLength": 128 },
+        "targetPersonName": { "type": "string", "maxLength": 200 },
+        "movedChildrenIds": { "type": "array" },
+        "timestamp": { "type": "string" },
+        "details": { "type": "string", "maxLength": 1000 }
+      },
+      "required": ["id", "sourcePersonId", "targetPersonId", "timestamp"]
+    },
+    "ChangeRequest": {
+      "title": "ChangeRequest",
+      "description": "Proposed correction or merge submitted by family members",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["correction", "merge_proposal", "addition"] },
+        "targetPersonId": { "type": "string", "maxLength": 128 },
+        "targetPersonName": { "type": "string", "maxLength": 200 },
+        "requesterName": { "type": "string", "maxLength": 100 },
+        "requesterNotes": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "adminFeedback": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string" },
+        "resolvedAt": { "type": "string" }
+      },
+      "required": ["id", "type", "requesterNotes", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/persons/{personId}": {
+      "schema": { "$ref": "#/entities/Person" },
+      "description": "All members of the family tree"
+    },
+    "/settings/app_config": {
+      "schema": { "$ref": "#/entities/AppSettings" },
+      "description": "Global application lock state and configurations"
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Audit log records"
+    },
+    "/merge_operations/{opId}": {
+      "schema": { "$ref": "#/entities/MergeOperation" },
+      "description": "History of tree merge operations"
+    },
+    "/change_requests/{requestId}": {
+      "schema": { "$ref": "#/entities/ChangeRequest" },
+      "description": "Submitted correction proposals"
+    }
+  }
+}

@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F4C3A"/>
+      <stop offset="100%" stop-color="#07261D"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F7DF94"/>
+      <stop offset="50%" stop-color="#D4AF37"/>
+      <stop offset="100%" stop-color="#997A15"/>
+    </linearGradient>
+    <linearGradient id="trunkGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#D4AF37"/>
+      <stop offset="100%" stop-color="#8C6D1F"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded squircle with safe padding -->
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="none" stroke="url(#goldGrad)" stroke-width="3" stroke-opacity="0.4"/>
+
+  <!-- Tree trunk and nodes -->
+  <g transform="translate(256, 260)">
+    <!-- Root Base -->
+    <path d="M-28,150 C-28,110 -14,60 0,0 C14,60 28,110 28,150 Z" fill="url(#trunkGrad)"/>
+    <path d="M-80,150 C-40,140 -20,120 0,60 C20,120 40,140 80,150" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round"/>
+
+    <!-- Main Branches -->
+    <path d="M0,20 C-40,-30 -80,-50 -120,-80" fill="none" stroke="url(#goldGrad)" stroke-width="12" stroke-linecap="round"/>
+    <path d="M0,20 C40,-30 80,-50 120,-80" fill="none" stroke="url(#goldGrad)" stroke-width="12" stroke-linecap="round"/>
+    <path d="M0,0 C0,-60 0,-110 0,-140" fill="none" stroke="url(#goldGrad)" stroke-width="14" stroke-linecap="round"/>
+
+    <!-- Sub Branches -->
+    <path d="M-60,-40 C-90,-70 -130,-70 -160,-120" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M60,-40 C90,-70 130,-70 160,-120" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M-20,-80 C-40,-120 -50,-150 -70,-180" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round"/>
+    <path d="M20,-80 C40,-120 50,-150 70,-180" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round"/>
+
+    <!-- Nodes (Generations) -->
+    <!-- Top Root Ancestor (الجد الأعلى) -->
+    <circle cx="0" cy="-150" r="28" fill="#FBF9F5" stroke="url(#goldGrad)" stroke-width="6"/>
+    <circle cx="0" cy="-150" r="14" fill="#0F4C3A"/>
+
+    <!-- 2nd Generation -->
+    <circle cx="-120" cy="-80" r="22" fill="#FBF9F5" stroke="url(#goldGrad)" stroke-width="5"/>
+    <circle cx="-120" cy="-80" r="10" fill="#0F4C3A"/>
+
+    <circle cx="120" cy="-80" r="22" fill="#FBF9F5" stroke="url(#goldGrad)" stroke-width="5"/>
+    <circle cx="120" cy="-80" r="10" fill="#0F4C3A"/>
+
+    <!-- 3rd Generation -->
+    <circle cx="-160" cy="-120" r="18" fill="#FBF9F5" stroke="url(#goldGrad)" stroke-width="4"/>
+    <circle cx="-70" cy="-180" r="18" fill="#FBF9F5" stroke="url(#goldGrad)" stroke-width="4"/>
+    <circle cx="70" cy="-180" r="18" fill="#FBF9F5" stroke="url(#goldGrad)" stroke-width="4"/>
+    <circle cx="160" cy="-120" r="18" fill="#FBF9F5" stroke="url(#goldGrad)" stroke-width="4"/>
+
+    <!-- Leaves / Flourishes -->
+    <path d="M-120,-80 Q-150,-100 -140,-60 Z" fill="#D4AF37"/>
+    <path d="M120,-80 Q150,-100 140,-60 Z" fill="#D4AF37"/>
+    <path d="M0,-150 Q-25,-185 0,-195 Q25,-185 0,-150 Z" fill="url(#goldGrad)"/>
+  </g>
+
+  <!-- Title banner text / Arabic flourish -->
+  <text x="256" y="445" font-family="'Cairo', sans-serif" font-size="42" font-weight="bold" fill="#FBF9F5" text-anchor="middle" letter-spacing="1">شجرة العائلة</text>
+</svg>

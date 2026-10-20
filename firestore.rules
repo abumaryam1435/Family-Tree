@@ -1,0 +1,102 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation for Person documents
+    function isValidPerson(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 200
+        && (data.gender == 'male' || data.gender == 'female')
+        && (data.fatherId == null || (data.fatherId is string && data.fatherId.size() <= 128))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000))
+        && (!('husbandId' in data) || data.husbandId == null || (data.husbandId is string && data.husbandId.size() <= 128))
+        && (!('husbandName' in data) || (data.husbandName is string && data.husbandName.size() <= 200))
+        && (!('birthYear' in data) || (data.birthYear is string && data.birthYear.size() <= 20))
+        && (!('isLiving' in data) || data.isLiving is bool);
+    }
+
+    // Validation for AppSettings
+    function isValidSettings(data) {
+      return data.editingEnabled is bool
+        && (!('adminPasscodeHash' in data) || (data.adminPasscodeHash is string && data.adminPasscodeHash.size() <= 128));
+    }
+
+    // Validation for AuditLog
+    function isValidAuditLog(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.actor is string && data.actor.size() <= 50
+        && data.actionType is string && data.actionType.size() <= 50
+        && data.description is string && data.description.size() <= 1000
+        && data.timestamp is string;
+    }
+
+    // Validation for MergeOperation
+    function isValidMergeOp(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.sourcePersonId is string && data.sourcePersonId.size() <= 128
+        && data.targetPersonId is string && data.targetPersonId.size() <= 128
+        && data.timestamp is string;
+    }
+
+    // Validation for ChangeRequest
+    function isValidChangeRequest(data) {
+      return data.id is string && data.id.size() <= 128
+        && (data.type == 'correction' || data.type == 'merge_proposal' || data.type == 'addition')
+        && data.requesterNotes is string && data.requesterNotes.size() <= 1000
+        && (data.status == 'pending' || data.status == 'approved' || data.status == 'rejected')
+        && data.createdAt is string;
+    }
+
+    // Persons collection: public read, validated write
+    match /persons/{personId} {
+      allow read: if true;
+      allow create, update: if isValidId(personId) && isValidPerson(incoming());
+      allow delete: if isValidId(personId);
+    }
+
+    // Global settings collection
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isValidId(settingId) && isValidSettings(incoming());
+    }
+
+    // Audit logs collection
+    match /audit_logs/{logId} {
+      allow read: if true;
+      allow create: if isValidId(logId) && isValidAuditLog(incoming());
+      allow update, delete: if true;
+    }
+
+    // Merge operations collection
+    match /merge_operations/{opId} {
+      allow read: if true;
+      allow create: if isValidId(opId) && isValidMergeOp(incoming());
+      allow update, delete: if true;
+    }
+
+    // Change requests collection
+    match /change_requests/{requestId} {
+      allow read: if true;
+      allow create: if isValidId(requestId) && isValidChangeRequest(incoming());
+      allow update, delete: if isValidId(requestId);
+    }
+
+    // Catch-all default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

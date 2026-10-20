@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    font-family: 'Cairo', 'Tajawal', system-ui, -apple-system, sans-serif;
+  }
+
+  body {
+    background-color: #FBF9F5;
+    color: #1E293B;
+  }
+}
+
+/* Custom scrollbars for clean tree view */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(15, 76, 58, 0.2);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 76, 58, 0.4);
+}
+
+/* Print Styles for Lineage and Tree */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .printable-area {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 10px !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+}

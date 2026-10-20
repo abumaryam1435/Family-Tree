@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "settings": {
+    "editingEnabled": true,
+    "hasAdminPasscode": false,
+    "adminPasscodeHash": "",
+    "updatedAt": "2026-10-20T06:00:00.000Z"
+  },
+  "persons": [],
+  "auditLogs": [],
+  "mergeOperations": [],
+  "changeRequests": []
+}
