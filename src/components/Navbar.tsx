@@ -38,16 +38,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button
               onClick={() => setActiveTab('home')}
-              className="flex items-center gap-2 text-right group focus:outline-none"
+              className="flex items-center gap-2 sm:gap-2.5 text-right group focus:outline-none cursor-pointer"
             >
-              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-[#0F4C3A] to-[#082b21] flex items-center justify-center text-[#D4AF37] shadow-sm group-hover:scale-105 transition-transform shrink-0">
-                <svg className="w-4 h-4 sm:w-5 sm:h-5 fill-current" viewBox="0 0 24 24">
-                  <path d="M12 2L15 8H9L12 2Z" />
-                  <path d="M12 6L17 14H7L12 6Z" />
-                  <path d="M12 11L19 21H5L12 11Z" />
-                  <rect x="11" y="21" width="2" height="3" fill="#D4AF37" />
-                </svg>
-              </div>
+              <img
+                src="/tree-logo.png"
+                alt="شعار شجرة العائلة"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-contain shadow-xs group-hover:scale-105 transition-transform shrink-0 border border-[#D4AF37]/40"
+              />
               <div>
                 <span className="text-base sm:text-lg font-extrabold text-[#0F4C3A] tracking-tight whitespace-nowrap block leading-tight font-display">
                   شجرة العائلة

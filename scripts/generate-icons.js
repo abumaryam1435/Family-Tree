@@ -2,194 +2,162 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 
-const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <defs>
-    <!-- Background Gradient: Deep Royal Emerald -->
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0F4C3A"/>
-      <stop offset="50%" stop-color="#09382B"/>
-      <stop offset="100%" stop-color="#041B15"/>
-    </linearGradient>
+async function generateAllAppIcons() {
+  const sourcePath = 'Tree Logo.png';
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error('Tree Logo.png not found at project root');
+  }
 
-    <!-- Metallic Gold Gradient for Tree Artwork -->
-    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FFEBB0"/>
-      <stop offset="35%" stop-color="#F3D370"/>
-      <stop offset="70%" stop-color="#D4AF37"/>
-      <stop offset="100%" stop-color="#997A15"/>
-    </linearGradient>
+  const publicDir = 'public';
+  if (!fs.existsSync(publicDir)) {
+    fs.mkdirSync(publicDir, { recursive: true });
+  }
 
-    <!-- Trunk Solid Gold Gradient -->
-    <linearGradient id="trunkGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#F3D370"/>
-      <stop offset="100%" stop-color="#A68322"/>
-    </linearGradient>
-  </defs>
+  console.log('Generating all app icons and manifest from Tree Logo.png...');
 
-  <!-- Background base fill -->
-  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+  // 1. Master copy to public/tree-logo.png (512x512 high fidelity)
+  await sharp(sourcePath)
+    .resize(512, 512, { fit: 'cover' })
+    .png({ quality: 100, compressionLevel: 8 })
+    .toFile(path.join(publicDir, 'tree-logo.png'));
+  console.log('Created public/tree-logo.png (512x512)');
 
-  <!-- Ornate Decorative Outer Ring -->
-  <rect x="20" y="20" width="472" height="472" rx="96" fill="none" stroke="url(#goldGrad)" stroke-width="4" stroke-opacity="0.5"/>
+  // 2. Standard PWA 512x512 (purpose: any)
+  const pwa512Buffer = await sharp(sourcePath)
+    .resize(512, 512, { fit: 'cover' })
+    .png({ quality: 100, compressionLevel: 8 })
+    .toBuffer();
+  fs.writeFileSync(path.join(publicDir, 'pwa-512x512.png'), pwa512Buffer);
+  console.log('Created public/pwa-512x512.png (512x512)');
 
-  <!-- Center Tree Iconography Group -->
-  <g transform="translate(256, 230)">
-
-    <!-- Deep Roots -->
-    <path d="M -30,135 Q -60,165 -110,180 M -15,140 Q -30,175 -50,195 M 0,140 L 0,195 M 15,140 Q 30,175 50,195 M 30,135 Q 60,165 110,180" fill="none" stroke="url(#goldGrad)" stroke-width="6" stroke-linecap="round" opacity="0.85"/>
-
-    <!-- Main Solid Tree Trunk -->
-    <path d="M -24,140 C -24,95 -14,50 0,0 C 14,50 24,95 24,140 Z" fill="url(#trunkGrad)"/>
-
-    <!-- Primary Spreading Branches -->
-    <path d="M 0,20 C -45,-15 -85,-25 -135,-45" fill="none" stroke="url(#goldGrad)" stroke-width="12" stroke-linecap="round"/>
-    <path d="M 0,20 C 45,-15 85,-25 135,-45" fill="none" stroke="url(#goldGrad)" stroke-width="12" stroke-linecap="round"/>
-
-    <!-- Upper Main Trunk Extension -->
-    <path d="M 0,0 C 0,-50 0,-90 0,-125" fill="none" stroke="url(#goldGrad)" stroke-width="14" stroke-linecap="round"/>
-
-    <!-- Secondary Crown Branches -->
-    <path d="M -65,-25 C -95,-55 -125,-65 -155,-105" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round"/>
-    <path d="M 65,-25 C 95,-55 125,-65 155,-105" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round"/>
-
-    <path d="M -20,-65 C -45,-95 -55,-125 -75,-155" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round"/>
-    <path d="M 20,-65 C 45,-95 55,-125 75,-155" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round"/>
-
-    <!-- Generation Nodes (Circular Golden Tokens for Family Ancestors & Offspring) -->
-    <!-- Top Root Ancestor (أصل الشجرة) -->
-    <circle cx="0" cy="-135" r="26" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="6"/>
-    <circle cx="0" cy="-135" r="13" fill="#0F4C3A"/>
-
-    <!-- 2nd Generation Main Nodes -->
-    <circle cx="-135" cy="-45" r="22" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="5"/>
-    <circle cx="-135" cy="-45" r="10" fill="#0F4C3A"/>
-
-    <circle cx="135" cy="-45" r="22" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="5"/>
-    <circle cx="135" cy="-45" r="10" fill="#0F4C3A"/>
-
-    <!-- 3rd Generation Crown Nodes -->
-    <circle cx="-155" cy="-105" r="17" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="4.5"/>
-    <circle cx="-75" cy="-155" r="17" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="4.5"/>
-    <circle cx="75" cy="-155" r="17" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="4.5"/>
-    <circle cx="155" cy="-105" r="17" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="4.5"/>
-
-    <!-- Golden Leaves & Flourishes -->
-    <path d="M -135,-45 Q -165,-65 -155,-25 Z" fill="url(#goldGrad)"/>
-    <path d="M 135,-45 Q 165,-65 155,-25 Z" fill="url(#goldGrad)"/>
-    <path d="M 0,-135 Q -28,-170 0,-182 Q 28,-170 0,-135 Z" fill="url(#goldGrad)"/>
-  </g>
-
-  <!-- Title Banner Arabic Text -->
-  <text x="256" y="450" font-family="'Cairo', 'Segoe UI', sans-serif" font-size="42" font-weight="900" fill="#FDFBF7" text-anchor="middle" letter-spacing="1">شجرة العائلة</text>
-</svg>`;
-
-// Maskable version with 15% safe padding background
-const maskableSvgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0F4C3A"/>
-      <stop offset="50%" stop-color="#09382B"/>
-      <stop offset="100%" stop-color="#041B15"/>
-    </linearGradient>
-
-    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FFEBB0"/>
-      <stop offset="35%" stop-color="#F3D370"/>
-      <stop offset="70%" stop-color="#D4AF37"/>
-      <stop offset="100%" stop-color="#997A15"/>
-    </linearGradient>
-
-    <linearGradient id="trunkGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#F3D370"/>
-      <stop offset="100%" stop-color="#A68322"/>
-    </linearGradient>
-  </defs>
-
-  <!-- Full Bleed Square Background for Maskable Icon -->
-  <rect width="512" height="512" fill="url(#bgGrad)"/>
-
-  <!-- Scaled down 80% to fit within the Android maskable Safe Zone -->
-  <g transform="translate(51.2, 51.2) scale(0.8)">
-    <rect x="20" y="20" width="472" height="472" rx="96" fill="none" stroke="url(#goldGrad)" stroke-width="4" stroke-opacity="0.5"/>
-
-    <g transform="translate(256, 230)">
-      <path d="M -30,135 Q -60,165 -110,180 M -15,140 Q -30,175 -50,195 M 0,140 L 0,195 M 15,140 Q 30,175 50,195 M 30,135 Q 60,165 110,180" fill="none" stroke="url(#goldGrad)" stroke-width="6" stroke-linecap="round" opacity="0.85"/>
-      <path d="M -24,140 C -24,95 -14,50 0,0 C 14,50 24,95 24,140 Z" fill="url(#trunkGrad)"/>
-
-      <path d="M 0,20 C -45,-15 -85,-25 -135,-45" fill="none" stroke="url(#goldGrad)" stroke-width="12" stroke-linecap="round"/>
-      <path d="M 0,20 C 45,-15 85,-25 135,-45" fill="none" stroke="url(#goldGrad)" stroke-width="12" stroke-linecap="round"/>
-      <path d="M 0,0 C 0,-50 0,-90 0,-125" fill="none" stroke="url(#goldGrad)" stroke-width="14" stroke-linecap="round"/>
-
-      <path d="M -65,-25 C -95,-55 -125,-65 -155,-105" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round"/>
-      <path d="M 65,-25 C 95,-55 125,-65 155,-105" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round"/>
-
-      <path d="M -20,-65 C -45,-95 -55,-125 -75,-155" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round"/>
-      <path d="M 20,-65 C 45,-95 55,-125 75,-155" fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linecap="round"/>
-
-      <circle cx="0" cy="-135" r="26" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="6"/>
-      <circle cx="0" cy="-135" r="13" fill="#0F4C3A"/>
-
-      <circle cx="-135" cy="-45" r="22" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="5"/>
-      <circle cx="-135" cy="-45" r="10" fill="#0F4C3A"/>
-
-      <circle cx="135" cy="-45" r="22" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="5"/>
-      <circle cx="135" cy="-45" r="10" fill="#0F4C3A"/>
-
-      <circle cx="-155" cy="-105" r="17" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="4.5"/>
-      <circle cx="-75" cy="-155" r="17" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="4.5"/>
-      <circle cx="75" cy="-155" r="17" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="4.5"/>
-      <circle cx="155" cy="-105" r="17" fill="#FDFBF7" stroke="url(#goldGrad)" stroke-width="4.5"/>
-
-      <path d="M -135,-45 Q -165,-65 -155,-25 Z" fill="url(#goldGrad)"/>
-      <path d="M 135,-45 Q 165,-65 155,-25 Z" fill="url(#goldGrad)"/>
-      <path d="M 0,-135 Q -28,-170 0,-182 Q 28,-170 0,-135 Z" fill="url(#goldGrad)"/>
-    </g>
-
-    <text x="256" y="450" font-family="'Cairo', 'Segoe UI', sans-serif" font-size="42" font-weight="900" fill="#FDFBF7" text-anchor="middle" letter-spacing="1">شجرة العائلة</text>
-  </g>
-</svg>`;
-
-async function main() {
-  const publicDir = path.resolve(process.cwd(), 'public');
-
-  // Save SVG
-  fs.writeFileSync(path.join(publicDir, 'icon.svg'), svgContent, 'utf-8');
-
-  // Generate PNGs using Sharp
-  const svgBuffer = Buffer.from(svgContent);
-  const maskableSvgBuffer = Buffer.from(maskableSvgContent);
-
-  // 1. pwa-512x512.png
-  await sharp(svgBuffer)
-    .resize(512, 512)
-    .png()
-    .toFile(path.join(publicDir, 'pwa-512x512.png'));
-
-  // 2. pwa-192x192.png
-  await sharp(svgBuffer)
-    .resize(192, 192)
-    .png()
+  // 3. Standard PWA 192x192 (purpose: any)
+  await sharp(sourcePath)
+    .resize(192, 192, { fit: 'cover' })
+    .png({ quality: 100, compressionLevel: 8 })
     .toFile(path.join(publicDir, 'pwa-192x192.png'));
+  console.log('Created public/pwa-192x192.png (192x192)');
 
-  // 3. apple-touch-icon.png (180x180)
-  await sharp(svgBuffer)
-    .resize(180, 180)
-    .png()
+  // 4. iOS Safari apple-touch-icon (180x180)
+  await sharp(sourcePath)
+    .resize(180, 180, { fit: 'cover' })
+    .png({ quality: 100, compressionLevel: 8 })
     .toFile(path.join(publicDir, 'apple-touch-icon.png'));
+  console.log('Created public/apple-touch-icon.png (180x180)');
 
-  // 4. pwa-maskable-512x512.png
-  await sharp(maskableSvgBuffer)
-    .resize(512, 512)
-    .png()
-    .toFile(path.join(publicDir, 'pwa-maskable-512x512.png'));
-
-  // 5. favicon.png
-  await sharp(svgBuffer)
-    .resize(64, 64)
-    .png()
+  // 5. Browser Favicons (64x64 and 32x32)
+  await sharp(sourcePath)
+    .resize(64, 64, { fit: 'cover' })
+    .png({ quality: 100, compressionLevel: 8 })
     .toFile(path.join(publicDir, 'favicon.png'));
+  console.log('Created public/favicon.png (64x64)');
 
-  console.log('Successfully generated all PWA PNG icons!');
+  await sharp(sourcePath)
+    .resize(32, 32, { fit: 'cover' })
+    .png({ quality: 100, compressionLevel: 8 })
+    .toFile(path.join(publicDir, 'favicon-32x32.png'));
+  console.log('Created public/favicon-32x32.png (32x32)');
+
+  // 6. Maskable PWA 512x512 (purpose: maskable)
+  // For Android maskable icons, the emblem should stay within the inner 80% circle
+  const innerLogo = await sharp(sourcePath)
+    .resize(410, 410, { fit: 'contain' })
+    .png()
+    .toBuffer();
+
+  await sharp({
+    create: {
+      width: 512,
+      height: 512,
+      channels: 4,
+      background: { r: 11, g: 61, b: 46, alpha: 1 } // #0B3D2E dark emerald matching logo border
+    }
+  })
+    .composite([
+      {
+        input: innerLogo,
+        top: 51,
+        left: 51
+      }
+    ])
+    .png({ quality: 100, compressionLevel: 8 })
+    .toFile(path.join(publicDir, 'pwa-maskable-512x512.png'));
+  console.log('Created public/pwa-maskable-512x512.png (512x512 with safe area margin)');
+
+  // 7. OG Social Share Image (1200x630)
+  const ogCenterLogo = await sharp(sourcePath)
+    .resize(460, 460, { fit: 'contain' })
+    .png()
+    .toBuffer();
+
+  await sharp({
+    create: {
+      width: 1200,
+      height: 630,
+      channels: 4,
+      background: { r: 15, g: 76, b: 58, alpha: 1 } // #0F4C3A
+    }
+  })
+    .composite([
+      {
+        input: ogCenterLogo,
+        top: 85,
+        left: 370
+      }
+    ])
+    .png({ quality: 95 })
+    .toFile(path.join(publicDir, 'og-image.png'));
+  console.log('Created public/og-image.png (1200x630)');
+
+  // 8. Vector SVG wrapper embedding the 512x512 PNG for pure SVG icon requests
+  const base64Data = pwa512Buffer.toString('base64');
+  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <image href="data:image/png;base64,${base64Data}" width="512" height="512" />
+</svg>`;
+  fs.writeFileSync(path.join(publicDir, 'icon.svg'), svgContent, 'utf-8');
+  console.log('Created public/icon.svg with embedded high-res Tree Logo');
+
+  // 9. Static public/manifest.json for Netlify and direct browser requests
+  const manifestData = {
+    id: '/',
+    name: 'شجرة العائلة',
+    short_name: 'شجرة العائلة',
+    description: 'شجرة العائلة الموثقة وسجل الأنساب الرقمي',
+    theme_color: '#0F4C3A',
+    background_color: '#0F4C3A',
+    display: 'standalone',
+    orientation: 'any',
+    start_url: '/',
+    scope: '/',
+    lang: 'ar',
+    dir: 'rtl',
+    icons: [
+      {
+        src: '/pwa-192x192.png',
+        sizes: '192x192',
+        type: 'image/png',
+        purpose: 'any'
+      },
+      {
+        src: '/pwa-512x512.png',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'any'
+      },
+      {
+        src: '/pwa-maskable-512x512.png',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'maskable'
+      }
+    ]
+  };
+  fs.writeFileSync(path.join(publicDir, 'manifest.json'), JSON.stringify(manifestData, null, 2), 'utf-8');
+  console.log('Created public/manifest.json');
+
+  console.log('All icons and manifest successfully generated!');
 }
 
-main().catch(console.error);
+generateAllAppIcons().catch(err => {
+  console.error('Icon generation failed:', err);
+  process.exit(1);
+});

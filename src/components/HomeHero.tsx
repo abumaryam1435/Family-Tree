@@ -88,19 +88,31 @@ export const HomeHero: React.FC<HomeHeroProps> = ({
         <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-b from-[#D4AF37]/20 to-transparent blur-2xl pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-40 h-40 bg-gradient-to-t from-[#D4AF37]/15 to-transparent blur-3xl pointer-events-none" />
 
-        <div className="relative z-10 max-w-3xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#D4AF37]/20 border border-[#D4AF37]/30 text-[#F5E6B8] text-[11px] sm:text-xs font-semibold mb-3.5 sm:mb-4 backdrop-blur-xs">
-            <TreeDeciduous className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
-            <span>المنصة الرقمية الموحدة للأنساب والعائلة</span>
+        <div className="relative z-10">
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-6 max-w-5xl mb-6 sm:mb-8">
+            <div className="max-w-2xl">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#D4AF37]/20 border border-[#D4AF37]/30 text-[#F5E6B8] text-[11px] sm:text-xs font-semibold mb-3.5 sm:mb-4 backdrop-blur-xs">
+                <img src="/tree-logo.png" alt="شعار" className="w-4 h-4 rounded-md object-contain" />
+                <span>المنصة الرقمية الموحدة للأنساب والعائلة</span>
+              </div>
+
+              <h1 className="text-2xl sm:text-5xl font-extrabold tracking-tight text-white mb-2.5 sm:mb-3 font-display leading-tight">
+                شجرة العائلة
+              </h1>
+
+              <p className="text-xs sm:text-base text-slate-200/90 leading-relaxed font-light">
+                منظومة متكاملة لتوثيق الأنساب والأجيال، وتتبع الفروع والأجداد، ودعم التعديل الجماعي المنظم مع إمكانية دمج الفروع المستقلة وضمان استدامة تاريخ العائلة.
+              </p>
+            </div>
+
+            <div className="hidden md:flex flex-col items-center shrink-0 self-center">
+              <img
+                src="/tree-logo.png"
+                alt="شعار شجرة العائلة"
+                className="w-28 h-28 lg:w-36 lg:h-36 rounded-3xl object-contain shadow-2xl border-2 border-[#D4AF37]/50 p-1.5 bg-[#092e23]/70 backdrop-blur-xs hover:scale-105 transition-transform"
+              />
+            </div>
           </div>
-
-          <h1 className="text-2xl sm:text-5xl font-extrabold tracking-tight text-white mb-2.5 sm:mb-3 font-display leading-tight">
-            شجرة العائلة
-          </h1>
-
-          <p className="text-xs sm:text-base text-slate-200/90 leading-relaxed mb-6 sm:mb-8 max-w-2xl font-light">
-            منظومة متكاملة لتوثيق الأنساب والأجيال، وتتبع الفروع والأجداد، ودعم التعديل الجماعي المنظم مع إمكانية دمج الفروع المستقلة وضمان استدامة تاريخ العائلة.
-          </p>
 
           {/* Quick Search Input with Dropdown */}
           <div className="relative max-w-xl mb-6 sm:mb-8">

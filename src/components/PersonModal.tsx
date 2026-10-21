@@ -156,43 +156,41 @@ export const PersonModal: React.FC<PersonModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs overflow-y-auto">
-      <div className="relative w-full max-w-xl bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-right my-0 sm:my-8 max-h-[94vh] sm:max-h-[90vh] flex flex-col">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs overflow-hidden"
+    >
+      <div className="relative w-full max-w-xl bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-right my-0 sm:my-8 h-[92vh] sm:h-auto sm:max-h-[90vh] flex flex-col">
         
-        {/* Modal Header */}
+        {/* Modal Header: Ultra-Compact & Space-Saving on Mobile & Desktop */}
         <div
-          className={`p-4 sm:p-6 text-white relative shrink-0 ${
+          className={`px-3 py-2 sm:px-5 sm:py-3 text-white relative shrink-0 shadow-xs ${
             person.gender === 'male'
-              ? 'bg-gradient-to-r from-[#0F4C3A] to-[#165B4C]'
-              : 'bg-gradient-to-r from-[#88243E] to-[#A83250]'
+              ? 'bg-gradient-to-r from-[#0F4C3A] via-[#125844] to-[#165B4C]'
+              : 'bg-gradient-to-r from-[#88243E] via-[#982B47] to-[#A83250]'
           }`}
         >
-          <button
-            onClick={onClose}
-            className="absolute top-4 left-4 w-9 h-9 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white transition"
-            aria-label="إغلاق"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {/* Top Bar: Return Button / Gender Switch / Husband on Right, Close on Left */}
+          <div className="flex items-center justify-between gap-1.5 mb-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {/* Back to previous relative button if navigated from kinship */}
+              {onBackToPrevious && previousPersonName && (
+                <button
+                  type="button"
+                  onClick={onBackToPrevious}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-bold transition backdrop-blur-xs cursor-pointer"
+                  title="العودة للفرد السابق"
+                >
+                  <ArrowRight className="w-3 h-3 shrink-0" />
+                  <span className="truncate max-w-[110px] sm:max-w-[180px]">الفرع: {formatAppName(previousPersonName)}</span>
+                </button>
+              )}
 
-          {onBackToPrevious && previousPersonName && (
-            <div className="mb-3 pl-10">
-              <button
-                type="button"
-                onClick={onBackToPrevious}
-                className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold transition backdrop-blur-xs shadow-2xs max-w-full text-right"
-              >
-                <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-                <span className="leading-snug break-words">العودة للفرع السابق: {formatAppName(previousPersonName)}</span>
-              </button>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between gap-2 mb-3 pl-10 sm:pl-10 flex-wrap">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-white/80 font-medium">الجنس:</span>
+              {/* Gender selector */}
               {isAdmin ? (
-                <div className="flex items-center gap-1 bg-black/25 p-1 rounded-xl backdrop-blur-xs">
+                <div className="flex items-center bg-black/25 p-0.5 rounded-lg backdrop-blur-xs text-[10px] font-bold">
                   <button
                     type="button"
                     onClick={() => {
@@ -200,14 +198,14 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                         onToggleGender(person.id);
                       }
                     }}
-                    className={`min-h-[32px] px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                    className={`px-1.5 py-0.5 rounded transition flex items-center gap-1 cursor-pointer ${
                       person.gender === 'male'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'text-white/70 hover:text-white hover:bg-white/10'
+                        ? 'bg-emerald-600 text-white shadow-xs font-black'
+                        : 'text-white/70 hover:text-white'
                     }`}
                     title="تعديل الجنس إلى ذكر"
                   >
-                    <span className={`w-2 h-2 rounded-full ${person.gender === 'male' ? 'bg-white' : 'bg-emerald-400'}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${person.gender === 'male' ? 'bg-white' : 'bg-emerald-400'}`} />
                     <span>ذكر</span>
                   </button>
 
@@ -218,101 +216,64 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                         onToggleGender(person.id);
                       }
                     }}
-                    className={`min-h-[32px] px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                    className={`px-1.5 py-0.5 rounded transition flex items-center gap-1 cursor-pointer ${
                       person.gender === 'female'
-                        ? 'bg-rose-600 text-white shadow-xs'
-                        : 'text-white/70 hover:text-white hover:bg-white/10'
+                        ? 'bg-rose-600 text-white shadow-xs font-black'
+                        : 'text-white/70 hover:text-white'
                     }`}
                     title="تعديل الجنس إلى أنثى"
                   >
-                    <span className={`w-2 h-2 rounded-full ${person.gender === 'female' ? 'bg-white' : 'bg-rose-400'}`} />
+                    <span className={`w-1.5 h-1.5 rounded-full ${person.gender === 'female' ? 'bg-white' : 'bg-rose-400'}`} />
                     <span>أنثى</span>
                   </button>
                 </div>
               ) : (
                 <span
-                  className={`px-3 py-1 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 ${
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold inline-flex items-center gap-1 ${
                     person.gender === 'male'
                       ? 'bg-emerald-600/90 text-white'
                       : 'bg-rose-600/90 text-white'
                   }`}
                 >
-                  <span className="w-2 h-2 rounded-full bg-white" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-white" />
                   <span>{person.gender === 'male' ? 'ذكر' : 'أنثى'}</span>
+                </span>
+              )}
+
+              {/* Husband badge if female */}
+              {person.gender === 'female' && (person.husbandName || person.husbandId) && (
+                <span className="text-[10px] text-white/95 bg-white/20 px-2 py-0.5 rounded-md inline-flex items-center gap-1 font-semibold truncate max-w-[130px] sm:max-w-none">
+                  <Heart className="w-2.5 h-2.5 text-rose-300 shrink-0" />
+                  <span className="truncate">زوجة: {formatAppName(husbandPerson ? husbandPerson.fullName : person.husbandName)}</span>
                 </span>
               )}
             </div>
 
-            {/* Quick Action Buttons in Modal Header (Admin Only) */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {isAdmin && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => onOpenAddFather(person.id)}
-                    className="min-h-[34px] flex items-center gap-1 px-2.5 py-1 rounded-xl bg-[#D4AF37]/25 hover:bg-[#D4AF37]/40 text-white border border-[#D4AF37]/50 text-xs font-bold transition backdrop-blur-xs shadow-2xs"
-                    title="نقل الابن وفروعه إلى جد أعلى أو إضافة جد أعلى"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5 text-[#F5E6B8] shrink-0" />
-                    <span>نقل لجد أعلى / + جد</span>
-                  </button>
-
-                  {person.gender === 'male' && onOpenMergeModal && (
-                    <button
-                      type="button"
-                      onClick={() => onOpenMergeModal(person.id)}
-                      className="min-h-[34px] flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-500/30 hover:bg-amber-500/50 text-white border border-amber-400/50 text-xs font-bold transition backdrop-blur-xs shadow-2xs"
-                      title="دمج هذا الجد مع جد آخر بنفس الاسم"
-                    >
-                      <GitMerge className="w-3.5 h-3.5 text-amber-200 shrink-0" />
-                      <span>دمج مع جد آخر بنفس الاسم</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => onOpenEdit(person)}
-                    className="min-h-[34px] flex items-center gap-1 px-3 py-1 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold transition backdrop-blur-xs shadow-2xs"
-                    title="تعديل"
-                  >
-                    <Edit2 className="w-3.5 h-3.5 shrink-0" />
-                    <span>تعديل</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => onDeletePerson(person.id)}
-                    className="min-h-[34px] flex items-center gap-1 px-3 py-1 rounded-xl bg-red-600/80 hover:bg-red-600 text-white text-xs font-bold transition shadow-2xs"
-                    title="حذف الاسم من الشجرة"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 shrink-0" />
-                    <span>حذف</span>
-                  </button>
-                </>
-              )}
-            </div>
+            {/* Close Button */}
+            <button
+              onClick={onClose}
+              className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 active:bg-white/40 text-white transition cursor-pointer shrink-0"
+              aria-label="إغلاق النافذة"
+              title="إغلاق"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
 
-          {person.gender === 'female' && (person.husbandName || person.husbandId) && (
-            <div className="mb-2">
-              <span className="text-xs text-white/95 bg-white/20 px-2.5 py-1 rounded-md inline-flex items-center gap-1 font-semibold max-w-full break-words leading-snug">
-                <Heart className="w-3 h-3 text-rose-300 shrink-0" />
-                <span>زوجة: {formatAppName(husbandPerson ? husbandPerson.fullName : person.husbandName)}</span>
-              </span>
-            </div>
-          )}
+          {/* Name & Lineage in a single compact block */}
+          <div className="flex flex-col">
+            <h3 className="text-sm sm:text-lg font-black font-display text-white leading-tight break-words">
+              {formatAppName(person.fullName)}
+            </h3>
 
-          <h3 className="text-lg sm:text-2xl font-bold font-display text-white leading-snug break-words">
-            {formatAppName(person.fullName)}
-          </h3>
-
-          <p className="text-xs text-white/85 mt-1 leading-relaxed break-words">
-            « {formatAppName(lineage)} »
-          </p>
+            <p className="text-[10px] sm:text-xs text-white/80 mt-0.5 leading-snug break-words truncate">
+              « {formatAppName(lineage)} »
+            </p>
+          </div>
         </div>
 
-        {/* Modal Body: Starts with Branches (الأبناء والفروع) first, then other related data such as عم لـ: */}
-        <div className="p-4 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto flex-1">
+        {/* Modal Body: Scrollable area with maximal height for content */}
+        <div className="p-3 sm:p-5 space-y-3 sm:space-y-4 overflow-y-auto flex-1 overscroll-contain">
           
           {/* 1. Descendants / Branches Section FIRST (الأبناء والفروع) */}
           <div className="p-3.5 sm:p-4 rounded-2xl border-2 border-[#0F4C3A]/20 bg-[#FBF9F5]/70 space-y-3 shadow-2xs">
@@ -426,11 +387,11 @@ export const PersonModal: React.FC<PersonModalProps> = ({
             {person.gender === 'female' ? (
               <div className="space-y-2.5">
                 {kinship.children.length > 0 && (
-                  <div className="space-y-2 max-h-64 overflow-y-auto pr-0.5">
+                  <div className="space-y-1.5 sm:space-y-2">
                     {kinship.children.map((ch) => (
                       <div
                         key={ch.id}
-                        className="p-3 rounded-xl bg-white border border-rose-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs hover:bg-rose-50/40 transition"
+                        className="p-2 sm:p-2.5 rounded-xl bg-white border border-rose-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 text-xs hover:bg-rose-50/40 transition"
                       >
                         <div className="flex items-start gap-2 min-w-0 flex-1">
                           <span className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${ch.gender === 'male' ? 'bg-emerald-600' : 'bg-rose-500'}`} />
@@ -464,11 +425,11 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                 لا يوجد أبناء مسجلون لهذا الشخص حالياً
               </div>
             ) : (
-              <div className="space-y-2 max-h-64 overflow-y-auto pr-0.5">
+              <div className="space-y-1.5 sm:space-y-2">
                 {children.map((ch) => (
                   <div
                     key={ch.id}
-                    className="p-3 rounded-xl bg-white border border-slate-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs hover:bg-emerald-50/40 transition shadow-2xs"
+                    className="p-2 sm:p-2.5 rounded-xl bg-white border border-slate-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 text-xs hover:bg-emerald-50/40 transition shadow-2xs"
                   >
                     <div className="flex items-start gap-2 min-w-0 flex-1">
                       <span className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${ch.gender === 'male' ? 'bg-emerald-600' : 'bg-rose-500'}`} />
@@ -962,15 +923,29 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                     </span>
                   )}
                   {isAdmin && (
-                    <button
-                      type="button"
-                      onClick={() => onOpenAddFather(person.id)}
-                      className="min-h-[34px] px-2.5 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F4C3A] border border-emerald-200 text-[11px] font-bold transition flex items-center justify-center gap-1 shrink-0"
-                      title="نقل الابن وفروعه إلى جد أعلى أو إضافة جد أو أكثر من جد فوق هذا الفرد"
-                    >
-                      <ArrowUp className="w-3 h-3 shrink-0" />
-                      <span>{father ? 'نقل الفرع لجد أعلى / + جد' : '+ إضافة جد أعلى / نقل لجد'}</span>
-                    </button>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => onOpenAddFather(person.id)}
+                        className="min-h-[32px] px-2.5 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F4C3A] border border-emerald-200 text-[11px] font-bold transition flex items-center justify-center gap-1 shrink-0 cursor-pointer"
+                        title="نقل الابن وفروعه إلى جد أعلى أو إضافة جد أو أكثر من جد فوق هذا الفرد"
+                      >
+                        <ArrowUp className="w-3 h-3 shrink-0" />
+                        <span>{father ? 'نقل الفرع لجد أعلى / + جد' : '+ إضافة جد أعلى / نقل لجد'}</span>
+                      </button>
+
+                      {onOpenMergeModal && person.gender === 'male' && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenMergeModal(person.id)}
+                          className="min-h-[32px] px-2.5 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-bold transition flex items-center justify-center gap-1 shrink-0 cursor-pointer"
+                          title="دمج هذا الجد مع جد آخر بنفس الاسم"
+                        >
+                          <GitMerge className="w-3 h-3 shrink-0 text-amber-700" />
+                          <span>دمج مع أصل آخر</span>
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -1008,65 +983,79 @@ export const PersonModal: React.FC<PersonModalProps> = ({
           )}
         </div>
 
-        {/* Sticky Bottom Action Buttons Toolbar for Mobile & Desktop */}
-        <div className="p-3.5 sm:px-6 sm:py-4 bg-white border-t border-slate-200 shrink-0">
+        {/* Sticky Bottom Action Buttons Toolbar (Ultra-Compact on Mobile & Desktop) */}
+        <div className="p-2 sm:px-5 sm:py-3 bg-white border-t border-slate-200 shrink-0">
           {isAdmin ? (
-            <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               {/* Add child (sons / daughters) - ONLY for male */}
               {person.gender === 'male' && (
                 <button
+                  type="button"
                   onClick={() => onOpenAddChild(person.id)}
-                  className="col-span-2 sm:flex-1 min-h-[42px] flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition shadow-xs bg-[#0F4C3A] text-white hover:bg-[#0c3c2e]"
+                  className="flex-1 min-h-[36px] sm:min-h-[40px] flex items-center justify-center gap-1 py-1 px-2 rounded-xl text-xs font-black transition shadow-2xs bg-[#0F4C3A] text-white hover:bg-[#0c3c2e] active:scale-98 cursor-pointer"
+                  title="إضافة ابن أو بنت لهذا الاسم"
                 >
-                  <Plus className="w-4 h-4 text-[#D4AF37] shrink-0" />
-                  <span>إضافة ابن أو بنت (خيارات متقدمة)</span>
+                  <Plus className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
+                  <span className="truncate">
+                    <span className="sm:hidden">+ فرع</span>
+                    <span className="hidden sm:inline">إضافة ابن أو بنت</span>
+                  </span>
                 </button>
               )}
 
               {/* Add father / root ancestor above person */}
               <button
+                type="button"
                 onClick={() => onOpenAddFather(person.id)}
-                className="col-span-2 sm:flex-1 min-h-[42px] flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold border transition border-[#0F4C3A]/30 text-[#0F4C3A] hover:bg-[#0F4C3A]/10"
+                className="flex-1 min-h-[36px] sm:min-h-[40px] flex items-center justify-center gap-1 py-1 px-2 rounded-xl text-xs font-bold border transition border-[#0F4C3A]/30 text-[#0F4C3A] hover:bg-[#0F4C3A]/10 active:scale-98 bg-emerald-50/40 cursor-pointer"
+                title={father ? 'إضافة الأب صعوداً / نقل لجد أعلى' : '+ إضافة أصل لهذا الأصل'}
               >
-                <ArrowUp className="w-4 h-4 shrink-0" />
-                <span>{father ? 'إضافة الأب صعوداً' : '+ إضافة أصل لهذا الأصل'}</span>
+                <ArrowUp className="w-3.5 h-3.5 shrink-0 text-[#0F4C3A]" />
+                <span className="truncate">
+                  <span className="sm:hidden">+ أب</span>
+                  <span className="hidden sm:inline">{father ? 'إضافة الأب صعوداً' : '+ إضافة أصل'}</span>
+                </span>
               </button>
 
               {/* Edit Person Button */}
               <button
+                type="button"
                 onClick={() => onOpenEdit(person)}
-                className="min-h-[42px] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold border transition hover:bg-blue-50 border-blue-200 text-blue-700 bg-white"
-                title="تعديل"
+                className="min-h-[36px] sm:min-h-[40px] flex items-center justify-center gap-1 py-1 px-2.5 rounded-xl text-xs font-bold border transition hover:bg-blue-50 border-blue-200 text-blue-700 bg-white active:scale-98 cursor-pointer shrink-0"
+                title="تعديل الاسم والبيانات"
               >
                 <Edit2 className="w-3.5 h-3.5 shrink-0" />
-                <span>تعديل</span>
+                <span className="hidden sm:inline">تعديل</span>
               </button>
 
               {/* Print Person card */}
               <button
+                type="button"
                 onClick={() => onPrintPerson(person.id)}
-                className="min-h-[42px] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-bold transition bg-white"
-                title="طباعة بطاقة الفرد"
+                className="min-h-[36px] sm:min-h-[40px] flex items-center justify-center gap-1 py-1 px-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-bold transition bg-white active:scale-98 cursor-pointer shrink-0"
+                title="طباعة بطاقة الفرد أو تصدير PDF"
               >
                 <Printer className="w-3.5 h-3.5 text-[#0F4C3A] shrink-0" />
-                <span>طباعة / PDF</span>
+                <span className="hidden sm:inline">طباعة / PDF</span>
               </button>
 
               {/* Delete Person */}
               <button
+                type="button"
                 onClick={() => onDeletePerson(person.id)}
-                className="col-span-2 sm:col-span-1 min-h-[42px] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold border border-red-200 text-red-600 hover:bg-red-50 bg-white transition"
+                className="min-h-[36px] sm:min-h-[40px] flex items-center justify-center gap-1 py-1 px-2.5 rounded-xl text-xs font-bold border border-red-200 text-red-600 hover:bg-red-50 bg-white transition active:scale-98 cursor-pointer shrink-0"
                 title="حذف هذا الاسم من شجرة العائلة"
               >
                 <Trash2 className="w-3.5 h-3.5 shrink-0" />
-                <span>حذف الاسم</span>
+                <span className="hidden sm:inline">حذف</span>
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2">
               <button
+                type="button"
                 onClick={() => onPrintPerson(person.id)}
-                className="min-h-[42px] flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-100 transition"
+                className="min-h-[36px] flex items-center justify-center gap-1.5 py-1 px-4 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
                 title="طباعة بطاقة الفرد"
               >
                 <Printer className="w-4 h-4 text-[#0F4C3A] shrink-0" />
@@ -1074,8 +1063,9 @@ export const PersonModal: React.FC<PersonModalProps> = ({
               </button>
 
               <button
+                type="button"
                 onClick={onClose}
-                className="min-h-[42px] py-2.5 px-5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition"
+                className="min-h-[36px] py-1 px-5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer"
               >
                 إغلاق
               </button>

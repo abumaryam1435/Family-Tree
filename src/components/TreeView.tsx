@@ -26,7 +26,10 @@ import {
   Smartphone,
   Image,
   FileText,
-  Globe
+  Globe,
+  Crown,
+  Layers,
+  Info
 } from 'lucide-react';
 import { Person } from '../types/family';
 import {
@@ -73,8 +76,52 @@ interface OrganicNodeLayout {
   childrenLayouts: OrganicNodeLayout[];
 }
 
-const MIN_ZOOM = 0.25;
-const MAX_ZOOM = 2.4;
+const MIN_ZOOM = 0.08;
+const MAX_ZOOM = 2.5;
+
+// Distinct color themes for comparing multiple trees side-by-side
+const COMPARE_THEMES = [
+  {
+    border: 'border-[#0F4C3A]',
+    badgeBg: 'bg-[#0F4C3A]',
+    lightBg: 'bg-[#F4F9F5]',
+    accentText: 'text-[#0F4C3A]',
+    label: 'الشجرة الأولى (أ)',
+    ring: 'ring-[#0F4C3A]'
+  },
+  {
+    border: 'border-amber-600',
+    badgeBg: 'bg-amber-600',
+    lightBg: 'bg-[#FFFDF7]',
+    accentText: 'text-amber-700',
+    label: 'الشجرة الثانية (ب)',
+    ring: 'ring-amber-500'
+  },
+  {
+    border: 'border-blue-600',
+    badgeBg: 'bg-blue-600',
+    lightBg: 'bg-[#F0F7FF]',
+    accentText: 'text-blue-700',
+    label: 'الشجرة الثالثة (ج)',
+    ring: 'ring-blue-500'
+  },
+  {
+    border: 'border-rose-600',
+    badgeBg: 'bg-rose-600',
+    lightBg: 'bg-[#FFF1F3]',
+    accentText: 'text-rose-700',
+    label: 'الشجرة الرابعة (د)',
+    ring: 'ring-rose-500'
+  },
+  {
+    border: 'border-purple-600',
+    badgeBg: 'bg-purple-600',
+    lightBg: 'bg-[#F8F5FF]',
+    accentText: 'text-purple-700',
+    label: 'الشجرة الخامسة (هـ)',
+    ring: 'ring-purple-500'
+  }
+];
 
 export const TreeView: React.FC<TreeViewProps> = ({
   persons,
@@ -193,7 +240,27 @@ export const TreeView: React.FC<TreeViewProps> = ({
   });
 
   // Collapsed branches set (IDs of nodes whose children are hidden)
-  const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
+  // Default: start with all parents collapsed so only the family root (الأصل الراسخ) is displayed
+  const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(() => {
+    const set = new Set<string>();
+    for (const p of persons) {
+      if (getChildren(p.id).length > 0) {
+        set.add(p.id);
+      }
+    }
+    return set;
+  });
+
+  // Whenever selected tree root or persons change, reset default to showing only the family root
+  useEffect(() => {
+    const set = new Set<string>();
+    for (const p of persons) {
+      if (getChildren(p.id).length > 0) {
+        set.add(p.id);
+      }
+    }
+    setCollapsedNodes(set);
+  }, [selectedTreeRootId, persons.length, getChildren]);
 
   // Search filter inside tree view
   const [localSearch, setLocalSearch] = useState<string>('');
@@ -209,20 +276,69 @@ export const TreeView: React.FC<TreeViewProps> = ({
 
   // Side-by-Side Multi-Tree Comparison Mode States
   const [isCompareMode, setIsCompareMode] = useState<boolean>(false);
-  const [compareTreeRootId, setCompareTreeRootId] = useState<string | null>(null);
+  const [compareRootIds, setCompareRootIds] = useState<string[]>([]);
+
+  // Default roots for comparison: by default, show the original roots of the available trees
+  useEffect(() => {
+    if (treeRoots.length > 0 && compareRootIds.length === 0) {
+      const root1 = selectedTreeRootId || treeRoots[0]?.id;
+      const root2 = treeRoots.find(r => r.id !== root1)?.id || treeRoots[1]?.id;
+      const initial = [root1, root2].filter(Boolean) as string[];
+      setCompareRootIds(initial);
+    }
+  }, [treeRoots, selectedTreeRootId, compareRootIds.length]);
 
   const currentRoot = useMemo(() => {
     if (!selectedTreeRootId) return treeRoots[0] || null;
     return getPerson(selectedTreeRootId) || treeRoots[0] || null;
   }, [selectedTreeRootId, treeRoots, getPerson]);
 
-  const compareRoot = useMemo(() => {
-    if (compareTreeRootId) {
-      return getPerson(compareTreeRootId) || null;
+  // The list of Person objects for all roots currently selected in comparison mode
+  const comparedRoots = useMemo(() => {
+    if (!isCompareMode) return [];
+    const roots: Person[] = [];
+    const idsToUse = compareRootIds.length >= 2 
+      ? compareRootIds 
+      : treeRoots.slice(0, 2).map(r => r.id);
+
+    for (const id of idsToUse) {
+      const person = getPerson(id);
+      if (person && !roots.some(r => r.id === person.id)) {
+        roots.push(person);
+      }
     }
-    const second = treeRoots.find(r => r.id !== selectedTreeRootId) || treeRoots[1];
-    return second || null;
-  }, [compareTreeRootId, selectedTreeRootId, treeRoots, getPerson]);
+    // Fallback if none found
+    if (roots.length === 0 && treeRoots.length > 0) {
+      roots.push(...treeRoots.slice(0, 2));
+    }
+    return roots;
+  }, [isCompareMode, compareRootIds, treeRoots, getPerson]);
+
+  const availableRootsToAdd = useMemo(() => {
+    return treeRoots.filter(r => !compareRootIds.includes(r.id));
+  }, [treeRoots, compareRootIds]);
+
+  // Calculate descendant count and generations depth for any tree root
+  const getTreeStats = useCallback((rootId: string) => {
+    const visited = new Set<string>();
+    let maxGen = 1;
+    const queue: { id: string; depth: number }[] = [{ id: rootId, depth: 1 }];
+    visited.add(rootId);
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!item) break;
+      const { id, depth } = item;
+      if (depth > maxGen) maxGen = depth;
+      const children = getChildren(id);
+      for (const child of children) {
+        if (!visited.has(child.id)) {
+          visited.add(child.id);
+          queue.push({ id: child.id, depth: depth + 1 });
+        }
+      }
+    }
+    return { count: visited.size, generations: maxGen };
+  }, [getChildren]);
 
   // Drag & Drop Event Handlers
   const handleCardDragStart = (e: React.DragEvent, person: Person) => {
@@ -416,21 +532,128 @@ export const TreeView: React.FC<TreeViewProps> = ({
   );
 
   const resetView = useCallback(() => {
-    centerOnRoot(true, 1);
-  }, [centerOnRoot]);
+    if (isCompareMode) {
+      fitTreeToScreen(true);
+    } else {
+      centerOnRoot(true, 1);
+    }
+  }, [centerOnRoot, fitTreeToScreen, isCompareMode]);
+
+  // Toggle multi-tree comparison mode (with default display of original roots)
+  const toggleCompareMode = useCallback(() => {
+    setIsCompareMode((prev) => {
+      const next = !prev;
+      if (next) {
+        // Default to the original roots (الأصل الراسخ) of the available trees
+        const root1 = selectedTreeRootId || treeRoots[0]?.id;
+        const root2 = treeRoots.find((r) => r.id !== root1)?.id || treeRoots[1]?.id;
+        const initial = [root1, root2].filter(Boolean) as string[];
+        setCompareRootIds(initial);
+        setTimeout(() => {
+          fitTreeToScreen(true);
+        }, 120);
+      } else {
+        setTimeout(() => {
+          centerOnRoot(true, 1);
+        }, 120);
+      }
+      return next;
+    });
+  }, [selectedTreeRootId, treeRoots, fitTreeToScreen, centerOnRoot]);
+
+  // Add another tree root to comparison
+  const addRootToCompare = useCallback(
+    (rootId: string) => {
+      setCompareRootIds((prev) => {
+        if (prev.includes(rootId)) return prev;
+        return [...prev, rootId];
+      });
+      setTimeout(() => {
+        fitTreeToScreen(true);
+      }, 120);
+    },
+    [fitTreeToScreen]
+  );
+
+  // Remove a tree root from comparison
+  const removeRootFromCompare = useCallback(
+    (rootId: string) => {
+      setCompareRootIds((prev) => {
+        if (prev.length <= 2) return prev;
+        return prev.filter((id) => id !== rootId);
+      });
+      setTimeout(() => {
+        fitTreeToScreen(true);
+      }, 120);
+    },
+    [fitTreeToScreen]
+  );
+
+  // Change root for a specific slot in comparison mode
+  const changeCompareRoot = useCallback(
+    (index: number, newRootId: string) => {
+      setCompareRootIds((prev) => {
+        const copy = [...prev];
+        copy[index] = newRootId;
+        return copy;
+      });
+      setTimeout(() => {
+        fitTreeToScreen(true);
+      }, 120);
+    },
+    [fitTreeToScreen]
+  );
+
+  // Compare all available roots at once
+  const compareAllRoots = useCallback(() => {
+    setCompareRootIds(treeRoots.map((r) => r.id));
+    setTimeout(() => {
+      fitTreeToScreen(true);
+    }, 120);
+  }, [treeRoots, fitTreeToScreen]);
+
+  // Smoothly center on a specific root card in comparison mode
+  const centerOnSpecificRoot = useCallback(
+    (rootId: string) => {
+      const container = containerRef.current;
+      const treeCol = document.getElementById(`tree-column-${rootId}`);
+      if (!container || !treeCol) {
+        centerOnRoot(true, 1);
+        return;
+      }
+      const containerRect = container.getBoundingClientRect();
+      const colRect = treeCol.getBoundingClientRect();
+
+      const colCenterScreenX = colRect.left + colRect.width / 2;
+      const containerCenterScreenX = containerRect.left + containerRect.width / 2;
+      const deltaX = containerCenterScreenX - colCenterScreenX;
+
+      const colTopScreenY = colRect.top;
+      const targetTopScreenY = containerRect.top + 32;
+      const deltaY = targetTopScreenY - colTopScreenY;
+
+      stopInertia();
+      cameraRef.current.x += deltaX;
+      cameraRef.current.y += deltaY;
+      applyCameraTransform(true);
+    },
+    [centerOnRoot, stopInertia, applyCameraTransform]
+  );
 
   // Re-center or auto-fit smoothly when root, display mode, or direction changes
   useEffect(() => {
     const timer = requestAnimationFrame(() => {
       const isMobile = window.innerWidth < 768;
-      if (isMobile) {
+      if (isCompareMode) {
+        fitTreeToScreen(false);
+      } else if (isMobile) {
         fitTreeToScreen(false);
       } else {
         centerOnRoot(false, 1);
       }
     });
     return () => cancelAnimationFrame(timer);
-  }, [currentRoot?.id, treeDisplayMode, organicDirection, centerOnRoot, fitTreeToScreen]);
+  }, [currentRoot?.id, isCompareMode, treeDisplayMode, organicDirection, centerOnRoot, fitTreeToScreen]);
 
   // Start momentum coasting after pointer/touch release
   const startInertiaCoast = useCallback(() => {
@@ -706,42 +929,70 @@ export const TreeView: React.FC<TreeViewProps> = ({
     }
   };
 
-  const toggleCollapse = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const wasCollapsed = collapsedNodes.has(id);
-    const targetElement = e.currentTarget as HTMLElement;
-
-    setCollapsedNodes((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
+  // Recursive helper to collect all descendant IDs under a person
+  const getAllDescendantIds = useCallback(
+    (personId: string): string[] => {
+      const descendants: string[] = [];
+      const queue = [personId];
+      while (queue.length > 0) {
+        const currId = queue.shift()!;
+        const children = getChildren(currId);
+        for (const child of children) {
+          descendants.push(child.id);
+          queue.push(child.id);
+        }
       }
-      return next;
-    });
+      return descendants;
+    },
+    [getChildren]
+  );
 
-    if (wasCollapsed) {
-      setTimeout(() => {
-        if (!containerRef.current || !targetElement) return;
-        const containerRect = containerRef.current.getBoundingClientRect();
-        const targetRect = targetElement.getBoundingClientRect();
+  // Progressive Disclosure:
+  // - Clicking card:
+  //   * If currently collapsed: expands ONLY direct immediate children (keeping grandchildren collapsed)
+  //   * If currently expanded: collapses card AND all its descendant branches recursively
+  const handleCardClickToggle = useCallback(
+    (personId: string, e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      const directChildren = getChildren(personId);
+      if (directChildren.length === 0) {
+        // Leaf person without children: clicking card opens details modal as a natural fallback
+        onSelectPerson(personId);
+        return;
+      }
 
-        const currentCenterX = targetRect.left + targetRect.width / 2;
-        const currentCenterY = targetRect.top + targetRect.height / 2;
+      setCollapsedNodes((prev) => {
+        const next = new Set(prev);
+        const isCurrentlyCollapsed = next.has(personId);
 
-        const containerCenterX = containerRect.left + containerRect.width / 2;
-        const containerCenterY = containerRect.top + Math.min(220, containerRect.height * 0.35);
+        if (isCurrentlyCollapsed) {
+          // Un-collapse this card so its direct children become visible
+          next.delete(personId);
+          // Ensure all its direct children start collapsed so clicking only reveals direct immediate branches
+          for (const child of directChildren) {
+            if (getChildren(child.id).length > 0) {
+              next.add(child.id);
+            }
+          }
+        } else {
+          // Collapse this card
+          next.add(personId);
+          // Recursively collapse all descendant branches under this person
+          const allDesc = getAllDescendantIds(personId);
+          for (const descId of allDesc) {
+            if (getChildren(descId).length > 0) {
+              next.add(descId);
+            }
+          }
+        }
+        return next;
+      });
+    },
+    [getChildren, getAllDescendantIds, onSelectPerson]
+  );
 
-        const deltaX = containerCenterX - currentCenterX;
-        const deltaY = containerCenterY - currentCenterY;
-
-        cameraRef.current.x += deltaX;
-        cameraRef.current.y += deltaY;
-
-        applyCameraTransform(true);
-      }, 60);
-    }
+  const toggleCollapse = (id: string, e: React.MouseEvent) => {
+    handleCardClickToggle(id, e);
   };
 
   const expandAll = () => {
@@ -941,7 +1192,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
 
         {/* Person Card */}
         <div
-          onClick={() => onSelectPerson(person.id)}
+          onClick={(e) => handleCardClickToggle(person.id, e)}
           draggable={isAdmin}
           onDragStart={(e) => handleCardDragStart(e, person)}
           onDragOver={(e) => handleCardDragOver(e, person.id)}
@@ -954,6 +1205,13 @@ export const TreeView: React.FC<TreeViewProps> = ({
           } ${
             dragOverPersonId === person.id ? 'ring-4 ring-amber-500 scale-105 shadow-xl z-30' : ''
           }`}
+          title={
+            hasChildren
+              ? isCollapsed
+                ? 'انقر على البطاقة لعرض الفروع المباشرة فقط'
+                : 'انقر على البطاقة لطي جميع الأفرع'
+              : 'انقر على زر التفاصيل لعرض بيانات الاسم'
+          }
         >
           {/* Active Drop Target Overlay Banner */}
           {dragOverPersonId === person.id && (
@@ -964,25 +1222,54 @@ export const TreeView: React.FC<TreeViewProps> = ({
             </div>
           )}
           <div
-            className={`w-52 sm:w-60 p-3.5 rounded-2xl border transition shadow-sm hover:shadow-md ${
+            className={`w-56 sm:w-64 p-3.5 sm:p-4 rounded-2xl border-2 transition-all shadow-sm hover:shadow-lg ${
               person.gender === 'male'
-                ? 'bg-gradient-to-b from-white to-[#F2F8F5] border-[#0F4C3A]/25 hover:border-[#0F4C3A]'
-                : 'bg-gradient-to-b from-white to-[#FFF6F6] border-rose-200 hover:border-rose-400'
+                ? 'bg-gradient-to-b from-white via-[#F8FCFA] to-[#EFF7F2] border-[#0F4C3A]/30 hover:border-[#0F4C3A]'
+                : 'bg-gradient-to-b from-white via-[#FFF7F7] to-[#FDF0F0] border-rose-200/90 hover:border-rose-400'
             }`}
           >
-            {/* Header / Generation Tag & Direct Actions */}
-            <div className="flex items-center justify-between gap-1 mb-2">
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                person.gender === 'male'
-                  ? 'bg-[#0F4C3A]/10 text-[#0F4C3A]'
-                  : 'bg-rose-100/70 text-rose-800'
-              }`}>
-                {depth === 1 ? 'الأصل' : `الجيل ${depth}`}
-              </span>
+            {/* Header / Generation Badge & Small Details Button */}
+            <div className="flex items-center justify-between gap-1 mb-2.5">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`text-[10px] sm:text-[11px] font-black px-2 py-0.5 rounded-lg shadow-2xs ${
+                    person.gender === 'male'
+                      ? 'bg-[#0F4C3A] text-white'
+                      : 'bg-rose-600 text-white'
+                  }`}
+                >
+                  {depth === 1 ? 'الأصل الراسخ' : `الجيل ${depth}`}
+                </span>
 
-              {/* Action Buttons: Gender Badge/Switch + Edit + Delete (Admin Only) */}
+                <span
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                    person.gender === 'male'
+                      ? 'bg-emerald-100/80 text-emerald-900 border border-emerald-200/60'
+                      : 'bg-rose-100/80 text-rose-900 border border-rose-200/60'
+                  }`}
+                >
+                  {person.gender === 'male' ? 'ذكر' : 'أنثى'}
+                </span>
+              </div>
+
+              {/* Action Buttons: Small Info/Details Button + Admin Tools */}
               <div className="flex items-center gap-1">
-                {isAdmin ? (
+                {/* Small Info/Details Button Requested by User */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectPerson(person.id);
+                  }}
+                  className="px-2 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-950 border border-amber-300 text-[11px] font-black flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                  title="عرض تفاصيل ومعلومات الاسم"
+                  aria-label="عرض التفاصيل"
+                >
+                  <Info className="w-3.5 h-3.5 text-amber-700" />
+                  <span className="text-[11px] font-extrabold">تفاصيل</span>
+                </button>
+
+                {isAdmin && (
                   <>
                     <button
                       type="button"
@@ -994,14 +1281,10 @@ export const TreeView: React.FC<TreeViewProps> = ({
                           onOpenEditPerson(person);
                         }
                       }}
-                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md transition flex items-center gap-1 ${
-                        person.gender === 'male'
-                          ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200 border border-emerald-300/60'
-                          : 'bg-rose-100 text-rose-800 hover:bg-rose-200 border border-rose-300/60'
-                      }`}
-                      title="انقر لتعديل الجنس (ذكر أو أنثى)"
+                      className="p-1 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 border border-slate-200 transition"
+                      title="تبديل الجنس (ذكر / أنثى)"
                     >
-                      <span>{person.gender === 'male' ? 'ذكر' : 'أنثى'}</span>
+                      <span className="text-[10px] font-bold">جنس</span>
                     </button>
 
                     {onOpenAddFather && (
@@ -1011,7 +1294,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
                           e.stopPropagation();
                           onOpenAddFather(person.id);
                         }}
-                        className="p-1 rounded-md text-[#0F4C3A] hover:text-emerald-800 hover:bg-emerald-50 border border-transparent hover:border-emerald-200 transition"
+                        className="p-1 rounded-lg text-[#0F4C3A] hover:text-emerald-800 hover:bg-emerald-50 border border-emerald-200 transition"
                         title="نقل الابن وفروعه إلى جد أعلى / إضافة جد أعلى"
                       >
                         <ArrowUp className="w-3.5 h-3.5" />
@@ -1025,8 +1308,8 @@ export const TreeView: React.FC<TreeViewProps> = ({
                           e.stopPropagation();
                           onOpenEditPerson(person);
                         }}
-                        className="p-1 rounded-md text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition"
-                        title="تعديل"
+                        className="p-1 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 transition"
+                        title="تعديل الاسم"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
@@ -1039,41 +1322,31 @@ export const TreeView: React.FC<TreeViewProps> = ({
                           e.stopPropagation();
                           onDeletePerson(person.id);
                         }}
-                        className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition"
+                        className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 border border-slate-200 transition"
                         title="حذف الاسم"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </>
-                ) : (
-                  <span
-                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                      person.gender === 'male'
-                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/60'
-                        : 'bg-rose-50 text-rose-800 border border-rose-200/60'
-                    }`}
-                  >
-                    {person.gender === 'male' ? 'ذكر' : 'أنثى'}
-                  </span>
                 )}
               </div>
             </div>
 
-            {/* Name */}
-            <div className="flex items-start gap-2">
+            {/* Name Display - Ultra Clear, Bold, High-Contrast Typography */}
+            <div className="flex items-center gap-2.5 py-1">
               <div
-                className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-xs border ${
                   person.gender === 'male'
-                    ? 'bg-[#0F4C3A] text-[#D4AF37]'
-                    : 'bg-rose-500 text-white'
+                    ? 'bg-gradient-to-br from-[#0F4C3A] to-[#15664F] text-[#D4AF37] border-[#D4AF37]/50 ring-1 ring-[#0F4C3A]/20'
+                    : 'bg-gradient-to-br from-rose-500 to-rose-600 text-white border-rose-300 ring-1 ring-rose-400/20'
                 }`}
               >
-                <User className="w-4 h-4" />
+                <User className="w-5 h-5" />
               </div>
               <div className="min-w-0 flex-1">
                 <h4
-                  className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-[#0F4C3A] transition break-words leading-snug line-clamp-2"
+                  className="text-sm sm:text-base font-black text-slate-950 group-hover:text-[#0F4C3A] transition break-words leading-tight"
                   title={formatAppName(person.fullName)}
                 >
                   {depth === 1 ? formatAppName(person.fullName) : formatBranchName(person.fullName)}
@@ -1083,17 +1356,17 @@ export const TreeView: React.FC<TreeViewProps> = ({
 
             {/* Notes snippet if exists */}
             {person.notes && (
-              <p className="text-[11px] text-slate-500 mt-1.5 truncate">
+              <p className="text-[11px] text-slate-500 mt-1 truncate">
                 {person.notes}
               </p>
             )}
 
-            {/* Footer / Children or Spouse Indicators */}
-            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+            {/* Footer / Children or Spouse Indicators & Direct Branches Hint */}
+            <div className="mt-3 pt-2.5 border-t border-slate-200/70 flex items-center justify-between text-[11px] text-slate-600">
               {person.gender === 'male' ? (
                 <span>
                   {hasChildren ? (
-                    <strong className="text-[#0F4C3A]">
+                    <strong className="text-[#0F4C3A] font-bold">
                       {maleChildrenCount} أبناء · {femaleChildrenCount} بنات
                     </strong>
                   ) : (
@@ -1103,7 +1376,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
               ) : (
                 <span>
                   {person.husbandName ? (
-                    <span className="text-rose-700 font-bold text-[10px] break-words line-clamp-1 block max-w-[180px]">
+                    <span className="text-rose-700 font-bold text-[10px] break-words line-clamp-1 block max-w-[170px]">
                       زوجة: {formatAppName(person.husbandName)}
                     </span>
                   ) : (
@@ -1112,19 +1385,28 @@ export const TreeView: React.FC<TreeViewProps> = ({
                 </span>
               )}
 
-              {/* Expand / Collapse Button if has children */}
+              {/* Branch indicator button (clicking card or this button toggles direct branches) */}
               {hasChildren && (
-                <button
-                  onClick={(e) => toggleCollapse(person.id, e)}
-                  className="p-1 rounded-md hover:bg-slate-200/70 text-[#0F4C3A] transition"
-                  title={isCollapsed ? 'توسيع الفروع' : 'طي الفروع'}
+                <div
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-black flex items-center gap-1 transition ${
+                    isCollapsed
+                      ? 'bg-emerald-100/90 text-[#0F4C3A] group-hover:bg-[#0F4C3A] group-hover:text-white shadow-2xs'
+                      : 'bg-amber-100 text-amber-950 group-hover:bg-amber-500 group-hover:text-slate-950 shadow-2xs'
+                  }`}
+                  title={isCollapsed ? 'انقر على البطاقة لعرض الفروع المباشرة' : 'انقر على البطاقة لطي كافة الأفرع'}
                 >
                   {isCollapsed ? (
-                    <ChevronDown className="w-4 h-4" />
+                    <>
+                      <span>+ فتح الفروع</span>
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </>
                   ) : (
-                    <ChevronUp className="w-4 h-4" />
+                    <>
+                      <span>– طي الفروع</span>
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </>
                   )}
-                </button>
+                </div>
               )}
             </div>
           </div>
@@ -1842,22 +2124,16 @@ export const TreeView: React.FC<TreeViewProps> = ({
           {treeRoots.length > 1 && (
             <button
               type="button"
-              onClick={() => {
-                setIsCompareMode(!isCompareMode);
-                if (!compareTreeRootId && treeRoots.length > 1) {
-                  const second = treeRoots.find(r => r.id !== selectedTreeRootId) || treeRoots[1];
-                  if (second) setCompareTreeRootId(second.id);
-                }
-              }}
+              onClick={toggleCompareMode}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border cursor-pointer ${
                 isCompareMode
                   ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm'
                   : 'bg-amber-50 hover:bg-amber-100 text-amber-950 border-amber-300'
               }`}
-              title="عرض أكثر من شجرة في الشاشة جنباً إلى جنب للمقارنة والدمج"
+              title="عرض شجرتين أو أكثر في شاشة واحدة جنباً إلى جنب للمقارنة والدمج"
             >
               <GitMerge className="w-4 h-4 text-amber-900" />
-              <span>{isCompareMode ? 'إغلاق وضع المقارنة' : 'مقارنة شجرتين (شاشة مقسومة)'}</span>
+              <span>{isCompareMode ? 'إغلاق وضع المقارنة' : 'وضع مقارنة الشجرات (عرض متجاور)'}</span>
             </button>
           )}
         </div>
@@ -1951,292 +2227,377 @@ export const TreeView: React.FC<TreeViewProps> = ({
         </div>
       </div>
 
-      {/* Side-by-Side Multi-Tree Comparison Mode Viewport Banner & Split Grid */}
-      {isCompareMode ? (
-        <div className="space-y-4 animate-in fade-in duration-200">
-          {/* Comparison Mode Info Banner */}
-          <div className="p-3.5 sm:p-4 bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 rounded-2xl text-slate-950 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-slate-950 text-amber-400 flex items-center justify-center shrink-0 shadow-sm">
-                <GitMerge className="w-5 h-5" />
-              </div>
-              <div>
+      {/* Side-by-Side Multi-Tree Comparison Mode Top Banner */}
+      {isCompareMode && (
+        <div className="p-3.5 sm:p-4 bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 rounded-2xl text-slate-950 shadow-md flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 animate-in fade-in duration-200">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-slate-950 text-amber-400 flex items-center justify-center shrink-0 shadow-sm">
+              <GitMerge className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
                 <h3 className="text-sm sm:text-base font-black font-display">
                   وضع مقارنة الشجرات (عرض متجاور)
                 </h3>
-                <p className="text-xs font-bold text-slate-900 mt-0.5">
-                  تصفح شجرتين مختلفتين جنبًا إلى جنب مع إمكانية دمج أي جد بالسحب والإفلات المباشر 🎯
-                </p>
+                <span className="px-2 py-0.5 rounded-full bg-slate-950 text-amber-300 text-[11px] font-black">
+                  {comparedRoots.length} شجرات على شاشة واحدة
+                </span>
               </div>
+              <p className="text-xs font-bold text-slate-900 mt-0.5">
+                عرض الشجرات على شاشة واحدة بالأصل الراسخ لكل منها · تحكّم سلس باللمس، التكبير والتصغير وسحب البطاقات للدمج المباشر 🎯
+              </p>
             </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 self-stretch lg:self-auto justify-end">
+            {/* Add another tree button if there are unused roots */}
+            {availableRootsToAdd.length > 0 && (
+              <div className="relative">
+                <select
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      addRootToCompare(e.target.value);
+                    }
+                  }}
+                  className="text-xs font-bold bg-slate-950 text-amber-300 hover:bg-slate-900 border border-amber-400/40 rounded-xl px-3 py-1.5 cursor-pointer focus:outline-none transition shadow-2xs"
+                >
+                  <option value="" disabled>+ إضافة شجرة أخرى للمقارنة</option>
+                  {availableRootsToAdd.map((r) => (
+                    <option key={r.id} value={r.id} className="text-slate-900 bg-white">
+                      {formatDropdownName(r.fullName)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Compare All Roots button (if > 2 roots and not all shown) */}
+            {treeRoots.length > 2 && comparedRoots.length < treeRoots.length && (
+              <button
+                type="button"
+                onClick={compareAllRoots}
+                className="px-3 py-1.5 rounded-xl bg-slate-950/80 hover:bg-slate-950 text-amber-300 text-xs font-bold transition flex items-center gap-1 cursor-pointer border border-amber-400/30"
+                title="عرض جميع أصول الأشجار المسجلة في شاشة واحدة"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>مقارنة الكل ({treeRoots.length})</span>
+              </button>
+            )}
+
+            {/* Fit All on Screen Button */}
             <button
               type="button"
-              onClick={() => setIsCompareMode(false)}
-              className="px-3.5 py-1.5 rounded-xl bg-slate-950 text-amber-400 hover:bg-slate-900 text-xs font-bold transition flex items-center gap-1.5 shrink-0 cursor-pointer shadow-xs"
+              onClick={() => fitTreeToScreen(true)}
+              className="px-3 py-1.5 rounded-xl bg-emerald-950 text-emerald-300 hover:bg-emerald-900 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs border border-emerald-500/30"
+              title="احتواء الشجرات معاً بالكامل داخل الشاشة"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>احتواء الشاشة</span>
+            </button>
+
+            {/* Center Roots Button */}
+            <button
+              type="button"
+              onClick={() => centerOnRoot(true, 1)}
+              className="px-3 py-1.5 rounded-xl bg-slate-950/80 hover:bg-slate-950 text-slate-200 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-slate-700/50"
+              title="العودة للجذور الأصلية وتوسيطها"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+              <span>الجذور الأصلية</span>
+            </button>
+
+            {/* Close button */}
+            <button
+              type="button"
+              onClick={toggleCompareMode}
+              className="px-3.5 py-1.5 rounded-xl bg-slate-950 text-amber-400 hover:bg-slate-900 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               <X className="w-4 h-4" />
               <span>إغلاق المقارنة</span>
             </button>
           </div>
-
-          {/* Split Screen Grid (2 Column Containers) */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Tree Container 1 (Primary Selected Root) */}
-            <div className="bg-white p-3.5 rounded-2xl border-2 border-[#0F4C3A]/30 shadow-sm flex flex-col space-y-3">
-              <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-[#0F4C3A]" />
-                  <span className="text-xs font-black text-slate-800">الشجرة الأولى (أ)</span>
-                </div>
-                <select
-                  value={selectedTreeRootId || ''}
-                  onChange={(e) => setSelectedTreeRootId(e.target.value)}
-                  className="text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
-                >
-                  {treeRoots.map((root) => (
-                    <option key={root.id} value={root.id}>
-                      {formatDropdownName(root.fullName)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Viewport for Tree A */}
-              <div
-                dir="ltr"
-                className="relative w-full h-[520px] overflow-auto rounded-xl border border-slate-200 bg-[#FAF8F5] p-6 flex flex-col items-center justify-center select-none"
-                style={{
-                  backgroundImage: 'radial-gradient(rgba(15, 76, 58, 0.08) 1px, transparent 1px)',
-                  backgroundSize: '20px 20px'
-                }}
-              >
-                {currentRoot ? (
-                  <div dir="rtl" className="w-max">
-                    {renderClassicNode(currentRoot, 1)}
-                  </div>
-                ) : (
-                  <p className="text-xs font-bold text-slate-400">لا توجد شجرة أ</p>
-                )}
-              </div>
-            </div>
-
-            {/* Tree Container 2 (Compare Tree Root) */}
-            <div className="bg-white p-3.5 rounded-2xl border-2 border-amber-400/50 shadow-sm flex flex-col space-y-3">
-              <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-amber-500" />
-                  <span className="text-xs font-black text-slate-800">الشجرة الثانية للمقارنة (ب)</span>
-                </div>
-                <select
-                  value={compareTreeRootId || ''}
-                  onChange={(e) => setCompareTreeRootId(e.target.value)}
-                  className="text-xs font-bold bg-amber-50 border border-amber-200 rounded-xl px-2.5 py-1 text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                >
-                  {treeRoots.map((root) => (
-                    <option key={root.id} value={root.id}>
-                      {formatDropdownName(root.fullName)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Viewport for Tree B */}
-              <div
-                dir="ltr"
-                className="relative w-full h-[520px] overflow-auto rounded-xl border border-amber-200 bg-[#FFFDF9] p-6 flex flex-col items-center justify-center select-none"
-                style={{
-                  backgroundImage: 'radial-gradient(rgba(212, 175, 55, 0.1) 1px, transparent 1px)',
-                  backgroundSize: '20px 20px'
-                }}
-              >
-                {compareRoot ? (
-                  <div dir="rtl" className="w-max">
-                    {renderClassicNode(compareRoot, 1)}
-                  </div>
-                ) : (
-                  <p className="text-xs font-bold text-slate-400">اختر شجرة ثانية للمقارنة</p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* Main Smooth Pan/Zoom Viewport (dir="ltr" for pure screen-space 2D coordinates) */
-        <div
-          ref={containerRef}
-          dir="ltr"
-          onMouseDown={handleMouseDown}
-          onClickCapture={handleCanvasClickCapture}
-          className={`relative w-full h-[72vh] min-h-[500px] sm:h-[780px] overflow-hidden rounded-2xl sm:rounded-3xl border border-slate-200/80 cursor-grab select-none touch-none overscroll-none ${
-            treeDisplayMode === 'organic'
-              ? 'bg-gradient-to-b from-[#F4F9F5] via-[#FBF9F5] to-[#F3ECE1]'
-              : 'bg-[#FAF8F5]'
-          }`}
-          style={{
-            backgroundImage: 'radial-gradient(rgba(15, 76, 58, 0.08) 1px, transparent 1px)',
-            backgroundSize: '24px 24px',
-            touchAction: 'none'
-          }}
-        >
-          {/* Helper overlay hint on top right */}
-          <div
-            dir="rtl"
-            className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 bg-white/95 backdrop-blur-xs px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl border border-slate-200/70 text-[10px] sm:text-[11px] text-slate-600 shadow-2xs pointer-events-none flex items-center gap-1.5"
-          >
-            <Move className="w-3.5 h-3.5 text-[#0F4C3A]" />
-            <span>اسحب للتحريك · قرّب بأصبعين للتكبير</span>
-            <span className="text-[#0F4C3A] font-bold hidden sm:inline">
-              · {treeDisplayMode === 'organic' ? 'الشجرة (جذر وأغصان وتفريعات)' : 'المخطط الهرمي (البطاقات)'}
-            </span>
-          </div>
-
-          {/* Floating Touch-Ergonomic Control Pad on Bottom Left */}
-          <div
-            dir="rtl"
-            className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 z-20 bg-white/95 backdrop-blur-md p-1.5 sm:p-2 rounded-2xl border border-slate-200/80 shadow-md flex items-center gap-1 sm:gap-1.5"
-          >
-            {/* Zoom In */}
-            <button
-              type="button"
-              onClick={() => handleStepZoom(0.2)}
-              className="w-8 h-8 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center transition cursor-pointer"
-              title="تكبير الشجرة"
-              aria-label="تكبير"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-
-            {/* Zoom Out */}
-            <button
-              type="button"
-              onClick={() => handleStepZoom(-0.2)}
-              className="w-8 h-8 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center transition cursor-pointer"
-              title="تصغير الشجرة"
-              aria-label="تصغير"
-            >
-              <Minus className="w-4 h-4" />
-            </button>
-
-            <div className="h-5 w-px bg-slate-200 mx-0.5" />
-
-            {/* Fit entire tree to screen */}
-            <button
-              type="button"
-              onClick={() => fitTreeToScreen(true)}
-              className="h-8 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-[#0F4C3A] text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
-              title="احتواء الشجرة كاملة داخل الشاشة"
-              aria-label="احتواء الشجرة"
-            >
-              <Maximize2 className="w-3.5 h-3.5" />
-              <span>احتواء</span>
-            </button>
-
-            {/* Center Root */}
-            <button
-              type="button"
-              onClick={() => centerOnRoot(true, 1)}
-              className="h-8 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-900 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
-              title="توسيط الأصل"
-              aria-label="توسيط الجد أو الأصل"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span className="hidden xs:inline">الأصل</span>
-            </button>
-
-            {/* Directional Nudge Pad (hidden on small phone screens) */}
-            <div className="hidden sm:flex items-center gap-0.5 border-r border-slate-200 pr-1 mr-0.5">
-              <button
-                type="button"
-                onClick={() => handleDirectionalPan(0, 140)}
-                className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-                title="تحريك للأعلى"
-              >
-                <ArrowUp className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDirectionalPan(0, -140)}
-                className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-                title="تحريك للأسفل"
-              >
-                <ArrowDown className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDirectionalPan(-160, 0)}
-                className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-                title="تحريك لليمين"
-              >
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDirectionalPan(160, 0)}
-                className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-                title="تحريك لليسار"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Legend for Organic Tree Mode */}
-          {treeDisplayMode === 'organic' && (
-            <div
-              dir="rtl"
-              className="absolute bottom-4 right-4 z-20 bg-white/90 backdrop-blur-xs px-3 py-2 rounded-xl border border-slate-200/80 text-[10px] text-slate-700 shadow-2xs pointer-events-none hidden sm:flex flex-wrap items-center gap-3"
-            >
-              <span className="flex items-center gap-1 font-bold text-[#4A2C11]">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#5C3A21] border border-[#D4AF37]" />
-                <span>الجذر (الأصل)</span>
-              </span>
-              <span className="flex items-center gap-1 font-bold text-[#2D5A3C]">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#6E4726]" />
-                <span>غصن متفرع</span>
-              </span>
-              <span className="flex items-center gap-1 font-bold text-[#0F4C3A]">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
-                <span>تفريع / ابن (ذكر)</span>
-              </span>
-              <span className="flex items-center gap-1 font-bold text-rose-800">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                <span>تفريع / ابنة (أنثى)</span>
-              </span>
-            </div>
-          )}
-
-          {/* GPU-Accelerated Transform Layer (0,0 origin for exact focal zoom & smooth panning) */}
-          <div
-            ref={transformLayerRef}
-            className="absolute top-0 left-0 origin-top-left"
-            style={{
-              willChange: 'transform',
-              transform: 'translate3d(0px, 0px, 0) scale(1)',
-              backfaceVisibility: 'hidden'
-            }}
-          >
-            <div
-              ref={contentBoxRef}
-              dir="rtl"
-              className="w-max p-12 flex flex-col items-center justify-center"
-            >
-              {currentRoot ? (
-                treeDisplayMode === 'classic' ? (
-                  renderClassicNode(currentRoot, 1)
-                ) : (
-                  renderOrganicTree()
-                )
-              ) : (
-                <div className="text-center py-24 px-12 text-slate-400">
-                  <TreeDeciduous className="w-12 h-12 mx-auto mb-2 opacity-50 text-[#0F4C3A]" />
-                  <p className="text-sm font-semibold">لا توجد شجرة مسجلة بعد</p>
-                  <p className="text-xs mt-1">ابدأ بإضافة الجد الأول للشجرة</p>
-                </div>
-              )}
-            </div>
-          </div>
         </div>
       )}
+
+      {/* Main Smooth Pan/Zoom Viewport (dir="ltr" for pure screen-space 2D coordinates) */}
+      <div
+        ref={containerRef}
+        dir="ltr"
+        onMouseDown={handleMouseDown}
+        onClickCapture={handleCanvasClickCapture}
+        className={`relative w-full h-[72vh] min-h-[500px] sm:h-[780px] overflow-hidden rounded-2xl sm:rounded-3xl border border-slate-200/80 cursor-grab select-none touch-none overscroll-none ${
+          treeDisplayMode === 'organic' && !isCompareMode
+            ? 'bg-gradient-to-b from-[#F4F9F5] via-[#FBF9F5] to-[#F3ECE1]'
+            : 'bg-[#FAF8F5]'
+        }`}
+        style={{
+          backgroundImage: 'radial-gradient(rgba(15, 76, 58, 0.08) 1px, transparent 1px)',
+          backgroundSize: '24px 24px',
+          touchAction: 'none'
+        }}
+      >
+        {/* Helper overlay hint on top right */}
+        <div
+          dir="rtl"
+          className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 bg-white/95 backdrop-blur-xs px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl border border-slate-200/70 text-[10px] sm:text-[11px] text-slate-600 shadow-2xs pointer-events-none flex items-center gap-1.5"
+        >
+          {isCompareMode ? (
+            <>
+              <GitMerge className="w-3.5 h-3.5 text-amber-700" />
+              <span>اسحب للتحريك · قرّب بأصبعين للتكبير · مقارنة {comparedRoots.length} شجرات معاً</span>
+            </>
+          ) : (
+            <>
+              <Move className="w-3.5 h-3.5 text-[#0F4C3A]" />
+              <span>اسحب للتحريك · قرّب بأصبعين للتكبير</span>
+              <span className="text-[#0F4C3A] font-bold hidden sm:inline">
+                · {treeDisplayMode === 'organic' ? 'الشجرة (جذر وأغصان وتفريعات)' : 'المخطط الهرمي (البطاقات)'}
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Floating Touch-Ergonomic Control Pad on Bottom Left */}
+        <div
+          dir="rtl"
+          className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 z-20 bg-white/95 backdrop-blur-md p-1.5 sm:p-2 rounded-2xl border border-slate-200/80 shadow-md flex items-center gap-1 sm:gap-1.5"
+        >
+          {/* Zoom In */}
+          <button
+            type="button"
+            onClick={() => handleStepZoom(0.2)}
+            className="w-8 h-8 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center transition cursor-pointer"
+            title="تكبير الشجرة"
+            aria-label="تكبير"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+
+          {/* Zoom Out */}
+          <button
+            type="button"
+            onClick={() => handleStepZoom(-0.2)}
+            className="w-8 h-8 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center transition cursor-pointer"
+            title="تصغير الشجرة"
+            aria-label="تصغير"
+          >
+            <Minus className="w-4 h-4" />
+          </button>
+
+          <div className="h-5 w-px bg-slate-200 mx-0.5" />
+
+          {/* Fit entire tree to screen */}
+          <button
+            type="button"
+            onClick={() => fitTreeToScreen(true)}
+            className="h-8 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-[#0F4C3A] text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+            title={isCompareMode ? 'احتواء الشجرات معاً داخل الشاشة' : 'احتواء الشجرة كاملة داخل الشاشة'}
+            aria-label="احتواء الشجرة"
+          >
+            <Maximize2 className="w-3.5 h-3.5" />
+            <span>احتواء</span>
+          </button>
+
+          {/* Center Root */}
+          <button
+            type="button"
+            onClick={() => centerOnRoot(true, 1)}
+            className="h-8 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-900 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+            title={isCompareMode ? 'توسيط الجذور الأصلية' : 'توسيط الأصل'}
+            aria-label="توسيط الجد أو الأصل"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span className="hidden xs:inline">الأصل</span>
+          </button>
+
+          {/* Directional Nudge Pad (hidden on small phone screens) */}
+          <div className="hidden sm:flex items-center gap-0.5 border-r border-slate-200 pr-1 mr-0.5">
+            <button
+              type="button"
+              onClick={() => handleDirectionalPan(0, 140)}
+              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
+              title="تحريك للأعلى"
+            >
+              <ArrowUp className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDirectionalPan(0, -140)}
+              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
+              title="تحريك للأسفل"
+            >
+              <ArrowDown className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDirectionalPan(-160, 0)}
+              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
+              title="تحريك لليمين"
+            >
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDirectionalPan(160, 0)}
+              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
+              title="تحريك لليسار"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Legend for Organic Tree Mode */}
+        {!isCompareMode && treeDisplayMode === 'organic' && (
+          <div
+            dir="rtl"
+            className="absolute bottom-4 right-4 z-20 bg-white/90 backdrop-blur-xs px-3 py-2 rounded-xl border border-slate-200/80 text-[10px] text-slate-700 shadow-2xs pointer-events-none hidden sm:flex flex-wrap items-center gap-3"
+          >
+            <span className="flex items-center gap-1 font-bold text-[#4A2C11]">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#5C3A21] border border-[#D4AF37]" />
+              <span>الجذر (الأصل)</span>
+            </span>
+            <span className="flex items-center gap-1 font-bold text-[#2D5A3C]">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#6E4726]" />
+              <span>غصن متفرع</span>
+            </span>
+            <span className="flex items-center gap-1 font-bold text-[#0F4C3A]">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
+              <span>تفريع / ابن (ذكر)</span>
+            </span>
+            <span className="flex items-center gap-1 font-bold text-rose-800">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+              <span>تفريع / ابنة (أنثى)</span>
+            </span>
+          </div>
+        )}
+
+        {/* GPU-Accelerated Transform Layer (0,0 origin for exact focal zoom & smooth panning) */}
+        <div
+          ref={transformLayerRef}
+          className="absolute top-0 left-0 origin-top-left"
+          style={{
+            willChange: 'transform',
+            transform: 'translate3d(0px, 0px, 0) scale(1)',
+            backfaceVisibility: 'hidden'
+          }}
+        >
+          <div
+            ref={contentBoxRef}
+            dir="rtl"
+            className="w-max p-12 flex flex-col items-center justify-center"
+          >
+            {isCompareMode ? (
+              <div className="flex flex-col items-center gap-8">
+                {/* All compared trees laid out side-by-side in one unified canvas */}
+                <div className="flex flex-row items-start justify-center gap-12 sm:gap-20">
+                  {comparedRoots.map((root, index) => {
+                    const theme = COMPARE_THEMES[index % COMPARE_THEMES.length];
+                    const stats = getTreeStats(root.id);
+                    return (
+                      <React.Fragment key={root.id}>
+                        <div
+                          id={`tree-column-${root.id}`}
+                          className="flex flex-col items-center shrink-0"
+                        >
+                          {/* Sleek Root Header Card */}
+                          <div className={`mb-8 p-3.5 sm:p-4 rounded-2xl border-2 ${theme.border} ${theme.lightBg} shadow-lg w-[320px] sm:w-[360px] text-right flex flex-col gap-2.5`}>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2.5 py-0.5 rounded-lg text-[11px] font-black ${theme.badgeBg} text-white shadow-xs`}>
+                                  {theme.label}
+                                </span>
+                                <span className="text-xs font-black text-slate-800 flex items-center gap-1">
+                                  <Crown className="w-3.5 h-3.5 text-amber-500" />
+                                  <span>الأصل الراسخ</span>
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => centerOnSpecificRoot(root.id)}
+                                  className="p-1 px-2 rounded-lg bg-white/90 hover:bg-white text-slate-700 hover:text-slate-900 border border-slate-200 text-[10px] font-bold flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                                  title="توسيط هذه الشجرة"
+                                >
+                                  <RotateCcw className="w-3 h-3 text-amber-600" />
+                                  <span>توسيط</span>
+                                </button>
+                                {compareRootIds.length > 2 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeRootFromCompare(root.id)}
+                                    className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                                    title="إزالة هذه الشجرة من المقارنة"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={root.id}
+                                onChange={(e) => changeCompareRoot(index, e.target.value)}
+                                className="text-xs font-bold bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A] w-full cursor-pointer shadow-2xs"
+                              >
+                                {treeRoots.map((r) => (
+                                  <option key={r.id} value={r.id}>
+                                    {formatDropdownName(r.fullName)}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Stats badge */}
+                            <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 pt-1.5 border-t border-slate-200/60">
+                              <span className="flex items-center gap-1">
+                                <User className="w-3 h-3 text-slate-400" />
+                                <span>{stats.count} فرداً مسجلاً</span>
+                              </span>
+                              <span>{stats.generations} أجيال متعاقبة</span>
+                            </div>
+                          </div>
+
+                          {/* Render Tree Starting from Original Root */}
+                          <div className="w-max">
+                            {renderClassicNode(root, 1)}
+                          </div>
+                        </div>
+
+                        {/* Divider between trees */}
+                        {index < comparedRoots.length - 1 && (
+                          <div className="self-stretch flex flex-col items-center justify-center px-2 select-none pointer-events-none">
+                            <div className="h-full w-0.5 bg-gradient-to-b from-transparent via-amber-400/40 to-transparent border-r-2 border-dashed border-amber-400/40" />
+                            <div className="my-auto py-2.5 px-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-950 text-[11px] font-black whitespace-nowrap shadow-xs backdrop-blur-xs flex items-center gap-1.5">
+                              <GitMerge className="w-3.5 h-3.5 text-amber-700" />
+                              <span>مقارنة وسحب للدمج</span>
+                            </div>
+                            <div className="h-full w-0.5 bg-gradient-to-b from-transparent via-amber-400/40 to-transparent border-r-2 border-dashed border-amber-400/40" />
+                          </div>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : currentRoot ? (
+              treeDisplayMode === 'classic' ? (
+                renderClassicNode(currentRoot, 1)
+              ) : (
+                renderOrganicTree()
+              )
+            ) : (
+              <div className="text-center py-24 px-12 text-slate-400">
+                <TreeDeciduous className="w-12 h-12 mx-auto mb-2 opacity-50 text-[#0F4C3A]" />
+                <p className="text-sm font-semibold">لا توجد شجرة مسجلة بعد</p>
+                <p className="text-xs mt-1">ابدأ بإضافة الجد الأول للشجرة</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Confirm Drag & Drop Merge Modal */}
       {confirmMergeDrag && (

@@ -302,8 +302,12 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         {/* If not authenticated as Admin: Show Passcode Challenge */}
         {!isAdmin ? (
           <form onSubmit={handleLogin} className="p-5 sm:p-8 max-w-md w-full mx-auto space-y-5 text-center overflow-y-auto">
-            <div className="w-12 h-12 rounded-2xl bg-[#0F4C3A]/10 text-[#0F4C3A] flex items-center justify-center mx-auto">
-              <Key className="w-6 h-6 text-[#D4AF37]" />
+            <div className="flex flex-col items-center gap-2 mx-auto">
+              <img
+                src="/tree-logo.png"
+                alt="شعار شجرة العائلة"
+                className="w-16 h-16 rounded-2xl object-contain shadow-md border border-[#D4AF37]/50 p-0.5 bg-[#0F4C3A]"
+              />
             </div>
 
             <div>
