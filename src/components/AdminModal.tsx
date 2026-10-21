@@ -801,8 +801,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 جلسة المشرف نشطة وآمنة
               </span>
               <button
-                onClick={onLogout}
-                className="min-h-[34px] px-2.5 py-1 rounded-lg text-red-600 hover:bg-red-50 font-semibold transition"
+                onClick={() => {
+                  onLogout();
+                  onClose();
+                }}
+                className="min-h-[34px] px-2.5 py-1 rounded-lg text-red-600 hover:bg-red-50 font-semibold transition cursor-pointer"
               >
                 تسجيل الخروج من وضع المشرف
               </button>

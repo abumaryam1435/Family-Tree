@@ -17,7 +17,9 @@ import {
 import { Person } from '../types/family';
 import {
   advancedArabicMatch,
-  comparePersonsMalesFirstAlphabetical
+  comparePersonsMalesFirstAlphabetical,
+  formatAppName,
+  formatBranchName
 } from '../utils/nameUtils';
 import { exportMembersListToPdf } from '../utils/pdfExport';
 
@@ -236,7 +238,7 @@ export const MembersList: React.FC<MembersListProps> = ({
                           onClick={() => onSelectPerson(person.id)}
                           className="text-sm sm:text-base font-bold text-slate-900 group-hover:text-[#0F4C3A] hover:underline transition text-right break-words leading-snug cursor-pointer"
                         >
-                          {person.fullName}
+                          {formatAppName(person.fullName)}
                         </button>
                         <span
                           className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${
@@ -249,36 +251,31 @@ export const MembersList: React.FC<MembersListProps> = ({
                         </span>
                         {person.gender === 'female' && person.husbandName && (
                           <span className="text-[11px] text-rose-800 bg-rose-50 border border-rose-200/80 px-2 py-0.5 rounded-md font-medium break-words">
-                            زوجة: {person.husbandName}
+                            زوجة: {formatAppName(person.husbandName)}
                           </span>
                         )}
                       </div>
 
-                      {/* Branches / Children Preview so branch names fit mobile screens cleanly */}
+                      {/* Branches / Children Preview — First Name Only */}
                       {children.length > 0 && (
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           <span className="text-[11px] font-bold text-[#0F4C3A] bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/70">
                             الفروع ({children.length}):
                           </span>
-                          {children.slice(0, 5).map((child) => (
+                          {children.map((child) => (
                             <button
                               key={child.id}
                               type="button"
                               onClick={() => onSelectPerson(child.id)}
-                              className="text-[11px] font-bold px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-emerald-50 text-slate-800 hover:text-[#0F4C3A] transition break-words text-right cursor-pointer"
+                              className={`text-[11px] font-bold px-2.5 py-0.5 rounded-lg border transition break-words text-right cursor-pointer ${
+                                child.gender === 'male'
+                                  ? 'bg-slate-100 hover:bg-emerald-50 text-slate-800 hover:text-[#0F4C3A] border-slate-200/70'
+                                  : 'bg-rose-50/70 hover:bg-rose-100 text-rose-800 border-rose-200/70'
+                              }`}
                             >
-                              {child.fullName}
+                              {formatBranchName(child.fullName)}
                             </button>
                           ))}
-                          {children.length > 5 && (
-                            <button
-                              type="button"
-                              onClick={() => onSelectPerson(person.id)}
-                              className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-slate-50 text-slate-500 hover:text-[#0F4C3A]"
-                            >
-                              +{children.length - 5} فروع أخرى
-                            </button>
-                          )}
                         </div>
                       )}
 
@@ -286,9 +283,9 @@ export const MembersList: React.FC<MembersListProps> = ({
                       <div className="text-xs text-slate-600 mt-1.5 flex flex-wrap items-center gap-2 break-words leading-relaxed">
                         {father ? (
                           <span>
-                            الأب: <strong>{father.fullName}</strong>
+                            الأب: <strong>{formatAppName(father.fullName)}</strong>
                             {grandfather && (
-                              <> · الجد: <strong>{grandfather.fullName}</strong></>
+                              <> · الجد: <strong>{formatAppName(grandfather.fullName)}</strong></>
                             )}
                           </span>
                         ) : (

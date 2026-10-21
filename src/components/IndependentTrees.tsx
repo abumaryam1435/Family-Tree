@@ -1,6 +1,7 @@
 import React from 'react';
 import { TreeDeciduous, GitMerge, Users, ChevronLeft, Plus, Info, Layers, ArrowUp } from 'lucide-react';
 import { Person } from '../types/family';
+import { formatAppName } from '../utils/nameUtils';
 
 interface IndependentTreesProps {
   treeRoots: Person[];
@@ -91,7 +92,7 @@ export const IndependentTrees: React.FC<IndependentTreesProps> = ({
                 </div>
 
                 <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1 break-words leading-snug">
-                  {root.fullName}
+                  {formatAppName(root.fullName)}
                 </h3>
 
                 {root.notes && (
@@ -133,7 +134,7 @@ export const IndependentTrees: React.FC<IndependentTreesProps> = ({
                     type="button"
                     onClick={() => onOpenAddFather(root.id)}
                     className="min-h-[40px] flex items-center justify-center gap-1 px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F4C3A] border border-emerald-200 text-xs font-bold transition cursor-pointer"
-                    title={`إضافة أصل أعلى (أب / جد) فوق ${root.fullName}`}
+                    title={`إضافة أصل أعلى (أب / جد) فوق ${formatAppName(root.fullName)}`}
                   >
                     <ArrowUp className="w-3.5 h-3.5 shrink-0" />
                     <span>+ إضافة أصل لهذا الأصل</span>

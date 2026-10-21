@@ -1,6 +1,6 @@
 {
   "name": "شجرة العائلة",
-  "description": "تطبيق احترافي متكامل لإدارة واستعراض شجرة العائلة والأنساب العربية مع دعم التعديل الجماعي ودمج الأشجار وقفل المشرف.",
+  "description": "شجرة العائلة",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

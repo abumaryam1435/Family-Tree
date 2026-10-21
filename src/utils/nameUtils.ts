@@ -33,6 +33,27 @@ export function generateChildFullName(
 }
 
 /**
+ * Splits a single name segment (without بن/بنت) into logical Arabic name units,
+ * keeping compound prefixes (عبد، أبو، ابو، أم، ام، آل) attached to the following word.
+ */
+function splitIntoArabicNameUnits(segment: string): string[] {
+  const words = segment.trim().split(/\s+/).filter(Boolean);
+  const units: string[] = [];
+  let i = 0;
+  while (i < words.length) {
+    const w = words[i];
+    if (/^(عبد|أبو|ابو|أم|ام|آل)$/i.test(w) && i + 1 < words.length) {
+      units.push(`${w} ${words[i + 1]}`);
+      i += 2;
+    } else {
+      units.push(w);
+      i += 1;
+    }
+  }
+  return units;
+}
+
+/**
  * Extracts the person's own given name (الاسم الشخصي الأول) before any patronymic connector (بن / بنت / ابن).
  * Example: "محمد بن زاهر بن سعيد" -> "محمد"
  * Example: "فاطمة بنت محمد بن زاهر" -> "فاطمة"
@@ -41,8 +62,62 @@ export function generateChildFullName(
 export function extractGivenName(fullName: string): string {
   const trimmed = (fullName || '').trim().replace(/^(ابن|بن|بنت)\s+/i, '');
   if (!trimmed) return '';
-  const parts = trimmed.split(/\s+(?:بن|بنت|ابن)\s+/i);
-  return (parts[0] || trimmed).trim();
+  if (/\s+(?:بن|بنت|ابن)\s+/i.test(trimmed)) {
+    const parts = trimmed.split(/\s+(?:بن|بنت|ابن)\s+/i);
+    return (parts[0] || trimmed).trim();
+  }
+  const units = splitIntoArabicNameUnits(trimmed);
+  return units[0] || trimmed;
+}
+
+/**
+ * Formats a full lineage name to display up to `maxNames` names.
+ * - maxNames = 1 -> First name only (الاسم الأول فقط، مثل: "محمد" أو "عبد الله")
+ * - maxNames = 4 -> Up to 4 names for general app display (مثل: "محمد بن زاهر بن سعيد بن راشد")
+ * - maxNames = 5 -> Up to 5 names for dropdowns/selectors (مثل: "محمد بن زاهر بن سعيد بن راشد بن عبدالله")
+ */
+export function formatNameWithLimit(fullName: string, maxNames: number = 4): string {
+  const trimmed = (fullName || '').trim().replace(/^(ابن|بن|بنت)\s+/i, '');
+  if (!trimmed) return '';
+  if (maxNames <= 1) {
+    return extractGivenName(trimmed);
+  }
+
+  // If the name uses patronymic connectors (بن / بنت / ابن)
+  const tokens = trimmed.split(/\s+(بن|بنت|ابن)\s+/i);
+  if (tokens.length > 1) {
+    // tokens structure: [name1, conn1, name2, conn2, name3, ...]
+    const maxTokens = maxNames * 2 - 1;
+    return tokens.slice(0, maxTokens).join(' ').trim();
+  }
+
+  // Fallback if no بن/بنت connectors exist: take up to maxNames logical name units
+  const units = splitIntoArabicNameUnits(trimmed);
+  return units.slice(0, maxNames).join(' ');
+}
+
+/**
+ * Formats a person's name for general display across the application (4 names max).
+ */
+export function formatAppName(fullName?: string | null): string {
+  if (!fullName) return '';
+  return formatNameWithLimit(fullName, 4);
+}
+
+/**
+ * Formats a branch/child name (son or daughter) to show ONLY the first name (الاسم الأول فقط).
+ */
+export function formatBranchName(fullName?: string | null): string {
+  if (!fullName) return '';
+  return extractGivenName(fullName);
+}
+
+/**
+ * Formats a person's name for dropdowns and selection lists (such as choosing a husband for a woman) — up to 5 names.
+ */
+export function formatDropdownName(fullName?: string | null): string {
+  if (!fullName) return '';
+  return formatNameWithLimit(fullName, 5);
 }
 
 /**

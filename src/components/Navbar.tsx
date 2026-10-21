@@ -1,5 +1,4 @@
-import React from 'react';
-import { GitFork, Users, Search, Settings, ShieldCheck, Lock, Unlock, Sparkles, Plus } from 'lucide-react';
+import { GitFork, Users, Search, Settings, ShieldCheck, Lock, Unlock, Sparkles, Plus, LogOut } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface NavbarProps {
@@ -7,6 +6,7 @@ interface NavbarProps {
   setActiveTab: (tab: 'home' | 'tree' | 'lineage' | 'kinship' | 'list' | 'trees' | 'requests') => void;
   onOpenAddModal: () => void;
   onOpenAdminModal: () => void;
+  onLogout?: () => void;
   editingEnabled: boolean;
   isAdmin: boolean;
   onOpenSearch?: () => void;
@@ -17,6 +17,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   onOpenAddModal,
   onOpenAdminModal,
+  onLogout,
   isAdmin,
 }) => {
   const navItems: { id: 'home' | 'tree' | 'lineage' | 'kinship' | 'list' | 'trees'; label: string }[] = [
@@ -111,6 +112,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="sm:hidden">{isAdmin ? 'المشرف' : 'لوحة التحكم'}</span>
               <span className="hidden sm:inline">{isAdmin ? 'لوحة التحكم (المشرف)' : 'لوحة التحكم'}</span>
             </button>
+
+            {/* Quick Admin Logout Button */}
+            {isAdmin && onLogout && (
+              <button
+                onClick={onLogout}
+                className="min-h-[38px] flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold transition whitespace-nowrap cursor-pointer shadow-2xs"
+                title="تسجيل الخروج من وضع المشرف والعودة للصفحة الرئيسية"
+                aria-label="تسجيل خروج المشرف"
+              >
+                <LogOut className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">خروج المشرف</span>
+              </button>
+            )}
           </div>
         </div>
 

@@ -15,7 +15,10 @@ import {
 import { Person } from '../types/family';
 import {
   advancedArabicMatch,
-  comparePersonsMalesFirstAlphabetical
+  comparePersonsMalesFirstAlphabetical,
+  formatAppName,
+  formatBranchName,
+  formatDropdownName
 } from '../utils/nameUtils';
 
 interface LineageViewProps {
@@ -111,7 +114,7 @@ export const LineageView: React.FC<LineageViewProps> = ({
                   }}
                   className="w-full text-right p-2.5 hover:bg-slate-50 active:bg-slate-100 rounded-xl text-xs sm:text-sm font-bold text-slate-800 flex items-center justify-between gap-2"
                 >
-                  <span className="break-words leading-snug">{p.fullName}</span>
+                  <span className="break-words leading-snug">{formatDropdownName(p.fullName)}</span>
                   <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 shrink-0">
                     {p.gender === 'male' ? 'ذكر' : 'أنثى'}
                   </span>
@@ -145,7 +148,7 @@ export const LineageView: React.FC<LineageViewProps> = ({
         <div className="mt-3 sm:mt-4 flex flex-wrap items-center justify-center gap-2 sm:gap-4 text-xs text-slate-300">
           <span>الجيل المسجل: {ancestors.length + 1}</span>
           <span>·</span>
-          <span className="break-words">الأصل: {ancestors[ancestors.length - 1]?.fullName || activePerson.fullName}</span>
+          <span className="break-words">الأصل: {formatAppName(ancestors[ancestors.length - 1]?.fullName || activePerson.fullName)}</span>
         </div>
       </div>
 
@@ -177,11 +180,11 @@ export const LineageView: React.FC<LineageViewProps> = ({
                 >
                   <div className="min-w-0 flex-1">
                     <span className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-[#0F4C3A] block break-words leading-snug">
-                      {child.fullName}
+                      {formatBranchName(child.fullName)}
                     </span>
                     <span className="text-[11px] text-slate-500 mt-1 block break-words">
                       {child.gender === 'male' ? 'ابن' : 'ابنة'}
-                      {child.gender === 'female' && child.husbandName ? ` · زوجة ${child.husbandName}` : ''}
+                      {child.gender === 'female' && child.husbandName ? ` · زوجة: ${formatAppName(child.husbandName)}` : ''}
                     </span>
                   </div>
                   <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-[#0F4C3A] shrink-0 transition" />
@@ -212,12 +215,12 @@ export const LineageView: React.FC<LineageViewProps> = ({
                   </span>
                   {activePerson.gender === 'female' && activePerson.husbandName && (
                     <span className="text-xs text-rose-700 font-bold break-words">
-                      زوجة: {activePerson.husbandName}
+                      زوجة: {formatAppName(activePerson.husbandName)}
                     </span>
                   )}
                 </div>
                 <h4 className="text-sm sm:text-base font-bold text-slate-900 break-words leading-snug">
-                  {activePerson.fullName}
+                  {formatAppName(activePerson.fullName)}
                 </h4>
                 {activePerson.notes && (
                   <p className="text-xs text-slate-600 mt-1 break-words">{activePerson.notes}</p>
@@ -252,7 +255,7 @@ export const LineageView: React.FC<LineageViewProps> = ({
                     </span>
                   </div>
                   <h4 className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-[#0F4C3A] transition break-words leading-snug">
-                    {anc.fullName}
+                    {formatAppName(anc.fullName)}
                   </h4>
                   {anc.notes && (
                     <p className="text-xs text-slate-500 mt-1 line-clamp-2 break-words">{anc.notes}</p>

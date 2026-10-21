@@ -14,9 +14,9 @@ export default defineConfig(() => {
         includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
         manifest: {
           id: '/',
-          name: 'شجرة العائلة',
-          short_name: 'شجرة العائلة',
-          description: 'تطبيق احترافي متكامل لإدارة واستعراض شجرة العائلة والأنساب العربية مع دعم التعديل الجماعي ودمج الأشجار وقفل المشرف.',
+          name: 'العائلة',
+          short_name: 'العائلة',
+          description: 'شجرة العائلة',
           theme_color: '#0F4C3A',
           background_color: '#FBF9F5',
           display: 'standalone',
@@ -92,7 +92,6 @@ export default defineConfig(() => {
     },
     server: {
       hmr: false,
-      ws: false,
       watch: null,
     },
   };

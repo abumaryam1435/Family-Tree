@@ -22,7 +22,10 @@ import {
   extractGivenName,
   splitLineageChain,
   rebuildChildFullName,
-  comparePersonsMalesFirstAlphabetical
+  comparePersonsMalesFirstAlphabetical,
+  formatAppName,
+  formatBranchName,
+  formatDropdownName
 } from '../utils/nameUtils';
 
 interface AddFatherModalProps {
@@ -135,7 +138,7 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
   // Filterable list of all persons in case admin wants to pick another Son/Father to move with his branches
   const switchableBranches = useMemo(() => {
     const q = branchSearch.trim();
-    const list = persons.filter(p => (q ? advancedArabicMatch(p.fullName, q, [p.notes]) : true));
+    const list = persons.filter(p => (q ? advancedArabicMatch(p.fullName, q, p.notes ? [p.notes] : []) : true));
     return list.sort(comparePersonsMalesFirstAlphabetical).slice(0, 25);
   }, [persons, branchSearch]);
 
@@ -152,11 +155,11 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
       });
     }
     return males
-      .filter(p => advancedArabicMatch(p.fullName, q, [p.notes]))
+      .filter(p => advancedArabicMatch(p.fullName, q, p.notes ? [p.notes] : []))
       .sort((a, b) => {
         const scoreDiff =
-          scoreArabicMatch(b.fullName, q, [b.notes]) -
-          scoreArabicMatch(a.fullName, q, [a.notes]);
+          scoreArabicMatch(b.fullName, q, b.notes ? [b.notes] : []) -
+          scoreArabicMatch(a.fullName, q, a.notes ? [a.notes] : []);
         if (scoreDiff !== 0) return scoreDiff;
         const aIsRoot = treeRootIds.has(a.id) ? 1 : 0;
         const bIsRoot = treeRootIds.has(b.id) ? 1 : 0;
@@ -501,7 +504,7 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                           : 'hover:bg-slate-50 text-slate-800'
                       }`}
                     >
-                      <span className="leading-snug break-words flex-1">{item.fullName}</span>
+                      <span className="leading-snug break-words flex-1">{formatDropdownName(item.fullName)}</span>
                       <span className="text-[10px] opacity-75 shrink-0">
                         {treeRootIds.has(item.id) ? 'أصل شجرة' : 'فرع في الشجرة'}
                       </span>
@@ -559,7 +562,7 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
             <div className="p-3 sm:p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-2.5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <strong className="leading-snug break-words">
-                  الأب المسجل حالياً لـ «{extractGivenName(person.fullName)}» هو: ({currentFather.fullName})
+                  الأب المسجل حالياً لـ «{extractGivenName(person.fullName)}» هو: ({formatAppName(currentFather.fullName)})
                 </strong>
                 {onSelectTargetPerson && (
                   <button
@@ -567,7 +570,7 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                     onClick={() => onSelectTargetPerson(currentFather)}
                     className="min-h-[34px] px-3 py-1.5 rounded-xl bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-bold text-[11px] transition leading-snug break-words text-center"
                   >
-                    الانتقال لإضافة جد فوق ({currentFather.fullName})
+                    الانتقال لإضافة جد فوق ({formatAppName(currentFather.fullName)})
                   </button>
                 )}
               </div>
@@ -589,7 +592,7 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                     onChange={() => setKeepCurrentFatherAsTop(true)}
                     className="mt-0.5 text-[#0F4C3A]"
                   />
-                  <span className="leading-snug">إدراج الأب/الجد الجديد بين ({extractGivenName(person.fullName)}) وبين ({currentFather.fullName})</span>
+                  <span className="leading-snug">إدراج الأب/الجد الجديد بين ({extractGivenName(person.fullName)}) وبين ({formatAppName(currentFather.fullName)})</span>
                 </label>
               </div>
             </div>
@@ -751,7 +754,7 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                             : 'hover:bg-slate-50 text-slate-800'
                         }`}
                       >
-                        <span className="leading-snug break-words flex-1">{cand.fullName}</span>
+                        <span className="leading-snug break-words flex-1">{formatDropdownName(cand.fullName)}</span>
                         <span
                           className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
                             isSelected

@@ -1,7 +1,9 @@
 import { Person } from '../types/family';
 import {
   comparePersonsMalesFirstAlphabetical,
-  sortPersonsMalesFirstAlphabetical
+  sortPersonsMalesFirstAlphabetical,
+  formatAppName,
+  extractGivenName
 } from './nameUtils';
 
 export interface KinshipInfo {
@@ -156,12 +158,12 @@ export function calculateKinship(personId: string, persons: Person[]): KinshipIn
       const hPerson = map.get(target.husbandId) || null;
       spouse = {
         person: hPerson,
-        name: hPerson ? hPerson.fullName : (target.husbandName || 'غير محدد')
+        name: hPerson ? formatAppName(hPerson.fullName) : formatAppName(target.husbandName || 'غير محدد')
       };
     } else if (target.husbandName) {
       spouse = {
         person: null,
-        name: target.husbandName
+        name: formatAppName(target.husbandName)
       };
     }
   } else {
@@ -171,7 +173,7 @@ export function calculateKinship(personId: string, persons: Person[]): KinshipIn
     if (wives.length > 0) {
       spouse = {
         person: wives[0],
-        name: wives.map(w => w.fullName).join('، ')
+        name: wives.map(w => formatAppName(w.fullName)).join('، ')
       };
     }
   }
@@ -378,7 +380,7 @@ export function getCoupleRelationship(
       relationToHusband: 'أحد رجال العائلة',
       relationToWife: 'زوجته من العائلة',
       commonAncestor: null,
-      description: `زوجها هو ${husband.fullName} (أحد رجال العائلة)`
+      description: `زوجها هو ${formatAppName(husband.fullName)} (أحد رجال العائلة)`
     };
   }
 
@@ -431,9 +433,11 @@ export function getCoupleRelationship(
       relationToHusband: 'من رجال العائلة',
       relationToWife: 'من نساء العائلة',
       commonAncestor: null,
-      description: `زوجها هو ${husband.fullName} (ينتسب لفرع آخر أو شجرة مستقلة في العائلة)`
+      description: `زوجها هو ${formatAppName(husband.fullName)} (ينتسب لفرع آخر أو شجرة مستقلة في العائلة)`
     };
   }
+
+  const lcaShort = formatAppName(commonAncestor.fullName);
 
   // 1. Same father (distFemale = 1, distHusband = 1) -> Siblings
   if (distFemale === 1 && distHusband === 1) {
@@ -441,7 +445,7 @@ export function getCoupleRelationship(
       relationToHusband: 'أخوها (نفس الأب)',
       relationToWife: 'أخته',
       commonAncestor,
-      description: `يشتركان في الأب (${commonAncestor.fullName})`
+      description: `يشتركان في الأب (${lcaShort})`
     };
   }
 
@@ -451,17 +455,17 @@ export function getCoupleRelationship(
       relationToHusband: 'عمها الشقيق (أخو أبيها)',
       relationToWife: 'ابنة أخيه',
       commonAncestor,
-      description: `عمها المباشر (أخو أبيها ${femaleFather.fullName})`
+      description: `عمها المباشر (أخو أبيها ${formatAppName(femaleFather.fullName)})`
     };
   }
 
-  // 3. Husband is father's paternal uncle (distFemale > 2, distHusband = 0)
+  // 3. Husband is father's paternal uncle (distFemale > 2, distHusband === 0)
   if (distFemale > 2 && distHusband === 0) {
     return {
       relationToHusband: 'عم أبيها',
       relationToWife: 'ابنة ابن أخيه',
       commonAncestor,
-      description: `عم أبيها (يلتقيان في الجد ${commonAncestor.fullName})`
+      description: `عم أبيها (يلتقيان في الجد ${lcaShort})`
     };
   }
 
@@ -471,7 +475,7 @@ export function getCoupleRelationship(
       relationToHusband: 'ابن أخيها',
       relationToWife: 'عمته',
       commonAncestor,
-      description: `ابن أخيها (والده أخوها، وجده والدها ${commonAncestor.fullName})`
+      description: `ابن أخيها (والده أخوها، وجده والدها ${lcaShort})`
     };
   }
 
@@ -481,7 +485,7 @@ export function getCoupleRelationship(
       relationToHusband: 'ابن عمها المباشر',
       relationToWife: 'ابنة عمه المباشرة',
       commonAncestor,
-      description: `ابن عمها لجدّهما (${commonAncestor.fullName}) - والداهما أخوان`
+      description: `ابن عمها لجدّهما (${lcaShort}) - والداهما أخوان`
     };
   }
 
@@ -491,7 +495,7 @@ export function getCoupleRelationship(
       relationToHusband: 'ابن عم أبيها',
       relationToWife: 'ابنة ابن عمه',
       commonAncestor,
-      description: `ابن عم أبيها (يلتقيان في الجد ${commonAncestor.fullName})`
+      description: `ابن عم أبيها (يلتقيان في الجد ${lcaShort})`
     };
   }
 
@@ -501,7 +505,7 @@ export function getCoupleRelationship(
       relationToHusband: 'ابن ابن عمها',
       relationToWife: 'ابنة عم أبيه',
       commonAncestor,
-      description: `ابن ابن عمها (يلتقيان في الجد ${commonAncestor.fullName})`
+      description: `ابن ابن عمها (يلتقيان في الجد ${lcaShort})`
     };
   }
 
@@ -512,16 +516,16 @@ export function getCoupleRelationship(
       relationToHusband: `ابن عمها ${degree}`,
       relationToWife: `ابنة عمه ${degree}`,
       commonAncestor,
-      description: `أبناء عم يلتقيان في الجد المشترك (${commonAncestor.fullName})`
+      description: `أبناء عم يلتقيان في الجد المشترك (${lcaShort})`
     };
   }
 
   // 9. General genealogical branch relation
   return {
-    relationToHusband: `قريب (من فروع الجد ${commonAncestor.fullName.split(' ')[0]})`,
-    relationToWife: `قريبة (من فروع الجد ${commonAncestor.fullName.split(' ')[0]})`,
+    relationToHusband: `قريب (من فروع الجد ${extractGivenName(commonAncestor.fullName)})`,
+    relationToWife: `قريبة (من فروع الجد ${extractGivenName(commonAncestor.fullName)})`,
     commonAncestor,
-    description: `يلتقيان في الجد المشترك (${commonAncestor.fullName})`
+    description: `يلتقيان في الجد المشترك (${lcaShort})`
   };
 }
 
@@ -583,14 +587,14 @@ export function findRelationshipBetweenPersons(
       headline: 'نفس الشخص',
       relationBtoA: 'نفس الشخص المختار',
       relationAtoB: 'نفس الشخص المختار',
-      summaryDescription: `تم اختيار (${personA.fullName}) في كلا الطرفين.`,
+      summaryDescription: `تم اختيار (${formatAppName(personA.fullName)}) في كلا الطرفين.`,
       commonAncestor: personA,
       distA: 0,
       distB: 0,
       pathA: [personA],
       pathB: [personB],
       additionalTies: [],
-      networkPath: [{ person: personA, stepLabel: 'نفس الفرد' }]
+      networkPath: [{ person: personA, stepLabel: 'نقطة البداية' }]
     };
   }
 
@@ -610,8 +614,8 @@ export function findRelationshipBetweenPersons(
   const motherA = resolveMotherOfChild(personA, map, wivesOfHusband);
   const motherB = resolveMotherOfChild(personB, map, wivesOfHusband);
 
-  const firstNameA = personA.fullName.split(' ')[0];
-  const firstNameB = personB.fullName.split(' ')[0];
+  const firstNameA = extractGivenName(personA.fullName);
+  const firstNameB = extractGivenName(personB.fullName);
 
   const additionalTies: string[] = [];
   let directMaternalOrSpousalHeadline: string | null = null;
@@ -643,7 +647,7 @@ export function findRelationshipBetweenPersons(
       directMaternalOrSpousalHeadline = `أم و${personB.gender === 'male' ? 'ابنها' : 'ابنتها'}`;
       directMaternalBtoA = relB;
       directMaternalAtoB = 'أمه / والدته';
-      directMaternalDesc = `${personA.fullName} هي الأم (الوالدة) لـ ${personB.fullName}.`;
+      directMaternalDesc = `${formatAppName(personA.fullName)} هي الأم (الوالدة) لـ ${formatAppName(personB.fullName)}.`;
       additionalTies.push(`علاقة أمومة مباشرة: ${firstNameA} هي والدة ${firstNameB}.`);
     } else {
       additionalTies.push(
@@ -659,7 +663,7 @@ export function findRelationshipBetweenPersons(
       directMaternalOrSpousalHeadline = `أم و${personA.gender === 'male' ? 'ابنها' : 'ابنتها'}`;
       directMaternalBtoA = personA.gender === 'male' ? 'أمه (والدته)' : 'أمها (والدتها)';
       directMaternalAtoB = relA;
-      directMaternalDesc = `${personB.fullName} هي الأم (الوالدة) لـ ${personA.fullName}.`;
+      directMaternalDesc = `${formatAppName(personB.fullName)} هي الأم (الوالدة) لـ ${formatAppName(personA.fullName)}.`;
       additionalTies.push(`علاقة أمومة مباشرة: ${firstNameB} هي والدة ${firstNameA}.`);
     } else {
       additionalTies.push(
@@ -670,7 +674,7 @@ export function findRelationshipBetweenPersons(
 
   // Maternal Siblings (same mother)
   if (motherA && motherB && motherA.id === motherB.id && personA.fatherId !== personB.fatherId) {
-    additionalTies.push(`أخوّة من جهة الأم: يشتركان في الأم (${motherA.fullName}).`);
+    additionalTies.push(`أخوّة من جهة الأم: يشتركان في الأم (${formatAppName(motherA.fullName)}).`);
   }
 
   // B is Maternal Uncle/Aunt (خال / خالة) of A -> B is sibling of motherA
@@ -678,14 +682,14 @@ export function findRelationshipBetweenPersons(
     const bRole = personB.gender === 'male' ? 'خاله (أخو أمه)' : 'خالته (أخت أمه)';
     const aRole = personA.gender === 'male' ? 'ابن أخته/أختها' : 'ابنة أخته/أختها';
     additionalTies.push(
-      `علاقة خؤولة: ${firstNameB} هو ${personB.gender === 'male' ? 'خال' : 'خالة'} ${firstNameA} (شقيق والدته ${motherA.fullName}).`
+      `علاقة خؤولة: ${firstNameB} هو ${personB.gender === 'male' ? 'خال' : 'خالة'} ${firstNameA} (شقيق والدته ${formatAppName(motherA.fullName)}).`
     );
     if (!directMaternalOrSpousalHeadline) {
       directMaternalOrSpousalHeadline =
         personB.gender === 'male' ? 'خال وابن/ابنة أخته' : 'خالة وابن/ابنة أختها';
       directMaternalBtoA = bRole;
       directMaternalAtoB = aRole;
-      directMaternalDesc = `${firstNameB} ${personB.gender === 'male' ? 'خال' : 'خالة'} لـ ${firstNameA} عن طريق والدته (${motherA.fullName}).`;
+      directMaternalDesc = `${firstNameB} ${personB.gender === 'male' ? 'خال' : 'خالة'} لـ ${firstNameA} عن طريق والدته (${formatAppName(motherA.fullName)}).`;
     }
   }
 
@@ -694,34 +698,34 @@ export function findRelationshipBetweenPersons(
     const aRole = personA.gender === 'male' ? 'خاله (أخو أمه)' : 'خالته (أخت أمه)';
     const bRole = personB.gender === 'male' ? 'ابن أخته/أختها' : 'ابنة أخته/أختها';
     additionalTies.push(
-      `علاقة خؤولة: ${firstNameA} هو ${personA.gender === 'male' ? 'خال' : 'خالة'} ${firstNameB} (شقيق والدته ${motherB.fullName}).`
+      `علاقة خؤولة: ${firstNameA} هو ${personA.gender === 'male' ? 'خال' : 'خالة'} ${firstNameB} (شقيق والدته ${formatAppName(motherB.fullName)}).`
     );
     if (!directMaternalOrSpousalHeadline) {
       directMaternalOrSpousalHeadline =
         personA.gender === 'male' ? 'خال وابن/ابنة أخته' : 'خالة وابن/ابنة أختها';
       directMaternalBtoA = bRole;
       directMaternalAtoB = aRole;
-      directMaternalDesc = `${firstNameA} ${personA.gender === 'male' ? 'خال' : 'خالة'} لـ ${firstNameB} عن طريق والدته (${motherB.fullName}).`;
+      directMaternalDesc = `${firstNameA} ${personA.gender === 'male' ? 'خال' : 'خالة'} لـ ${firstNameB} عن طريق والدته (${formatAppName(motherB.fullName)}).`;
     }
   }
 
   // Maternal Grandfather (جد لأم): B is father of motherA
   if (motherA && motherA.fatherId === personB.id) {
-    additionalTies.push(`جدومة لأم: ${firstNameB} هو جد ${firstNameA} من جهة الأم (والد أمه ${motherA.fullName}).`);
+    additionalTies.push(`جدومة لأم: ${firstNameB} هو جد ${firstNameA} من جهة الأم (والد أمه ${formatAppName(motherA.fullName)}).`);
     if (!directMaternalOrSpousalHeadline) {
       directMaternalOrSpousalHeadline = 'جد لأم (والد الأم) وحفيده';
       directMaternalBtoA = 'جده لأمه (والد الأم)';
       directMaternalAtoB = personA.gender === 'male' ? 'حفيده (ابن ابنته)' : 'حفيدته (ابنة ابنته)';
-      directMaternalDesc = `${personB.fullName} هو والد أم ${firstNameA} (${motherA.fullName}).`;
+      directMaternalDesc = `${formatAppName(personB.fullName)} هو والد أم ${firstNameA} (${formatAppName(motherA.fullName)}).`;
     }
   }
   if (motherB && motherB.fatherId === personA.id) {
-    additionalTies.push(`جدومة لأم: ${firstNameA} هو جد ${firstNameB} من جهة الأم (والد أمه ${motherB.fullName}).`);
+    additionalTies.push(`جدومة لأم: ${firstNameA} هو جد ${firstNameB} من جهة الأم (والد أمه ${formatAppName(motherB.fullName)}).`);
     if (!directMaternalOrSpousalHeadline) {
       directMaternalOrSpousalHeadline = 'جد لأم (والد الأم) وحفيده';
       directMaternalBtoA = personB.gender === 'male' ? 'حفيده (ابن ابنته)' : 'حفيدته (ابنة ابنته)';
       directMaternalAtoB = 'جده لأمه (والد الأم)';
-      directMaternalDesc = `${personA.fullName} هو والد أم ${firstNameB} (${motherB.fullName}).`;
+      directMaternalDesc = `${formatAppName(personA.fullName)} هو والد أم ${firstNameB} (${formatAppName(motherB.fullName)}).`;
     }
   }
 
@@ -735,7 +739,7 @@ export function findRelationshipBetweenPersons(
   ) {
     const bFather = map.get(personB.fatherId)!;
     additionalTies.push(
-      `قرابة خؤولة وعمومة: والد ${firstNameB} (${bFather.fullName.split(' ')[0]}) هو خال ${firstNameA} (شقيق والدته ${motherA.fullName.split(' ')[0]}).`
+      `قرابة خؤولة وعمومة: والد ${firstNameB} (${extractGivenName(bFather.fullName)}) هو خال ${firstNameA} (شقيق والدته ${extractGivenName(motherA.fullName)}).`
     );
   }
   if (
@@ -747,7 +751,7 @@ export function findRelationshipBetweenPersons(
   ) {
     const aFather = map.get(personA.fatherId)!;
     additionalTies.push(
-      `قرابة خؤولة وعمومة: والد ${firstNameA} (${aFather.fullName.split(' ')[0]}) هو خال ${firstNameB} (شقيق والدته ${motherB.fullName.split(' ')[0]}).`
+      `قرابة خؤولة وعمومة: والد ${firstNameA} (${extractGivenName(aFather.fullName)}) هو خال ${firstNameB} (شقيق والدته ${extractGivenName(motherB.fullName)}).`
     );
   }
   // A's mother and B's mother are sisters (أبناء خالة)
@@ -759,7 +763,7 @@ export function findRelationshipBetweenPersons(
     motherA.fatherId === motherB.fatherId
   ) {
     additionalTies.push(
-      `قرابة من جهة الأمهات (أبناء خالة): والدة ${firstNameA} (${motherA.fullName.split(' ')[0]}) ووالدة ${firstNameB} (${motherB.fullName.split(' ')[0]}) شقيقتان.`
+      `قرابة من جهة الأمهات (أبناء خالة): والدة ${firstNameA} (${extractGivenName(motherA.fullName)}) ووالدة ${firstNameB} (${extractGivenName(motherB.fullName)}) شقيقتان.`
     );
   }
 
@@ -880,7 +884,7 @@ export function findRelationshipBetweenPersons(
     headline: 'من شجرتين مستقلتين (لا يوجد جد مشترك مسجل حالياً)',
     relationBtoA: 'من فرع أو شجرة مستقلة',
     relationAtoB: 'من فرع أو شجرة مستقلة',
-    summaryDescription: `ينتمي (${personA.fullName}) إلى أصل الشجرة (${chainA[chainA.length - 1]?.fullName})، بينما ينتمي (${personB.fullName}) إلى أصل الشجرة (${chainB[chainB.length - 1]?.fullName}). يمكن ربط الشجرتين إذا تم التوصل إلى جد مشترك.`,
+    summaryDescription: `ينتمي (${formatAppName(personA.fullName)}) إلى أصل الشجرة (${formatAppName(chainA[chainA.length - 1]?.fullName)})، بينما ينتمي (${formatAppName(personB.fullName)}) إلى أصل الشجرة (${formatAppName(chainB[chainB.length - 1]?.fullName)}). يمكن ربط الشجرتين إذا تم التوصل إلى جد مشترك.`,
     commonAncestor: null,
     distA: null,
     distB: null,
@@ -902,9 +906,9 @@ function computeExactPaternalTitles(
 ): { headline: string; relationBtoA: string; relationAtoB: string; description: string } {
   const isAMale = personA.gender === 'male';
   const isBMale = personB.gender === 'male';
-  const nameA = personA.fullName.split(' ')[0];
-  const nameB = personB.fullName.split(' ')[0];
-  const lcaName = lca.fullName;
+  const nameA = extractGivenName(personA.fullName);
+  const nameB = extractGivenName(personB.fullName);
+  const lcaName = formatAppName(lca.fullName);
 
   // 1. Direct Ancestor: A is ancestor of B (distA === 0)
   if (distA === 0) {
@@ -913,7 +917,7 @@ function computeExactPaternalTitles(
         headline: `أب و${isBMale ? 'ابنه' : 'ابنته'}`,
         relationBtoA: isBMale ? 'ابنه المباشر' : 'ابنته المباشرة',
         relationAtoB: 'والده (أبوه المباشر)',
-        description: `${personA.fullName} هو الأب المباشر لـ ${personB.fullName}.`
+        description: `${formatAppName(personA.fullName)} هو الأب المباشر لـ ${formatAppName(personB.fullName)}.`
       };
     }
     if (distB === 2) {
@@ -921,7 +925,7 @@ function computeExactPaternalTitles(
         headline: `جد و${isBMale ? 'حفيده' : 'حفيدته'}`,
         relationBtoA: isBMale ? 'حفيده (ابن الابن)' : 'حفيدته (ابنة الابن)',
         relationAtoB: 'جده المباشر (والد الأب)',
-        description: `${personA.fullName} هو الجد المباشر (والد الأب) لـ ${personB.fullName}.`
+        description: `${formatAppName(personA.fullName)} هو الجد المباشر (والد الأب) لـ ${formatAppName(personB.fullName)}.`
       };
     }
     if (distB === 3) {
@@ -929,14 +933,14 @@ function computeExactPaternalTitles(
         headline: `الجد الأكبر و${isBMale ? 'ابن حفيده' : 'ابنة حفيده'}`,
         relationBtoA: isBMale ? 'ابن حفيده (الجيل 3)' : 'ابنة حفيده (الجيل 3)',
         relationAtoB: 'جده الأكبر (جد الأب)',
-        description: `${personA.fullName} هو جد والد ${personB.fullName} (بفارق 3 أجيال).`
+        description: `${formatAppName(personA.fullName)} هو جد والد ${formatAppName(personB.fullName)} (بفارق 3 أجيال).`
       };
     }
     return {
       headline: `جد أعلى وذريته (بفارق ${distB} أجيال)`,
       relationBtoA: isBMale ? `من أحفاده وذريته (الجيل ${distB})` : `من حفيداته وذريته (الجيل ${distB})`,
       relationAtoB: `جده الأعلى (الجد رقم ${distB - 1})`,
-      description: `${personA.fullName} هو الجد الأعلى لـ ${personB.fullName} بمسافة ${distB} أجيال.`
+      description: `${formatAppName(personA.fullName)} هو الجد الأعلى لـ ${formatAppName(personB.fullName)} بمسافة ${distB} أجيال.`
     };
   }
 
@@ -947,7 +951,7 @@ function computeExactPaternalTitles(
         headline: `أب و${isAMale ? 'ابنه' : 'ابنته'}`,
         relationBtoA: 'والده (أبوه المباشر)',
         relationAtoB: isAMale ? 'ابنه المباشر' : 'ابنته المباشرة',
-        description: `${personB.fullName} هو الأب المباشر لـ ${personA.fullName}.`
+        description: `${formatAppName(personB.fullName)} هو الأب المباشر لـ ${formatAppName(personA.fullName)}.`
       };
     }
     if (distA === 2) {
@@ -955,7 +959,7 @@ function computeExactPaternalTitles(
         headline: `جد و${isAMale ? 'حفيده' : 'حفيدته'}`,
         relationBtoA: 'جده المباشر (والد الأب)',
         relationAtoB: isAMale ? 'حفيده (ابن الابن)' : 'حفيدته (ابنة الابن)',
-        description: `${personB.fullName} هو الجد المباشر (والد الأب) لـ ${personA.fullName}.`
+        description: `${formatAppName(personB.fullName)} هو الجد المباشر (والد الأب) لـ ${formatAppName(personA.fullName)}.`
       };
     }
     if (distA === 3) {
@@ -963,14 +967,14 @@ function computeExactPaternalTitles(
         headline: `الجد الأكبر و${isAMale ? 'ابن حفيده' : 'ابنة حفيده'}`,
         relationBtoA: 'جده الأكبر (جد الأب)',
         relationAtoB: isAMale ? 'ابن حفيده (الجيل 3)' : 'ابنة حفيده (الجيل 3)',
-        description: `${personB.fullName} هو جد والد ${personA.fullName} (بفارق 3 أجيال).`
+        description: `${formatAppName(personB.fullName)} هو جد والد ${formatAppName(personA.fullName)} (بفارق 3 أجيال).`
       };
     }
     return {
       headline: `جد أعلى وذريته (بفارق ${distA} أجيال)`,
       relationBtoA: `جده الأعلى (الجد رقم ${distA - 1})`,
       relationAtoB: isAMale ? `من أحفاده وذريته (الجيل ${distA})` : `من حفيداته وذريته (الجيل ${distA})`,
-      description: `${personB.fullName} هو الجد الأعلى لـ ${personA.fullName} بمسافة ${distA} أجيال.`
+      description: `${formatAppName(personB.fullName)} هو الجد الأعلى لـ ${formatAppName(personA.fullName)} بمسافة ${distA} أجيال.`
     };
   }
 
@@ -992,9 +996,9 @@ function computeExactPaternalTitles(
       relationAtoB: isAMale ? `أخوه${suffixM}` : `أخته${suffixF}`,
       description: `يشترك (${nameA}) و(${nameB}) في الأب المباشر (${lcaName})${
         sameMother
-          ? ` وفي الأم (${motherA!.fullName})`
+          ? ` وفي الأم (${formatAppName(motherA!.fullName)})`
           : differentMothers
-          ? ` (من أمّين مختلفتين: ${motherA!.fullName.split(' ')[0]} و ${motherB!.fullName.split(' ')[0]})`
+          ? ` (من أمّين مختلفتين: ${extractGivenName(motherA!.fullName)} و ${extractGivenName(motherB!.fullName)})`
           : ''
       }.`
     };
@@ -1098,7 +1102,7 @@ function computeExactPaternalTitles(
 
   // 13. General paternal kinship
   return {
-    headline: `أبناء عمومة وقرابة نسب (يجتمعان في الجد ${lcaName.split(' ')[0]})`,
+    headline: `أبناء عمومة وقرابة نسب (يجتمعان في الجد ${extractGivenName(lca.fullName)})`,
     relationBtoA: isBMale
       ? `ابن عمومة (يبعد ${distB} أجيال عن الجد المشترك)`
       : `ابنة عمومة (تبعد ${distB} أجيال عن الجد المشترك)`,

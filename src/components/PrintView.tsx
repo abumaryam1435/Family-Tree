@@ -3,6 +3,7 @@ import { X, Printer, TreeDeciduous, FileDown } from 'lucide-react';
 import { Person } from '../types/family';
 import { exportPersonCertificateToPdf } from '../utils/pdfExport';
 import { calculateKinship } from '../utils/kinship';
+import { extractGivenName } from '../utils/nameUtils';
 
 interface PrintViewProps {
   person: Person | null;
@@ -48,6 +49,14 @@ export const PrintView: React.FC<PrintViewProps> = ({
       setIsExporting(false);
     }
   };
+
+  const shortChain = [
+    extractGivenName(person.fullName),
+    ...ancestors.map(a => extractGivenName(a.fullName))
+  ]
+    .filter(Boolean)
+    .join(` ${person.gender === 'male' ? 'بن' : 'بنت'} `)
+    .replace(/(بنت\s+[^ ]+)\s+بنت\s+/g, '$1 بن ');
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4 backdrop-blur-xs overflow-y-auto">
@@ -116,57 +125,65 @@ export const PrintView: React.FC<PrintViewProps> = ({
               </p>
             </div>
 
-            {/* Person Full Lineage Title */}
+            {/* Person Short Name Title */}
             <div className="my-5 sm:my-8 text-center p-4 sm:p-6 bg-gradient-to-b from-[#F2F8F5] to-transparent rounded-2xl border border-[#0F4C3A]/20">
               <div className="text-xs text-slate-500 mb-2 font-sans font-semibold">
-                سلسلة النسب المبارك:
+                الاسم الأول وسلسلة النسب:
               </div>
-              <h2 className="text-base sm:text-2xl font-bold text-[#0F4C3A] font-display leading-relaxed break-words">
-                « {lineage} »
+              <h2 className="text-lg sm:text-2xl font-bold text-[#0F4C3A] font-display leading-relaxed break-words">
+                « {extractGivenName(person.fullName)} »
               </h2>
-              {person.gender === 'female' && person.husbandName && (
-                <div className="text-xs text-rose-800 font-bold mt-2 font-sans break-words">
-                  زوجة: {person.husbandName}
+              {shortChain && (
+                <div className="text-xs text-slate-600 font-semibold mt-1.5 font-sans break-words">
+                  {shortChain}
                 </div>
               )}
             </div>
 
-            {/* Stepper Table of Ancestors */}
+            {/* Stepper Table of Ancestors (First Names Only) */}
             <div className="space-y-3 sm:space-y-4 my-5 sm:my-6">
               <h3 className="text-xs sm:text-sm font-bold text-slate-800 font-sans border-b border-slate-200 pb-2">
-                سلسلة الأجداد والآباء المتسلسلة صعوداً:
+                سلسلة الأجداد والآباء المتسلسلة صعوداً (الاسم الأول في كل خانة):
               </h3>
 
-              <div className="divide-y divide-slate-100 font-sans text-xs">
-                <div className="py-2.5 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 bg-slate-50 px-3 rounded-lg font-bold">
-                  <span className="text-[#0F4C3A] shrink-0">الجيل 1 (الفرد):</span>
-                  <span className="leading-snug break-words">{person.fullName}</span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-sans text-xs">
+                <div className="p-2.5 rounded-xl bg-emerald-50 border border-[#0F4C3A]/30 text-center">
+                  <span className="text-[10px] text-[#0F4C3A] block font-semibold">الجيل 1 (الفرد)</span>
+                  <span className="text-sm font-extrabold text-[#0F4C3A] mt-0.5 block">
+                    {extractGivenName(person.fullName)}
+                  </span>
                 </div>
 
                 {ancestors.map((anc, idx) => (
-                  <div key={anc.id} className="py-2 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 px-3">
-                    <span className="text-slate-500 shrink-0">
-                      {idx === 0 ? 'الأب المباشر:' : idx === 1 ? 'الجد:' : `الجد (الجيل ${idx + 2}):`}
+                  <div key={anc.id} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                    <span className="text-[10px] text-slate-500 block font-semibold">
+                      {idx === 0 ? 'الأب المباشر' : idx === 1 ? 'الجد' : `الجد (${idx + 1})`}
                     </span>
-                    <span className="font-semibold text-slate-800 leading-snug break-words">{anc.fullName}</span>
+                    <span className="text-sm font-bold text-slate-800 mt-0.5 block">
+                      {extractGivenName(anc.fullName)}
+                    </span>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Children Summary */}
+            {/* Children Summary (First Name Only, No Husband Mention in PDF/Print) */}
             {children.length > 0 && (
               <div className="my-5 sm:my-6 pt-4 border-t border-slate-200 font-sans text-xs">
                 <h3 className="text-xs sm:text-sm font-bold text-slate-800 mb-2">
                   الفروع والأبناء المسجلون ({children.length}):
                 </h3>
-                <div className="flex flex-col sm:flex-row sm:flex-wrap gap-1.5 sm:gap-2">
+                <div className="flex flex-wrap gap-1.5 sm:gap-2">
                   {children.map((ch) => (
                     <span
                       key={ch.id}
-                      className="px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-700 font-medium leading-snug break-words"
+                      className={`px-3 py-1.5 rounded-xl font-bold leading-snug ${
+                        ch.gender === 'male'
+                          ? 'bg-emerald-50 text-[#0F4C3A] border border-emerald-200'
+                          : 'bg-rose-50 text-rose-900 border border-rose-200'
+                      }`}
                     >
-                      {ch.fullName} ({ch.gender === 'male' ? 'ابن' : 'ابنة'})
+                      {extractGivenName(ch.fullName)}
                     </span>
                   ))}
                 </div>

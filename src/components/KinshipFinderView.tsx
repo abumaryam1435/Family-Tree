@@ -16,7 +16,9 @@ import { Person } from '../types/family';
 import {
   advancedArabicMatch,
   scoreArabicMatch,
-  sortPersonsMalesFirstAlphabetical
+  sortPersonsMalesFirstAlphabetical,
+  formatAppName,
+  formatDropdownName
 } from '../utils/nameUtils';
 import { findRelationshipBetweenPersons } from '../utils/kinship';
 import { exportRelationshipReportToPdf } from '../utils/pdfExport';
@@ -209,7 +211,9 @@ export const KinshipFinderView: React.FC<KinshipFinderViewProps> = ({
                             p.gender === 'male' ? 'bg-emerald-500' : 'bg-rose-400'
                           }`}
                         />
-                        <span className="break-words leading-snug text-right">{p.fullName}</span>
+                        <span className="break-words leading-snug text-right">
+                          {formatDropdownName(p.fullName)}
+                        </span>
                       </div>
                       <span
                         className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
@@ -244,7 +248,7 @@ export const KinshipFinderView: React.FC<KinshipFinderViewProps> = ({
               <div className="min-w-0 flex-1">
                 <div className="text-[10px] font-bold text-slate-500">المختار كطرف أول:</div>
                 <div className="text-xs sm:text-sm font-extrabold text-slate-900 break-words leading-snug">
-                  {personA.fullName}
+                  {formatAppName(personA.fullName)}
                 </div>
               </div>
             </div>
@@ -320,7 +324,9 @@ export const KinshipFinderView: React.FC<KinshipFinderViewProps> = ({
                             p.gender === 'male' ? 'bg-emerald-500' : 'bg-rose-400'
                           }`}
                         />
-                        <span className="break-words leading-snug text-right">{p.fullName}</span>
+                        <span className="break-words leading-snug text-right">
+                          {formatDropdownName(p.fullName)}
+                        </span>
                       </div>
                       <span
                         className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
@@ -355,7 +361,7 @@ export const KinshipFinderView: React.FC<KinshipFinderViewProps> = ({
               <div className="min-w-0 flex-1">
                 <div className="text-[10px] font-bold text-slate-500">المختار كطرف ثانٍ:</div>
                 <div className="text-xs sm:text-sm font-extrabold text-slate-900 break-words leading-snug">
-                  {personB.fullName}
+                  {formatAppName(personB.fullName)}
                 </div>
               </div>
             </div>
@@ -401,7 +407,7 @@ export const KinshipFinderView: React.FC<KinshipFinderViewProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mt-5 sm:mt-6 max-w-4xl mx-auto text-right">
                 <div className="p-3.5 sm:p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200/80">
                   <div className="text-[11px] font-bold text-slate-500 mb-1 break-words">
-                    صلة ({personB.fullName}) بالنسبة لـ ({personA.fullName}):
+                    صلة ({formatAppName(personB.fullName)}) بالنسبة لـ ({formatAppName(personA.fullName)}):
                   </div>
                   <div className="text-sm sm:text-base font-extrabold text-[#0F4C3A] break-words">
                     {relationship.relationBtoA}
@@ -410,12 +416,45 @@ export const KinshipFinderView: React.FC<KinshipFinderViewProps> = ({
 
                 <div className="p-3.5 sm:p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80">
                   <div className="text-[11px] font-bold text-slate-500 mb-1 break-words">
-                    صلة ({personA.fullName}) بالنسبة لـ ({personB.fullName}):
+                    صلة ({formatAppName(personA.fullName)}) بالنسبة لـ ({formatAppName(personB.fullName)}):
                   </div>
                   <div className="text-sm sm:text-base font-extrabold text-[#8C6D1F] break-words">
                     {relationship.relationAtoB}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {relationship.found && !relationship.isSamePerson && (
+              <div className="mt-4 sm:mt-5 flex justify-center">
+                <button
+                  type="button"
+                  disabled={isExportingPdf}
+                  onClick={async () => {
+                    if (!personA || !personB) return;
+                    setIsExportingPdf(true);
+                    try {
+                      await exportRelationshipReportToPdf({
+                        personA,
+                        personB,
+                        headline: relationship.headline,
+                        relationAtoB: relationship.relationAtoB,
+                        relationBtoA: relationship.relationBtoA,
+                        summaryDescription: relationship.summaryDescription,
+                        commonAncestor: relationship.commonAncestor,
+                        pathA: relationship.pathA,
+                        pathB: relationship.pathB,
+                        additionalTies: relationship.additionalTies
+                      });
+                    } finally {
+                      setIsExportingPdf(false);
+                    }
+                  }}
+                  className="min-h-[42px] px-4 py-2 rounded-xl bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white text-xs font-bold inline-flex items-center gap-2 shadow-xs transition cursor-pointer disabled:opacity-60"
+                >
+                  <FileDown className="w-4 h-4 text-[#D4AF37]" />
+                  <span>{isExportingPdf ? 'جارٍ استخراج الوثيقة...' : 'تصدير تقرير صلة القرابة إلى PDF'}</span>
+                </button>
               </div>
             )}
           </div>
@@ -433,7 +472,7 @@ export const KinshipFinderView: React.FC<KinshipFinderViewProps> = ({
                       الجد المشترك الأقرب (ملتقى النسبين):
                     </span>
                     <h3 className="text-base sm:text-xl font-extrabold font-display break-words leading-snug">
-                      {relationship.commonAncestor.fullName}
+                      {formatAppName(relationship.commonAncestor.fullName)}
                     </h3>
                     {relationship.distA !== null && relationship.distB !== null && (
                       <p className="text-[11px] sm:text-xs text-emerald-100 mt-0.5">
@@ -487,7 +526,7 @@ export const KinshipFinderView: React.FC<KinshipFinderViewProps> = ({
                     {/* Column A */}
                     <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5">
                       <div className="text-xs font-extrabold text-[#0F4C3A] pb-2 border-b border-slate-200 break-words">
-                        سلسلة نسب الطرف الأول ({personA.fullName}):
+                        سلسلة نسب الطرف الأول ({formatAppName(personA.fullName)}):
                       </div>
                       {relationship.pathA.map((node, index) => {
                         const isLCA = relationship.commonAncestor?.id === node.id;
@@ -511,7 +550,7 @@ export const KinshipFinderView: React.FC<KinshipFinderViewProps> = ({
                               }`}
                             >
                               <span className="text-xs sm:text-sm break-words leading-snug text-right flex-1">
-                                {node.fullName}
+                                {formatAppName(node.fullName)}
                               </span>
                               <span className="text-[10px] px-2 py-0.5 rounded-md bg-black/5 shrink-0">
                                 {isLCA
@@ -531,7 +570,7 @@ export const KinshipFinderView: React.FC<KinshipFinderViewProps> = ({
                     {/* Column B */}
                     <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5">
                       <div className="text-xs font-extrabold text-[#8C6D1F] pb-2 border-b border-slate-200 break-words">
-                        سلسلة نسب الطرف الثاني ({personB.fullName}):
+                        سلسلة نسب الطرف الثاني ({formatAppName(personB.fullName)}):
                       </div>
                       {relationship.pathB.map((node, index) => {
                         const isLCA = relationship.commonAncestor?.id === node.id;
@@ -555,7 +594,7 @@ export const KinshipFinderView: React.FC<KinshipFinderViewProps> = ({
                               }`}
                             >
                               <span className="text-xs sm:text-sm break-words leading-snug text-right flex-1">
-                                {node.fullName}
+                                {formatAppName(node.fullName)}
                               </span>
                               <span className="text-[10px] px-2 py-0.5 rounded-md bg-black/5 shrink-0">
                                 {isLCA

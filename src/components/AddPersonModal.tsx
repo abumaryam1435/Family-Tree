@@ -9,7 +9,10 @@ import {
   sortPersonsMalesFirstAlphabetical,
   comparePersonsMalesFirstAlphabetical,
   rebuildChildFullName,
-  extractGivenName
+  extractGivenName,
+  formatAppName,
+  formatBranchName,
+  formatDropdownName
 } from '../utils/nameUtils';
 import { getCoupleRelationship } from '../utils/kinship';
 
@@ -435,11 +438,11 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                   <div>
                     <span className="text-slate-500 text-[10px] block font-medium">الزوج المختار:</span>
                     <strong className="text-rose-950 font-bold text-sm block">
-                      {selectedHusbandPerson.fullName}
+                      {formatDropdownName(selectedHusbandPerson.fullName)}
                     </strong>
                     {selectedHusbandPerson.fatherId && (
                       <span className="text-[11px] text-slate-500">
-                        الأب: {persons.find(p => p.id === selectedHusbandPerson.fatherId)?.fullName}
+                        الأب: {formatAppName(persons.find(p => p.id === selectedHusbandPerson.fatherId)?.fullName)}
                       </span>
                     )}
                   </div>
@@ -498,7 +501,7 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                             key={bro.id}
                             className="px-2 py-0.5 rounded-md bg-emerald-50 text-[#0F4C3A] border border-emerald-200 text-[10px] font-bold"
                           >
-                            {bro.fullName} (خال)
+                            {formatAppName(bro.fullName)} (خال)
                           </span>
                         ))}
                         {femaleSisters.map((sis) => (
@@ -506,7 +509,7 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                             key={sis.id}
                             className="px-2 py-0.5 rounded-md bg-rose-50 text-rose-800 border border-rose-200 text-[10px] font-bold"
                           >
-                            {sis.fullName} (خالة)
+                            {formatAppName(sis.fullName)} (خالة)
                           </span>
                         ))}
                       </div>
@@ -557,7 +560,7 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                                       : 'bg-rose-50 text-rose-800 border border-rose-200'
                                   }`}
                                 >
-                                  {ch.fullName}
+                                  {formatBranchName(ch.fullName)}
                                 </span>
                                 <span
                                   className={`text-[10px] font-bold self-center ${
@@ -645,15 +648,15 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                                         <option value="">-- أم أخرى (غير مسجلة كزوجة للأب في العائلة) --</option>
                                         {filteredOtherMothers.map((om) => (
                                           <option key={om.id} value={om.id}>
-                                            {om.fullName} (زوجة الأب من العائلة)
+                                            {formatDropdownName(om.fullName)} (زوجة الأب من العائلة)
                                           </option>
                                         ))}
                                       </select>
                                     </div>
                                     {selectedOtherMotherObj && otherMotherBrothers.length > 0 && (
                                       <div className="text-[10px] text-emerald-800 font-semibold pt-0.5">
-                                        أخواله/أخوالها من الأم المختارة ({selectedOtherMotherObj.fullName.split(' ')[0]}):{' '}
-                                        {otherMotherBrothers.map(b => b.fullName).join('، ')}
+                                        أخواله/أخوالها من الأم المختارة ({formatBranchName(selectedOtherMotherObj.fullName)}):{' '}
+                                        {otherMotherBrothers.map(b => formatAppName(b.fullName)).join('، ')}
                                       </div>
                                     )}
                                   </>
@@ -716,9 +719,9 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                           className="w-full p-2.5 text-xs hover:bg-rose-50/60 flex items-center justify-between gap-2 text-right transition"
                         >
                           <div>
-                            <span className="font-bold text-slate-900 block">{h.fullName}</span>
+                            <span className="font-bold text-slate-900 block">{formatDropdownName(h.fullName)}</span>
                             <span className="text-[10px] text-slate-500">
-                              {hFather ? `ابن: ${hFather.fullName}` : 'أصل مستقل'}
+                              {hFather ? `ابن: ${formatDropdownName(hFather.fullName)}` : 'أصل مستقل'}
                               {relPreview.commonAncestor && (
                                 <span className="text-emerald-800 font-semibold mr-1.5">
                                   · {relPreview.relationToHusband}
@@ -779,7 +782,7 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                 {editPerson
                   ? 'تعديل بيانات الفرد'
                   : selectedFather
-                  ? `إضافة ابن أو فرع لـ (${selectedFather.fullName})`
+                  ? `إضافة ابن أو فرع لـ (${formatAppName(selectedFather.fullName)})`
                   : 'إضافة فرد جديد إلى شجرة العائلة'}
               </h3>
               {selectedFather && !editPerson && (
@@ -875,7 +878,7 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                       الأب / الجد المباشر المختار (يُنسب الابن وفروعه إليه):
                     </span>
                     <strong className="text-emerald-950 font-bold text-sm break-words leading-snug block">
-                      {selectedFather.fullName}
+                      {formatDropdownName(selectedFather.fullName)}
                     </strong>
                   </div>
                   <button
@@ -892,7 +895,7 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                 </div>
                 {editPerson && editPerson.fatherId !== selectedFather.id && (
                   <div className="p-2.5 rounded-xl bg-white border border-emerald-200 text-[11px] text-emerald-900 font-semibold leading-relaxed break-words">
-                    سيتم تلقائياً نقل «{extractGivenName(editPerson.fullName)}» وجميع أبنائه وأحفاده تحت «{selectedFather.fullName}» وتحديث أسمائهم وعلاقاتهم حسب التسلسل الصحيح.
+                    سيتم تلقائياً نقل «{extractGivenName(editPerson.fullName)}» وجميع أبنائه وأحفاده تحت «{formatDropdownName(selectedFather.fullName)}» وتحديث أسمائهم وعلاقاتهم حسب التسلسل الصحيح.
                   </div>
                 )}
               </div>
@@ -938,7 +941,7 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                       className="w-full text-right p-2.5 text-xs hover:bg-slate-50 flex items-center justify-between gap-2 group transition"
                     >
                       <span className="font-bold text-slate-800 group-hover:text-[#0F4C3A] break-words leading-snug">
-                        {f.fullName}
+                        {formatDropdownName(f.fullName)}
                       </span>
                       <span className="text-[10px] text-emerald-700 font-semibold shrink-0">
                         {editPerson ? 'نقل الفرع إليه' : 'اختيار كأب'}

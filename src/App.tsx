@@ -217,6 +217,21 @@ export default function App() {
     }
   };
 
+  const handleLogoutAdmin = async () => {
+    try {
+      await apiClient.logoutAdmin();
+      setIsAdminModalOpen(false);
+      setActiveTab('home');
+      setSelectedPersonId(null);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      showToast('تم تسجيل الخروج من وضع المشرف والعودة للصفحة الرئيسية');
+      await fetchData(true);
+      setActiveTab('home');
+    } catch (err: any) {
+      showToast(err.message || 'حدث خطأ أثناء تسجيل الخروج', 'error');
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-[#FBF9F5] text-slate-900 font-sans selection:bg-[#0F4C3A]/15 selection:text-[#0F4C3A]">
       {/* Top Navigation */}
@@ -225,6 +240,7 @@ export default function App() {
         setActiveTab={setActiveTab}
         onOpenAddModal={() => handleOpenAdd(null)}
         onOpenAdminModal={() => setIsAdminModalOpen(true)}
+        onLogout={handleLogoutAdmin}
         editingEnabled={isAdmin}
         isAdmin={isAdmin}
       />
@@ -524,11 +540,7 @@ export default function App() {
             showToast('تم تسجيل دخول المشرف بنجاح');
             await fetchData(true);
           }}
-          onLogout={async () => {
-            await apiClient.logoutAdmin();
-            showToast('تم تسجيل الخروج من وضع المشرف');
-            await fetchData(true);
-          }}
+          onLogout={handleLogoutAdmin}
           onSettingsUpdated={async () => {
             await fetchData(true);
           }}

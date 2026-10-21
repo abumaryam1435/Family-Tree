@@ -8,6 +8,7 @@ import {
   ChevronUp,
   TreeDeciduous,
   Plus,
+  Minus,
   Search,
   Edit2,
   Trash2,
@@ -19,11 +20,23 @@ import {
   LayoutGrid,
   Maximize2,
   Move,
-  FileDown
+  FileDown,
+  X,
+  Sparkles,
+  Smartphone,
+  Image,
+  FileText,
+  Globe
 } from 'lucide-react';
 import { Person } from '../types/family';
-import { advancedArabicMatch } from '../utils/nameUtils';
-import { exportTreeToPdf } from '../utils/pdfExport';
+import {
+  advancedArabicMatch,
+  formatAppName,
+  formatBranchName,
+  formatDropdownName
+} from '../utils/nameUtils';
+import { exportTreeToPdf, exportTreeToPng, exportTreeToSvg } from '../utils/pdfExport';
+import { exportTreeToInteractiveHtml } from '../utils/htmlExport';
 
 interface TreeViewProps {
   persons: Person[];
@@ -88,6 +101,44 @@ export const TreeView: React.FC<TreeViewProps> = ({
   // Display zoom percentage for UI badge (updated without re-rendering tree on every drag frame)
   const [zoomDisplay, setZoomDisplay] = useState<number>(100);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  const [showExportModal, setShowExportModal] = useState<boolean>(false);
+
+  const handleExportTreeFormat = async (format: 'png' | 'pdf' | 'html') => {
+    if (!currentRoot) return;
+    setIsExportingPdf(true);
+    try {
+      if (format === 'html') {
+        exportTreeToInteractiveHtml({
+          rootPerson: currentRoot,
+          getChildren,
+          getAllPersons: () => persons,
+          mode: treeDisplayMode
+        });
+      } else if (format === 'png') {
+        await exportTreeToPng({
+          rootPerson: currentRoot,
+          getChildren,
+          mode: treeDisplayMode,
+          organicDirection,
+          collapsedNodes,
+          orientation: 'portrait',
+          unconstrained: true
+        });
+      } else {
+        await exportTreeToPdf({
+          rootPerson: currentRoot,
+          getChildren,
+          mode: treeDisplayMode,
+          organicDirection,
+          collapsedNodes,
+          orientation: 'portrait'
+        });
+      }
+      setShowExportModal(false);
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
 
   // Hardware-accelerated camera state stored in refs for 60/120fps zero-re-render panning & inertia
   const cameraRef = useRef<{ x: number; y: number; zoom: number }>({ x: 0, y: 0, zoom: 1 });
@@ -203,19 +254,23 @@ export const TreeView: React.FC<TreeViewProps> = ({
       const contentW = Math.max(1, content.offsetWidth);
       const contentH = Math.max(1, content.offsetHeight);
 
-      const pad = 48;
+      const isMobile = window.innerWidth < 640;
+      const pad = isMobile ? 18 : 48;
       const scaleX = (viewW - pad * 2) / contentW;
       const scaleY = (viewH - pad * 2) / contentH;
       const fitZoom = Math.min(1.15, Math.max(MIN_ZOOM, Math.min(scaleX, scaleY)));
 
       const newX = (viewW - contentW * fitZoom) / 2;
-      const newY = (viewH - contentH * fitZoom) / 2;
+      const newY =
+        treeDisplayMode === 'organic' && organicDirection === 'up'
+          ? Math.max(16, viewH - contentH * fitZoom - (isMobile ? 18 : 28))
+          : Math.max(16, (viewH - contentH * fitZoom) / 2);
 
       cameraRef.current = { x: newX, y: newY, zoom: fitZoom };
       setZoomDisplay(Math.round(fitZoom * 100));
       applyCameraTransform(animate);
     },
-    [applyCameraTransform, stopInertia]
+    [applyCameraTransform, stopInertia, treeDisplayMode, organicDirection]
   );
 
   // Zoom around a specific focal point (px, py) relative to the container viewport
@@ -267,13 +322,18 @@ export const TreeView: React.FC<TreeViewProps> = ({
     centerOnRoot(true, 1);
   }, [centerOnRoot]);
 
-  // Re-center smoothly when root, display mode, or direction changes
+  // Re-center or auto-fit smoothly when root, display mode, or direction changes
   useEffect(() => {
     const timer = requestAnimationFrame(() => {
-      centerOnRoot(false, 1);
+      const isMobile = window.innerWidth < 768;
+      if (isMobile) {
+        fitTreeToScreen(false);
+      } else {
+        centerOnRoot(false, 1);
+      }
     });
     return () => cancelAnimationFrame(timer);
-  }, [currentRoot?.id, treeDisplayMode, organicDirection, centerOnRoot]);
+  }, [currentRoot?.id, treeDisplayMode, organicDirection, centerOnRoot, fitTreeToScreen]);
 
   // Start momentum coasting after pointer/touch release
   const startInertiaCoast = useCallback(() => {
@@ -387,117 +447,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
     };
   }, [applyCameraTransform, startInertiaCoast]);
 
-  // Touch pan & 2-finger pinch-to-zoom handlers for mobile/tablet ergonomics
-  const handleTouchStart = (e: React.TouchEvent) => {
-    const target = e.target as HTMLElement;
-    if (target.closest('button, select, input, a')) return;
-
-    stopInertia();
-
-    if (e.touches.length === 2) {
-      isDraggingRef.current = false;
-      didDragRef.current = true;
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      const rect = containerRef.current?.getBoundingClientRect();
-      const midX = (t1.clientX + t2.clientX) / 2 - (rect?.left || 0);
-      const midY = (t1.clientY + t2.clientY) / 2 - (rect?.top || 0);
-
-      pinchStateRef.current = {
-        active: true,
-        initialDist: Math.max(10, dist),
-        initialZoom: cameraRef.current.zoom,
-        lastMidX: midX,
-        lastMidY: midY
-      };
-    } else if (e.touches.length === 1) {
-      pinchStateRef.current.active = false;
-      isDraggingRef.current = true;
-      didDragRef.current = false;
-      const t = e.touches[0];
-      dragOriginRef.current = {
-        startX: t.clientX,
-        startY: t.clientY,
-        camX: cameraRef.current.x,
-        camY: cameraRef.current.y
-      };
-      velocityRef.current = {
-        vx: 0,
-        vy: 0,
-        lastX: t.clientX,
-        lastY: t.clientY,
-        lastTime: performance.now()
-      };
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 2 && pinchStateRef.current.active) {
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      const rect = containerRef.current?.getBoundingClientRect();
-      const midX = (t1.clientX + t2.clientX) / 2 - (rect?.left || 0);
-      const midY = (t1.clientY + t2.clientY) / 2 - (rect?.top || 0);
-
-      // Pan by midpoint delta
-      cameraRef.current.x += midX - pinchStateRef.current.lastMidX;
-      cameraRef.current.y += midY - pinchStateRef.current.lastMidY;
-      pinchStateRef.current.lastMidX = midX;
-      pinchStateRef.current.lastMidY = midY;
-
-      const scaleFactor = dist / pinchStateRef.current.initialDist;
-      zoomAroundPoint(pinchStateRef.current.initialZoom * scaleFactor, midX, midY, false);
-      return;
-    }
-
-    if (e.touches.length === 1 && isDraggingRef.current) {
-      const t = e.touches[0];
-      const dx = t.clientX - dragOriginRef.current.startX;
-      const dy = t.clientY - dragOriginRef.current.startY;
-
-      if (!didDragRef.current && Math.hypot(dx, dy) > 6) {
-        didDragRef.current = true;
-      }
-
-      const now = performance.now();
-      const dt = Math.max(1, now - velocityRef.current.lastTime);
-      const instVx = ((t.clientX - velocityRef.current.lastX) / dt) * 16;
-      const instVy = ((t.clientY - velocityRef.current.lastY) / dt) * 16;
-
-      velocityRef.current = {
-        vx: velocityRef.current.vx * 0.35 + instVx * 0.65,
-        vy: velocityRef.current.vy * 0.35 + instVy * 0.65,
-        lastX: t.clientX,
-        lastY: t.clientY,
-        lastTime: now
-      };
-
-      cameraRef.current.x = dragOriginRef.current.camX + dx;
-      cameraRef.current.y = dragOriginRef.current.camY + dy;
-
-      if (rafTransformRef.current === null) {
-        rafTransformRef.current = requestAnimationFrame(() => {
-          rafTransformRef.current = null;
-          applyCameraTransform(false);
-        });
-      }
-    }
-  };
-
-  const handleTouchEnd = () => {
-    if (pinchStateRef.current.active) {
-      pinchStateRef.current.active = false;
-      return;
-    }
-    if (isDraggingRef.current) {
-      isDraggingRef.current = false;
-      startInertiaCoast();
-    }
-  };
-
-  // Smooth Wheel Zoom / Trackpad 2D Pan inside the tree canvas
+  // Consolidated Smooth Wheel Zoom, Trackpad 2D Pan, and Native Touch Pan/Pinch-to-zoom
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -522,9 +472,133 @@ export const TreeView: React.FC<TreeViewProps> = ({
       }
     };
 
+    const onTouchStart = (e: TouchEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('button, select, input, a')) return;
+      stopInertia();
+
+      if (e.touches.length === 2) {
+        isDraggingRef.current = false;
+        didDragRef.current = true;
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const rect = container.getBoundingClientRect();
+        const midX = (t1.clientX + t2.clientX) / 2 - rect.left;
+        const midY = (t1.clientY + t2.clientY) / 2 - rect.top;
+
+        pinchStateRef.current = {
+          active: true,
+          initialDist: Math.max(10, dist),
+          initialZoom: cameraRef.current.zoom,
+          lastMidX: midX,
+          lastMidY: midY
+        };
+        e.preventDefault();
+      } else if (e.touches.length === 1) {
+        pinchStateRef.current.active = false;
+        isDraggingRef.current = true;
+        didDragRef.current = false;
+        const t = e.touches[0];
+        dragOriginRef.current = {
+          startX: t.clientX,
+          startY: t.clientY,
+          camX: cameraRef.current.x,
+          camY: cameraRef.current.y
+        };
+        velocityRef.current = {
+          vx: 0,
+          vy: 0,
+          lastX: t.clientX,
+          lastY: t.clientY,
+          lastTime: performance.now()
+        };
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinchStateRef.current.active) {
+        e.preventDefault();
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const rect = container.getBoundingClientRect();
+        const midX = (t1.clientX + t2.clientX) / 2 - rect.left;
+        const midY = (t1.clientY + t2.clientY) / 2 - rect.top;
+
+        cameraRef.current.x += midX - pinchStateRef.current.lastMidX;
+        cameraRef.current.y += midY - pinchStateRef.current.lastMidY;
+        pinchStateRef.current.lastMidX = midX;
+        pinchStateRef.current.lastMidY = midY;
+
+        const scaleFactor = dist / pinchStateRef.current.initialDist;
+        zoomAroundPoint(pinchStateRef.current.initialZoom * scaleFactor, midX, midY, false);
+        return;
+      }
+
+      if (e.touches.length === 1 && isDraggingRef.current) {
+        const t = e.touches[0];
+        const dx = t.clientX - dragOriginRef.current.startX;
+        const dy = t.clientY - dragOriginRef.current.startY;
+
+        if (!didDragRef.current && Math.hypot(dx, dy) > 5) {
+          didDragRef.current = true;
+        }
+
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+
+        const now = performance.now();
+        const dt = Math.max(1, now - velocityRef.current.lastTime);
+        const instVx = ((t.clientX - velocityRef.current.lastX) / dt) * 16;
+        const instVy = ((t.clientY - velocityRef.current.lastY) / dt) * 16;
+
+        velocityRef.current = {
+          vx: velocityRef.current.vx * 0.35 + instVx * 0.65,
+          vy: velocityRef.current.vy * 0.35 + instVy * 0.65,
+          lastX: t.clientX,
+          lastY: t.clientY,
+          lastTime: now
+        };
+
+        cameraRef.current.x = dragOriginRef.current.camX + dx;
+        cameraRef.current.y = dragOriginRef.current.camY + dy;
+
+        if (rafTransformRef.current === null) {
+          rafTransformRef.current = requestAnimationFrame(() => {
+            rafTransformRef.current = null;
+            applyCameraTransform(false);
+          });
+        }
+      }
+    };
+
+    const onTouchEnd = () => {
+      if (pinchStateRef.current.active) {
+        pinchStateRef.current.active = false;
+        return;
+      }
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        startInertiaCoast();
+      }
+    };
+
     container.addEventListener('wheel', onWheel, { passive: false });
-    return () => container.removeEventListener('wheel', onWheel);
-  }, [applyCameraTransform, stopInertia, zoomAroundPoint]);
+    container.addEventListener('touchstart', onTouchStart, { passive: false });
+    container.addEventListener('touchmove', onTouchMove, { passive: false });
+    container.addEventListener('touchend', onTouchEnd, { passive: true });
+    container.addEventListener('touchcancel', onTouchEnd, { passive: true });
+
+    return () => {
+      container.removeEventListener('wheel', onWheel);
+      container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchmove', onTouchMove);
+      container.removeEventListener('touchend', onTouchEnd);
+      container.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, [applyCameraTransform, stopInertia, zoomAroundPoint, startInertiaCoast]);
 
   // Prevent accidental card clicks when releasing a drag gesture
   const handleCanvasClickCapture = (e: React.MouseEvent) => {
@@ -537,6 +611,9 @@ export const TreeView: React.FC<TreeViewProps> = ({
 
   const toggleCollapse = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const wasCollapsed = collapsedNodes.has(id);
+    const targetElement = e.currentTarget as HTMLElement;
+
     setCollapsedNodes((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -546,6 +623,28 @@ export const TreeView: React.FC<TreeViewProps> = ({
       }
       return next;
     });
+
+    if (wasCollapsed) {
+      setTimeout(() => {
+        if (!containerRef.current || !targetElement) return;
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const targetRect = targetElement.getBoundingClientRect();
+
+        const currentCenterX = targetRect.left + targetRect.width / 2;
+        const currentCenterY = targetRect.top + targetRect.height / 2;
+
+        const containerCenterX = containerRect.left + containerRect.width / 2;
+        const containerCenterY = containerRect.top + Math.min(220, containerRect.height * 0.35);
+
+        const deltaX = containerCenterX - currentCenterX;
+        const deltaY = containerCenterY - currentCenterY;
+
+        cameraRef.current.x += deltaX;
+        cameraRef.current.y += deltaY;
+
+        applyCameraTransform(true);
+      }, 60);
+    }
   };
 
   const expandAll = () => {
@@ -561,6 +660,22 @@ export const TreeView: React.FC<TreeViewProps> = ({
       }
     }
     setCollapsedNodes(allParentIds);
+  };
+
+  const handleExportTreePdf = async () => {
+    if (!currentRoot) return;
+    setIsExportingPdf(true);
+    try {
+      await exportTreeToPdf({
+        rootPerson: currentRoot,
+        getChildren,
+        mode: treeDisplayMode,
+        organicDirection,
+        collapsedNodes
+      });
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   // ============================================================================
@@ -718,10 +833,10 @@ export const TreeView: React.FC<TreeViewProps> = ({
                 onOpenAddFather(person.id);
               }}
               className="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-[#0F4C3A] to-[#15664F] text-white text-[11px] font-bold shadow-md hover:brightness-110 transition flex items-center gap-1.5 border border-[#D4AF37]/50"
-              title={`إضافة أصل أعلى (أب / جد) فوق ${person.fullName}`}
+              title={`إضافة أصل أعلى (أب / جد) فوق ${formatAppName(person.fullName)}`}
             >
               <ArrowUp className="w-3.5 h-3.5 text-[#D4AF37]" />
-              <span>+ إضافة أصل أعلى لـ ({person.fullName})</span>
+              <span>+ إضافة أصل أعلى لـ ({formatAppName(person.fullName)})</span>
             </button>
             <div className="w-0.5 h-4 bg-[#0F4C3A]/40" />
           </div>
@@ -845,9 +960,9 @@ export const TreeView: React.FC<TreeViewProps> = ({
               <div className="min-w-0 flex-1">
                 <h4
                   className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-[#0F4C3A] transition break-words leading-snug line-clamp-2"
-                  title={person.fullName}
+                  title={formatAppName(person.fullName)}
                 >
-                  {person.fullName}
+                  {depth === 1 ? formatAppName(person.fullName) : formatBranchName(person.fullName)}
                 </h4>
               </div>
             </div>
@@ -875,7 +990,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
                 <span>
                   {person.husbandName ? (
                     <span className="text-rose-700 font-bold text-[10px] break-words line-clamp-1 block max-w-[180px]">
-                      زوجة: {person.husbandName}
+                      زوجة: {formatAppName(person.husbandName)}
                     </span>
                   ) : (
                     <span className="text-slate-400 text-[10px]">أنثى</span>
@@ -1234,10 +1349,10 @@ export const TreeView: React.FC<TreeViewProps> = ({
                 onOpenAddFather(currentRoot.id);
               }}
               className="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-[#5C3A21] to-[#0F4C3A] text-white text-[11px] font-bold shadow-md hover:brightness-110 transition flex items-center gap-1.5 border border-[#D4AF37]/70 whitespace-nowrap"
-              title={`إضافة جذر / أصل أعلى لـ ${currentRoot.fullName}`}
+              title={`إضافة جذر / أصل أعلى لـ ${formatAppName(currentRoot.fullName)}`}
             >
               <ArrowUp className="w-3.5 h-3.5 text-[#D4AF37]" />
-              <span>+ إضافة جذر / أصل أعلى لـ ({currentRoot.fullName})</span>
+              <span>+ إضافة جذر / أصل أعلى لـ ({formatAppName(currentRoot.fullName)})</span>
             </button>
           </div>
         )}
@@ -1379,9 +1494,9 @@ export const TreeView: React.FC<TreeViewProps> = ({
                   className={`text-xs font-bold leading-snug truncate ${
                     isRoot ? 'text-white font-display text-sm' : 'text-slate-900 group-hover:text-[#0F4C3A]'
                   }`}
-                  title={person.fullName}
+                  title={formatAppName(person.fullName)}
                 >
-                  {person.fullName}
+                  {isRoot ? formatAppName(person.fullName) : formatBranchName(person.fullName)}
                 </h4>
 
                 {/* Footer Info: Branches count or spouse */}
@@ -1400,7 +1515,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
                     )
                   ) : person.husbandName ? (
                     <span className="text-rose-700 font-bold truncate max-w-[155px]">
-                      زوجة: {person.husbandName}
+                      زوجة: {formatAppName(person.husbandName)}
                     </span>
                   ) : (
                     <span className="text-rose-700/80">ابنة / فرع</span>
@@ -1541,7 +1656,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
           >
             {treeRoots.map((root) => (
               <option key={root.id} value={root.id}>
-                {root.fullName}
+                {formatDropdownName(root.fullName)}
               </option>
             ))}
           </select>
@@ -1648,26 +1763,12 @@ export const TreeView: React.FC<TreeViewProps> = ({
               <button
                 type="button"
                 disabled={isExportingPdf}
-                onClick={async () => {
-                  if (!currentRoot) return;
-                  setIsExportingPdf(true);
-                  try {
-                    await exportTreeToPdf({
-                      rootPerson: currentRoot,
-                      getChildren,
-                      mode: treeDisplayMode,
-                      organicDirection,
-                      collapsedNodes
-                    });
-                  } finally {
-                    setIsExportingPdf(false);
-                  }
-                }}
-                className="px-3 py-1.5 text-xs font-bold rounded-xl bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white flex items-center gap-1.5 shadow-2xs transition cursor-pointer disabled:opacity-60"
-                title="تصدير الشجرة الحالية بصيغة PDF عالية الدقة"
+                onClick={() => setShowExportModal(true)}
+                className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-[#0F4C3A] hover:bg-[#0c3c2e] active:bg-[#08281f] text-white flex items-center gap-1.5 shadow-2xs transition cursor-pointer disabled:opacity-60"
+                title="تصدير الشجرة كصورة عالية الدقة للجوال أو ملف PDF للطباعة"
               >
                 <FileDown className="w-3.5 h-3.5 text-[#D4AF37]" />
-                <span>{isExportingPdf ? 'جارٍ التصدير...' : 'تصدير PDF'}</span>
+                <span>{isExportingPdf ? 'جارٍ معالجة الملف...' : 'تصدير الشجرة'}</span>
               </button>
             </>
           )}
@@ -1679,79 +1780,118 @@ export const TreeView: React.FC<TreeViewProps> = ({
         ref={containerRef}
         dir="ltr"
         onMouseDown={handleMouseDown}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onTouchCancel={handleTouchEnd}
         onClickCapture={handleCanvasClickCapture}
-        className={`relative w-full h-[650px] sm:h-[760px] overflow-hidden rounded-3xl border border-slate-200/80 cursor-grab select-none touch-none ${
+        className={`relative w-full h-[72vh] min-h-[500px] sm:h-[780px] overflow-hidden rounded-2xl sm:rounded-3xl border border-slate-200/80 cursor-grab select-none touch-none overscroll-none ${
           treeDisplayMode === 'organic'
             ? 'bg-gradient-to-b from-[#F4F9F5] via-[#FBF9F5] to-[#F3ECE1]'
             : 'bg-[#FAF8F5]'
         }`}
         style={{
           backgroundImage: 'radial-gradient(rgba(15, 76, 58, 0.08) 1px, transparent 1px)',
-          backgroundSize: '24px 24px'
+          backgroundSize: '24px 24px',
+          touchAction: 'none'
         }}
       >
         {/* Helper overlay hint on top right */}
         <div
           dir="rtl"
-          className="absolute top-4 right-4 z-20 bg-white/90 backdrop-blur-xs px-3 py-1.5 rounded-xl border border-slate-200/70 text-[11px] text-slate-600 shadow-2xs pointer-events-none flex items-center gap-2"
+          className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 bg-white/95 backdrop-blur-xs px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl border border-slate-200/70 text-[10px] sm:text-[11px] text-slate-600 shadow-2xs pointer-events-none flex items-center gap-1.5"
         >
           <Move className="w-3.5 h-3.5 text-[#0F4C3A]" />
-          <span>اسحب بحرية للتحريك · عجلة الفأرة أو اللمس للتكبير · انقر على أي اسم للتفاصيل</span>
+          <span>اسحب للتحريك · قرّب بأصبعين للتكبير</span>
           <span className="text-[#0F4C3A] font-bold hidden sm:inline">
             · {treeDisplayMode === 'organic' ? 'الشجرة (جذر وأغصان وتفريعات)' : 'المخطط الهرمي (البطاقات)'}
           </span>
         </div>
 
-        {/* Floating Smooth Directional Navigation Pad on Bottom Left */}
+        {/* Floating Touch-Ergonomic Control Pad on Bottom Left */}
         <div
           dir="rtl"
-          className="absolute bottom-4 left-4 z-20 bg-white/90 backdrop-blur-xs p-1.5 rounded-2xl border border-slate-200/80 shadow-md flex items-center gap-1"
+          className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 z-20 bg-white/95 backdrop-blur-md p-1.5 sm:p-2 rounded-2xl border border-slate-200/80 shadow-md flex items-center gap-1 sm:gap-1.5"
         >
+          {/* Zoom In */}
           <button
             type="button"
-            onClick={() => handleDirectionalPan(0, 140)}
-            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-            title="تحريك للأعلى"
+            onClick={() => handleStepZoom(0.2)}
+            className="w-8 h-8 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center transition cursor-pointer"
+            title="تكبير الشجرة"
+            aria-label="تكبير"
           >
-            <ArrowUp className="w-3.5 h-3.5" />
+            <Plus className="w-4 h-4" />
           </button>
+
+          {/* Zoom Out */}
           <button
             type="button"
-            onClick={() => handleDirectionalPan(0, -140)}
-            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-            title="تحريك للأسفل"
+            onClick={() => handleStepZoom(-0.2)}
+            className="w-8 h-8 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center transition cursor-pointer"
+            title="تصغير الشجرة"
+            aria-label="تصغير"
           >
-            <ArrowDown className="w-3.5 h-3.5" />
+            <Minus className="w-4 h-4" />
           </button>
-          <button
-            type="button"
-            onClick={() => handleDirectionalPan(-160, 0)}
-            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-            title="تحريك لليمين"
-          >
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => handleDirectionalPan(160, 0)}
-            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-            title="تحريك لليسار"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-          </button>
-          <div className="h-4 w-px bg-slate-200 mx-0.5" />
+
+          <div className="h-5 w-px bg-slate-200 mx-0.5" />
+
+          {/* Fit entire tree to screen */}
           <button
             type="button"
             onClick={() => fitTreeToScreen(true)}
-            className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-[#0F4C3A] text-[10px] font-bold transition"
-            title="احتواء كامل الشجرة في الشاشة"
+            className="h-8 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-[#0F4C3A] text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+            title="احتواء الشجرة كاملة داخل الشاشة"
+            aria-label="احتواء الشجرة"
           >
-            احتواء الكل
+            <Maximize2 className="w-3.5 h-3.5" />
+            <span>احتواء</span>
           </button>
+
+          {/* Center Root */}
+          <button
+            type="button"
+            onClick={() => centerOnRoot(true, 1)}
+            className="h-8 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-900 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+            title="توسيط الأصل"
+            aria-label="توسيط الجد أو الأصل"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span className="hidden xs:inline">الأصل</span>
+          </button>
+
+          {/* Directional Nudge Pad (hidden on small phone screens to keep it ultra compact) */}
+          <div className="hidden sm:flex items-center gap-0.5 border-r border-slate-200 pr-1 mr-0.5">
+            <button
+              type="button"
+              onClick={() => handleDirectionalPan(0, 140)}
+              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
+              title="تحريك للأعلى"
+            >
+              <ArrowUp className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDirectionalPan(0, -140)}
+              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
+              title="تحريك للأسفل"
+            >
+              <ArrowDown className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDirectionalPan(-160, 0)}
+              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
+              title="تحريك لليمين"
+            >
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDirectionalPan(160, 0)}
+              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
+              title="تحريك لليسار"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         {/* Legend for Organic Tree Mode */}
@@ -1810,7 +1950,131 @@ export const TreeView: React.FC<TreeViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Export Options Modal */}
+      {showExportModal && currentRoot && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+          <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-right my-auto animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-[#0F4C3A] via-[#15664F] to-[#0F4C3A] text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#D4AF37]/20 border border-[#D4AF37]/40 flex items-center justify-center text-[#D4AF37] shrink-0">
+                  <FileDown className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold font-display leading-snug">
+                    تصدير شجرة العائلة
+                  </h3>
+                  <p className="text-[11px] text-white/80 mt-0.5">
+                    أصل الشجرة: {formatAppName(currentRoot.fullName)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition shrink-0 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 sm:p-5 space-y-3">
+              <p className="text-xs font-bold text-slate-800">اختر صيغة التصدير المناسبة لاستخدامك (جميع الصيغ بدقة فائقة):</p>
+
+              {/* Option 1: Interactive HTML File */}
+              <button
+                type="button"
+                disabled={isExportingPdf}
+                onClick={() => handleExportTreeFormat('html')}
+                className="w-full p-3.5 rounded-2xl border-2 border-amber-500/40 bg-amber-50/80 hover:bg-amber-100/90 text-right transition flex items-start gap-3 cursor-pointer group disabled:opacity-50 shadow-xs"
+              >
+                <div className="w-10 h-10 rounded-xl bg-[#8C6D1F] text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                  <Globe className="w-5 h-5 text-[#FDE68A]" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs sm:text-sm text-amber-950">1. ملف شجرة تفاعلية (HTML)</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[#D4AF37]/30 text-[#78350F]">
+                      تفاعلي ومشاركة مباشرة (واتساب)
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-700 leading-snug mt-1">
+                    ملف تفاعلي محمول يُفتح في أي متصفح بالهاتف/الحاسوب، يُتيح النقر على البطاقات لتوسيع وطي الأفرع، مع فتح أدوات المشاركة المباشرة عبر الواتساب.
+                  </p>
+                </div>
+              </button>
+
+              {/* Option 2: Ultra High-Res PNG Image */}
+              <button
+                type="button"
+                disabled={isExportingPdf}
+                onClick={() => handleExportTreeFormat('png')}
+                className="w-full p-3.5 rounded-2xl border-2 border-emerald-600/40 bg-emerald-50/80 hover:bg-emerald-100/90 text-right transition flex items-start gap-3 cursor-pointer group disabled:opacity-50 shadow-xs"
+              >
+                <div className="w-10 h-10 rounded-xl bg-[#0F4C3A] text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                  <Smartphone className="w-5 h-5 text-[#D4AF37]" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs sm:text-sm text-[#0F4C3A]">2. صورة فائقة الوضوح (PNG)</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[#D4AF37]/30 text-[#8C6D1F]">
+                      دقة فائقة (300 DPI)
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-700 leading-snug mt-1">
+                    صورة رقمية فائقة الوضوح والنقاء (4800px)، تناسب شاشات الجوال والحاسوب وتصلح للطباعة بأي حجم (A4, A3، واللوحات الجدارية الضخمة).
+                  </p>
+                </div>
+              </button>
+
+              {/* Option 3: Print Ready PDF Document */}
+              <button
+                type="button"
+                disabled={isExportingPdf}
+                onClick={() => handleExportTreeFormat('pdf')}
+                className="w-full p-3.5 rounded-2xl border border-slate-300 bg-white hover:bg-slate-50 text-right transition flex items-start gap-3 cursor-pointer disabled:opacity-50 shadow-xs"
+              >
+                <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0 mt-0.5">
+                  <FileText className="w-5 h-5 text-[#0F4C3A]" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs sm:text-sm text-slate-900 block">3. وثيقة جاهزة للطباعة (PDF)</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+                      طباعة A4, A3 والجداريات
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-snug mt-1">
+                    ملف PDF عالي الجودة بمقاييس قياسية واضحة، جاهز للطباعة المباشرة على الورق وبوسترات الحائط دون تقطيع.
+                  </p>
+                </div>
+              </button>
+
+              {isExportingPdf && (
+                <div className="p-3 bg-amber-50 text-amber-900 text-xs rounded-xl font-bold text-center border border-amber-200 animate-pulse">
+                  جارٍ معالجة وتجهيز الملف بدقة فائقة... يرجى الانتظار لحظة
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-3.5 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                className="px-4 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-700 font-bold text-xs hover:bg-slate-100 transition cursor-pointer"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
+
 

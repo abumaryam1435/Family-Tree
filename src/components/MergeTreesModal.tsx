@@ -14,7 +14,14 @@ import {
   Sparkles
 } from 'lucide-react';
 import { Person } from '../types/family';
-import { advancedArabicMatch, scoreArabicMatch, normalizeArabic } from '../utils/nameUtils';
+import {
+  advancedArabicMatch,
+  scoreArabicMatch,
+  normalizeArabic,
+  formatAppName,
+  formatBranchName,
+  formatDropdownName
+} from '../utils/nameUtils';
 
 interface MergeTreesModalProps {
   isOpen: boolean;
@@ -91,15 +98,15 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
       if (p.gender !== 'male') return false;
       if (targetPersonId && p.id === targetPersonId) return false;
       if (sourceSearch.trim()) {
-        return advancedArabicMatch(p.fullName, sourceSearch, [p.notes]);
+        return advancedArabicMatch(p.fullName, sourceSearch, p.notes ? [p.notes] : []);
       }
       return true;
     });
     return candidates.sort((a, b) => {
       if (sourceSearch.trim()) {
         const diff =
-          scoreArabicMatch(b.fullName, sourceSearch, [b.notes]) -
-          scoreArabicMatch(a.fullName, sourceSearch, [a.notes]);
+          scoreArabicMatch(b.fullName, sourceSearch, b.notes ? [b.notes] : []) -
+          scoreArabicMatch(a.fullName, sourceSearch, a.notes ? [a.notes] : []);
         if (diff !== 0) return diff;
       }
       const aRoot = treeRootIds.has(a.id) ? 1 : 0;
@@ -115,15 +122,15 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
       if (p.gender !== 'male') return false;
       if (sourcePersonId && p.id === sourcePersonId) return false;
       if (targetSearch.trim()) {
-        return advancedArabicMatch(p.fullName, targetSearch, [p.notes]);
+        return advancedArabicMatch(p.fullName, targetSearch, p.notes ? [p.notes] : []);
       }
       return true;
     });
     return candidates.sort((a, b) => {
       if (targetSearch.trim()) {
         const diff =
-          scoreArabicMatch(b.fullName, targetSearch, [b.notes]) -
-          scoreArabicMatch(a.fullName, targetSearch, [a.notes]);
+          scoreArabicMatch(b.fullName, targetSearch, b.notes ? [b.notes] : []) -
+          scoreArabicMatch(a.fullName, targetSearch, a.notes ? [a.notes] : []);
         if (diff !== 0) return diff;
       }
       const aRoot = treeRootIds.has(a.id) ? 1 : 0;
@@ -255,9 +262,9 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
                         className="p-3 rounded-xl bg-white border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs"
                       >
                         <div className="flex items-center gap-1.5 flex-wrap leading-snug break-words">
-                          <span className="font-bold text-[#0F4C3A]">«{pair.rootA.fullName}»</span>
+                          <span className="font-bold text-[#0F4C3A]">«{formatAppName(pair.rootA.fullName)}»</span>
                           <span className="text-slate-400">مع</span>
-                          <span className="font-bold text-[#0F4C3A]">«{pair.rootB.fullName}»</span>
+                          <span className="font-bold text-[#0F4C3A]">«{formatAppName(pair.rootB.fullName)}»</span>
                         </div>
                         <button
                           type="button"
@@ -308,7 +315,7 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
                               : 'hover:bg-slate-50 text-slate-800'
                           }`}
                         >
-                          <span className="leading-snug break-words flex-1">{p.fullName}</span>
+                          <span className="leading-snug break-words flex-1">{formatDropdownName(p.fullName)}</span>
                           {isRoot && (
                             <span
                               className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
@@ -357,7 +364,7 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
                               : 'hover:bg-slate-50 text-slate-800'
                           }`}
                         >
-                          <span className="leading-snug break-words flex-1">{p.fullName}</span>
+                          <span className="leading-snug break-words flex-1">{formatDropdownName(p.fullName)}</span>
                           {isRoot && (
                             <span
                               className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
@@ -402,11 +409,11 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
                   <span className="text-[10px] font-bold text-amber-800 bg-amber-200/70 px-2 py-0.5 rounded-md inline-block">
                     السجل المُراد دمجه (المصدر)
                   </span>
-                  <div className="text-sm font-bold text-slate-900 leading-snug break-words">{sourcePerson.fullName}</div>
+                  <div className="text-sm font-bold text-slate-900 leading-snug break-words">{formatAppName(sourcePerson.fullName)}</div>
                   <div className="text-slate-500">الفروع المباشرة: <strong>{sourceChildren.length} فروع</strong></div>
                   {sourceChildren.length > 0 && (
                     <div className="text-[11px] text-slate-600 bg-white p-2.5 rounded-xl border border-amber-200 leading-relaxed break-words">
-                      سيتم نقل: {sourceChildren.map(c => c.fullName).join('، ')}
+                      سيتم نقل: {sourceChildren.map(c => formatBranchName(c.fullName)).join('، ')}
                     </div>
                   )}
                 </div>
@@ -416,7 +423,7 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
                   <span className="text-[10px] font-bold text-emerald-800 bg-emerald-200/70 px-2 py-0.5 rounded-md inline-block">
                     السجل المعتمد النهائي (الهدف)
                   </span>
-                  <div className="text-sm font-bold text-slate-900 leading-snug break-words">{targetPerson.fullName}</div>
+                  <div className="text-sm font-bold text-slate-900 leading-snug break-words">{formatAppName(targetPerson.fullName)}</div>
                   <div className="text-slate-500">الفروع الحالية: <strong>{targetChildren.length} فروع</strong></div>
                   <div className="text-[11px] text-emerald-800 bg-white p-2.5 rounded-xl border border-emerald-200">
                     ستصبح الفروع الإجمالية: <strong>{sourceChildren.length + targetChildren.length} فروع</strong>
@@ -470,7 +477,7 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
                   تأكيد توحيد سجل الجد المشترك:
                 </h4>
                 <p>
-                  أنت على وشك دمج سجل <strong>«{sourcePerson.fullName}»</strong> في سجل <strong>«{targetPerson.fullName}»</strong>.
+                  أنت على وشك دمج سجل <strong>«{formatAppName(sourcePerson.fullName)}»</strong> في سجل <strong>«{formatAppName(targetPerson.fullName)}»</strong>.
                 </p>
                 <p className="text-slate-500">
                   جميع الأبناء والأحفاد سيتم نقلهم وربطهم بالسجل المعتمد، وسيتم حفظ نسخة احتياطية من السجل السابق مع إمكانية التراجع عن العملية إن لزم الأمر.
@@ -521,8 +528,8 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
               </h4>
 
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 max-w-md mx-auto text-right space-y-1.5 leading-relaxed break-words">
-                <div>السجل المعتمد: <strong>{mergeReport.targetName}</strong></div>
-                <div>السجل المدمج: <strong>{mergeReport.sourceName}</strong></div>
+                <div>السجل المعتمد: <strong>{formatAppName(mergeReport.targetName)}</strong></div>
+                <div>السجل المدمج: <strong>{formatAppName(mergeReport.sourceName)}</strong></div>
                 <div>عدد الفروع المنقولة: <strong>{mergeReport.movedCount} فروع وأحفاد</strong></div>
                 <div className="text-[11px] text-slate-400 mt-2">
                   رقم العملية: {mergeReport.mergeOpId}

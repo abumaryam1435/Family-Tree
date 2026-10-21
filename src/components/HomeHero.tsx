@@ -16,6 +16,7 @@ import {
   ArrowUp
 } from 'lucide-react';
 import { Person } from '../types/family';
+import { formatAppName } from '../utils/nameUtils';
 
 interface HomeHeroProps {
   stats: {
@@ -151,7 +152,7 @@ export const HomeHero: React.FC<HomeHeroProps> = ({
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-1.5">
                               <span className="text-xs sm:text-sm font-bold text-[#0F4C3A] group-hover:text-[#D4AF37] transition break-words leading-snug">
-                                {p.fullName}
+                                {formatAppName(p.fullName)}
                               </span>
                               <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0 ${
                                 p.gender === 'male' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
@@ -162,9 +163,9 @@ export const HomeHero: React.FC<HomeHeroProps> = ({
                             <div className="text-[11px] sm:text-xs text-slate-500 mt-1 break-words leading-relaxed">
                               {father ? (
                                 <span>
-                                  الأب: <strong>{father.fullName}</strong>
+                                  الأب: <strong>{formatAppName(father.fullName)}</strong>
                                   {grandfather && (
-                                    <> · الجد: <strong>{grandfather.fullName}</strong></>
+                                    <> · الجد: <strong>{formatAppName(grandfather.fullName)}</strong></>
                                   )}
                                 </span>
                               ) : (
@@ -371,7 +372,7 @@ export const HomeHero: React.FC<HomeHeroProps> = ({
               </div>
 
               <h3 className="text-sm sm:text-base font-bold text-slate-900 group-hover:text-[#0F4C3A] transition break-words leading-snug">
-                {root.fullName}
+                {formatAppName(root.fullName)}
               </h3>
               
               {root.notes && (
@@ -394,7 +395,7 @@ export const HomeHero: React.FC<HomeHeroProps> = ({
                       type="button"
                       onClick={() => onOpenAddFather(root.id)}
                       className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-[#0F4C3A] border border-emerald-200 flex items-center gap-1 transition cursor-pointer"
-                      title={`إضافة أصل أعلى فوق ${root.fullName}`}
+                      title={`إضافة أصل أعلى فوق ${formatAppName(root.fullName)}`}
                     >
                       <ArrowUp className="w-3 h-3" />
                       <span>+ إضافة أصل</span>

@@ -24,7 +24,12 @@ import {
 } from 'lucide-react';
 import { Person, Gender } from '../types/family';
 import { calculateKinship, getCoupleRelationship } from '../utils/kinship';
-import { generateChildFullName, getPatronymicSuffix } from '../utils/nameUtils';
+import {
+  generateChildFullName,
+  getPatronymicSuffix,
+  formatAppName,
+  formatBranchName
+} from '../utils/nameUtils';
 
 interface PersonModalProps {
   person: Person | null;
@@ -175,7 +180,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                 className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold transition backdrop-blur-xs shadow-2xs max-w-full text-right"
               >
                 <ArrowRight className="w-3.5 h-3.5 shrink-0" />
-                <span className="leading-snug break-words">العودة للفرع السابق: {previousPersonName}</span>
+                <span className="leading-snug break-words">العودة للفرع السابق: {formatAppName(previousPersonName)}</span>
               </button>
             </div>
           )}
@@ -277,17 +282,17 @@ export const PersonModal: React.FC<PersonModalProps> = ({
             <div className="mb-2">
               <span className="text-xs text-white/95 bg-white/20 px-2.5 py-1 rounded-md inline-flex items-center gap-1 font-semibold max-w-full break-words leading-snug">
                 <Heart className="w-3 h-3 text-rose-300 shrink-0" />
-                <span>زوجة: {husbandPerson ? husbandPerson.fullName : person.husbandName}</span>
+                <span>زوجة: {formatAppName(husbandPerson ? husbandPerson.fullName : person.husbandName)}</span>
               </span>
             </div>
           )}
 
           <h3 className="text-lg sm:text-2xl font-bold font-display text-white leading-snug break-words">
-            {person.fullName}
+            {formatAppName(person.fullName)}
           </h3>
 
           <p className="text-xs text-white/85 mt-1 leading-relaxed break-words">
-            « {lineage} »
+            « {formatAppName(lineage)} »
           </p>
         </div>
 
@@ -419,7 +424,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                             onClick={() => onSelectRelative?.(ch.id)}
                             className="font-bold text-slate-900 hover:text-[#0F4C3A] hover:underline text-right leading-relaxed break-words text-xs sm:text-sm flex-1"
                           >
-                            {ch.fullName}
+                            {formatBranchName(ch.fullName)}
                           </button>
                         </div>
                         <span
@@ -452,13 +457,20 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                   >
                     <div className="flex items-start gap-2 min-w-0 flex-1">
                       <span className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${ch.gender === 'male' ? 'bg-emerald-600' : 'bg-rose-500'}`} />
-                      <button
-                        type="button"
-                        onClick={() => onSelectRelative?.(ch.id)}
-                        className="font-bold text-slate-900 hover:text-[#0F4C3A] hover:underline text-right leading-relaxed break-words text-xs sm:text-sm flex-1"
-                      >
-                        {ch.fullName}
-                      </button>
+                      <div className="flex flex-wrap items-center gap-1.5 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => onSelectRelative?.(ch.id)}
+                          className="font-bold text-slate-900 hover:text-[#0F4C3A] hover:underline text-right leading-relaxed break-words text-xs sm:text-sm"
+                        >
+                          {formatBranchName(ch.fullName)}
+                        </button>
+                        {ch.gender === 'female' && ch.husbandName && (
+                          <span className="text-[11px] text-rose-700 font-semibold bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200/60">
+                            زوجة: {formatAppName(ch.husbandName)}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-end gap-1.5 self-end sm:self-center shrink-0 flex-wrap">
@@ -563,7 +575,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                               : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200/60'
                           }`}
                         >
-                          <span>{k.fullName}</span>
+                          <span>{formatAppName(k.fullName)}</span>
                           <span className="text-[10px] opacity-80 shrink-0">({k.gender === 'male' ? 'ابن أخ' : 'ابنة أخ'})</span>
                         </button>
                       ))}
@@ -589,7 +601,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                               : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200/60'
                           }`}
                         >
-                          <span>{k.fullName}</span>
+                          <span>{formatAppName(k.fullName)}</span>
                           <span className="text-[10px] opacity-80 shrink-0">({k.gender === 'male' ? 'ابن أخ' : 'ابنة أخ'})</span>
                         </button>
                       ))}
@@ -615,7 +627,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                               : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200/60'
                           }`}
                         >
-                          <span>{k.fullName}</span>
+                          <span>{formatAppName(k.fullName)}</span>
                           <span className="text-[10px] opacity-80 shrink-0">({k.gender === 'male' ? 'ابن أخت' : 'ابنة أخت'})</span>
                         </button>
                       ))}
@@ -641,7 +653,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                               : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200/60'
                           }`}
                         >
-                          <span>{k.fullName}</span>
+                          <span>{formatAppName(k.fullName)}</span>
                           <span className="text-[10px] opacity-80 shrink-0">({k.gender === 'male' ? 'ابن أخت' : 'ابنة أخت'})</span>
                         </button>
                       ))}
@@ -668,7 +680,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                                 : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200/60'
                             }`}
                           >
-                            <span>{k.fullName}</span>
+                            <span>{formatBranchName(k.fullName)}</span>
                             <span className="text-[10px] opacity-80 shrink-0">({k.gender === 'male' ? 'ابنها' : 'ابنتها'})</span>
                           </button>
                         ))}
@@ -692,7 +704,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                                   : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200/60'
                               }`}
                             >
-                              <span>{sib.fullName}</span>
+                              <span>{formatAppName(sib.fullName)}</span>
                               <span className="text-[10px] opacity-80 shrink-0">({sib.gender === 'male' ? 'خال الأبناء' : 'خالة الأبناء'})</span>
                             </button>
                           ))}
@@ -721,7 +733,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                               child.gender === 'male' ? 'text-slate-800' : 'text-rose-800'
                             }`}
                           >
-                            {child.fullName}
+                            {formatBranchName(child.fullName)}
                           </button>
                           {otherMother ? (
                             <button
@@ -729,7 +741,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                               onClick={() => onSelectRelative?.(otherMother.id)}
                               className="text-[10px] text-rose-700 font-bold hover:underline"
                             >
-                              (الأم: {otherMother.fullName})
+                              (الأم: {formatAppName(otherMother.fullName)})
                             </button>
                           ) : (
                             <span className="text-[10px] text-slate-500">(من أم أخرى)</span>
@@ -758,7 +770,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                               : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200/60'
                           }`}
                         >
-                          <span>{k.fullName}</span>
+                          <span>{formatAppName(k.fullName)}</span>
                           <span className="text-[10px] opacity-80 shrink-0">({k.gender === 'male' ? 'أخ' : 'أخت'})</span>
                         </button>
                       ))}
@@ -784,7 +796,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                               : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200/60'
                           }`}
                         >
-                          <span>{k.fullName}</span>
+                          <span>{formatAppName(k.fullName)}</span>
                           <span className="text-[10px] opacity-80 shrink-0">({k.gender === 'male' ? 'عم' : 'عمة'})</span>
                         </button>
                       ))}
@@ -796,7 +808,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                 {(kinship.maternalUncles.length > 0 || kinship.maternalAunts.length > 0) && (
                   <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-emerald-200/80 space-y-1.5">
                     <span className="font-bold text-[#0F4C3A] block text-[11px] leading-snug">
-                      الأخوال والخالات {kinship.mother ? `(إخوة وأخوات الأم: ${kinship.mother.fullName})` : ''} ({kinship.maternalUncles.length + kinship.maternalAunts.length}):
+                      الأخوال والخالات {kinship.mother ? `(إخوة وأخوات الأم: ${formatAppName(kinship.mother.fullName)})` : ''} ({kinship.maternalUncles.length + kinship.maternalAunts.length}):
                     </span>
                     <div className="flex flex-col sm:flex-row sm:flex-wrap gap-1.5">
                       {[...kinship.maternalUncles, ...kinship.maternalAunts].map((k) => (
@@ -810,7 +822,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                               : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200/60'
                           }`}
                         >
-                          <span>{k.fullName}</span>
+                          <span>{formatAppName(k.fullName)}</span>
                           <span className="text-[10px] opacity-80 shrink-0">({k.gender === 'male' ? 'خال' : 'خالة'})</span>
                         </button>
                       ))}
@@ -832,7 +844,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                           onClick={() => onSelectRelative?.(w.id)}
                           className="min-h-[34px] px-2.5 py-1.5 rounded-xl bg-rose-50 text-rose-900 hover:bg-rose-100 text-xs font-semibold transition border border-rose-200/60 text-right leading-snug break-words"
                         >
-                          {w.fullName}
+                          {formatAppName(w.fullName)}
                         </button>
                       ))}
                     </div>
@@ -868,7 +880,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                   <div>
                     <span className="text-[10px] text-rose-700 block font-semibold">بيانات الزوج:</span>
                     <span className="font-bold text-rose-950 text-xs sm:text-sm leading-snug break-words block">
-                      {husbandPerson ? husbandPerson.fullName : person.husbandName}
+                      {formatAppName(husbandPerson ? husbandPerson.fullName : person.husbandName)}
                     </span>
                   </div>
                 </div>
@@ -927,11 +939,11 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                       onClick={() => onSelectRelative(father.id)}
                       className="font-bold text-slate-900 hover:text-[#0F4C3A] hover:underline text-right leading-snug break-words"
                     >
-                      {father.fullName}
+                      {formatAppName(father.fullName)}
                     </button>
                   ) : (
                     <span className="font-bold text-slate-900 leading-snug break-words">
-                      {father ? father.fullName : 'غير مسجل (بداية شجرة مستقلة)'}
+                      {father ? formatAppName(father.fullName) : 'غير مسجل (بداية شجرة مستقلة)'}
                     </span>
                   )}
                   {isAdmin && (
@@ -956,17 +968,17 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                       onClick={() => onSelectRelative(kinship.mother!.id)}
                       className="font-bold text-rose-800 hover:underline text-right leading-snug break-words"
                     >
-                      {kinship.mother.fullName}
+                      {formatAppName(kinship.mother.fullName)}
                     </button>
                   ) : (
-                    <span className="font-bold text-rose-800 leading-snug break-words">{kinship.mother.fullName}</span>
+                    <span className="font-bold text-rose-800 leading-snug break-words">{formatAppName(kinship.mother.fullName)}</span>
                   )}
                 </div>
               )}
               <div className="py-2 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
                 <span className="text-slate-500 shrink-0">الجد:</span>
                 <span className="font-bold text-slate-900 leading-snug break-words">
-                  {grandfather ? grandfather.fullName : 'غير مسجل'}
+                  {grandfather ? formatAppName(grandfather.fullName) : 'غير مسجل'}
                 </span>
               </div>
             </div>
