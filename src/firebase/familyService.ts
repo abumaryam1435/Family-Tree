@@ -227,8 +227,8 @@ export const familyFirebase = {
       }
       finalNewPersonName = rebuildChildFullName(trimmed, payload.gender, fatherData.fullName);
     } else {
-      // When adding a root ancestor (أصل بدون أب), keep the first name before بن/بنت
-      finalNewPersonName = extractGivenName(trimmed) || trimmed;
+      // When adding a root ancestor (أصل بدون أب), preserve the full name entered by the user
+      finalNewPersonName = trimmed;
     }
 
     const id = `p_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -328,6 +328,8 @@ export const familyFirebase = {
     const fatherChanged = updates.fatherId !== undefined && (updates.fatherId || null) !== (current.fatherId || null);
     let finalFullName = updates.fullName !== undefined ? updates.fullName.trim() : current.fullName;
 
+    const effectiveFatherId = updates.fatherId !== undefined ? updates.fatherId : current.fatherId;
+
     if (fatherChanged) {
       const newFatherId = updates.fatherId || null;
       if (newFatherId) {
@@ -357,15 +359,16 @@ export const familyFirebase = {
         // Rebuild fullName keeping only the first name before بن/بنت and attaching the new father's full name
         finalFullName = rebuildChildFullName(finalFullName, targetGender, newFather.fullName);
       } else {
-        // Person became a root ancestor (أصل مستقل بدون أب): keep only the first name before بن/بنت
-        finalFullName = extractGivenName(finalFullName) || finalFullName;
+        // Person became a root ancestor (أصل مستقل بدون أب): preserve the typed name
+        finalFullName = updates.fullName !== undefined ? updates.fullName.trim() : current.fullName;
       }
-    } else if (! (updates.fatherId !== undefined ? updates.fatherId : current.fatherId)) {
-      // Root ancestor edited: keep only the first name before بن/بنت
-      finalFullName = extractGivenName(finalFullName) || finalFullName;
-    } else if (updates.gender !== undefined && updates.gender !== current.gender && current.fatherId) {
-      const curFather = allPersons.find(p => p.id === current.fatherId);
-      if (curFather) {
+    } else if (!effectiveFatherId) {
+      // Root ancestor edited (no fatherId exists): preserve the exact name entered by the user
+      finalFullName = updates.fullName !== undefined ? updates.fullName.trim() : current.fullName;
+    } else if (effectiveFatherId) {
+      // Person has a father: rebuild fullName with father's full name
+      const curFather = allPersons.find(p => p.id === effectiveFatherId);
+      if (curFather && (updates.fullName !== undefined || updates.gender !== undefined)) {
         finalFullName = rebuildChildFullName(finalFullName, targetGender, curFather.fullName);
       }
     }

@@ -105,7 +105,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
 
-  const handleExportTreeFormat = async (format: 'png' | 'pdf' | 'html') => {
+  const handleExportTreeFormat = async (format: 'png' | 'pdf' | 'html' | 'svg') => {
     if (!currentRoot) return;
     setIsExportingPdf(true);
     try {
@@ -115,6 +115,14 @@ export const TreeView: React.FC<TreeViewProps> = ({
           getChildren,
           getAllPersons: () => persons,
           mode: treeDisplayMode
+        });
+      } else if (format === 'svg') {
+        await exportTreeToSvg({
+          rootPerson: currentRoot,
+          getChildren,
+          mode: treeDisplayMode,
+          organicDirection,
+          collapsedNodes
         });
       } else if (format === 'png') {
         await exportTreeToPng({
@@ -137,6 +145,8 @@ export const TreeView: React.FC<TreeViewProps> = ({
         });
       }
       setShowExportModal(false);
+    } catch (err) {
+      console.error('Export error:', err);
     } finally {
       setIsExportingPdf(false);
     }
@@ -1137,34 +1147,33 @@ export const TreeView: React.FC<TreeViewProps> = ({
         {/* Children Branches & Connecting Lines */}
         {hasChildren && !isCollapsed && (
           <div className="flex flex-col items-center">
-            {/* Vertical stem from parent card down */}
-            <div className="w-[2.5px] h-6 bg-[#0F4C3A]" />
+            {/* Vertical stem from parent card down to horizontal connector bar */}
+            <div className="w-[3.5px] h-7 bg-[#0F4C3A] shrink-0 z-10" />
 
-            {/* Children container with seamless horizontal & vertical connectors */}
-            <div className="relative flex justify-center gap-6 sm:gap-8 pt-0">
+            {/* Children container with zero gap between flex cells in RTL order */}
+            <div dir="rtl" className="flex justify-center pt-0">
               {children.map((child, idx) => {
                 const isFirst = idx === 0;
                 const isLast = idx === children.length - 1;
-                const hasMultiple = children.length > 1;
+                const isOnly = children.length === 1;
 
                 return (
-                  <div key={child.id} className="relative flex flex-col items-center">
-                    {/* Horizontal Connector Bar Arms (Meeting seamlessly at center-x) */}
-                    {hasMultiple && (
-                      <>
-                        {/* Left arm toward left sibling */}
-                        {!isLast && (
-                          <div className="absolute top-0 left-0 right-1/2 -left-3 sm:-left-4 h-[2.5px] bg-[#0F4C3A]" />
-                        )}
-                        {/* Right arm toward right sibling */}
-                        {!isFirst && (
-                          <div className="absolute top-0 right-0 left-1/2 -right-3 sm:-right-4 h-[2.5px] bg-[#0F4C3A]" />
-                        )}
-                      </>
+                  <div key={child.id} className="relative flex flex-col items-center px-3 sm:px-4">
+                    {/* Seamless Horizontal Connector Bar in Arabic RTL (idx 0 is on the right) */}
+                    {!isOnly && (
+                      <div
+                        className={`absolute top-0 h-[3.5px] bg-[#0F4C3A] z-0 ${
+                          isFirst
+                            ? 'left-[-2px] right-1/2'
+                            : isLast
+                            ? 'left-1/2 right-[-2px]'
+                            : 'left-[-2px] right-[-2px]'
+                        }`}
+                      />
                     )}
 
                     {/* Vertical branch stem down into child card */}
-                    <div className="w-[2.5px] h-5 bg-[#0F4C3A] mb-0" />
+                    <div className="w-[3.5px] h-6 bg-[#0F4C3A] shrink-0 mb-0 z-10" />
                     {renderClassicNode(child, depth + 1)}
                   </div>
                 );
@@ -1391,15 +1400,15 @@ export const TreeView: React.FC<TreeViewProps> = ({
             const ctrlY2 = link.fromY + (link.toY - link.fromY) * 0.55;
             const pathD = `M ${link.fromX} ${link.fromY} C ${link.fromX} ${ctrlY1}, ${link.toX} ${ctrlY2}, ${link.toX} ${link.toY}`;
 
-            // Taper branch thickness by generation depth: thick boughs near root, delicate twigs at leaves
-            const strokeWidth = Math.max(2.4, 10.5 - link.depth * 2.1);
+            // Taper branch thickness by generation depth: thick boughs near root, clear visible branches at leaves
+            const strokeWidth = Math.max(3, 11 - link.depth * 1.8);
 
             const strokeColor =
               link.depth === 1
-                ? 'url(#trunkWoodGrad)'
+                ? '#5C3A21'
                 : link.childGender === 'female' && !link.childHasChildren
-                ? 'url(#twigRoseGrad)'
-                : 'url(#branchGreenWoodGrad)';
+                ? '#BE4B6A'
+                : '#0F4C3A';
 
             // Decorative leaf midpoint along the branch
             const midX = (link.fromX + link.toX) / 2;
@@ -1407,13 +1416,14 @@ export const TreeView: React.FC<TreeViewProps> = ({
 
             return (
               <g key={link.id}>
-                {/* Subtle shadow under branch */}
+                {/* Crisp outer white backing stroke for maximum contrast */}
                 <path
                   d={pathD}
                   fill="none"
-                  stroke="rgba(15, 76, 58, 0.10)"
+                  stroke="#FFFFFF"
                   strokeWidth={strokeWidth + 2.5}
                   strokeLinecap="round"
+                  strokeOpacity="0.9"
                 />
                 {/* Main organic curved branch */}
                 <path
@@ -1422,20 +1432,21 @@ export const TreeView: React.FC<TreeViewProps> = ({
                   stroke={strokeColor}
                   strokeWidth={strokeWidth}
                   strokeLinecap="round"
+                  strokeOpacity="1"
                 />
                 {/* Branch junction knot */}
                 <circle
                   cx={link.fromX}
                   cy={link.fromY}
-                  r={Math.max(3, strokeWidth * 0.55)}
-                  fill="#6E4726"
+                  r={Math.max(3.5, strokeWidth * 0.55)}
+                  fill="#5C3A21"
                 />
                 {/* Small sprouting botanical leaf along the branch */}
                 <g transform={`translate(${midX}, ${midY}) rotate(${leafAngle})`}>
                   <path
                     d="M 0 0 C 5 -6, 12 -6, 15 0 C 12 6, 5 6, 0 0 Z"
                     fill={link.childGender === 'female' ? '#E11D48' : '#15803D'}
-                    fillOpacity="0.65"
+                    fillOpacity="0.85"
                   />
                 </g>
               </g>
@@ -2402,7 +2413,30 @@ export const TreeView: React.FC<TreeViewProps> = ({
                 </div>
               </button>
 
-              {/* Option 3: Print Ready PDF Document */}
+              {/* Option 3: Infinite Vector SVG Image */}
+              <button
+                type="button"
+                disabled={isExportingPdf}
+                onClick={() => handleExportTreeFormat('svg')}
+                className="w-full p-3.5 rounded-2xl border-2 border-purple-500/40 bg-purple-50/80 hover:bg-purple-100/90 text-right transition flex items-start gap-3 cursor-pointer group disabled:opacity-50 shadow-xs"
+              >
+                <div className="w-10 h-10 rounded-xl bg-purple-900 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                  <Image className="w-5 h-5 text-purple-300" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs sm:text-sm text-purple-950">3. صورة متجهة لا متناهية التكبير (SVG)</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-200/80 text-purple-900">
+                      للأشجار الكبيرة جداً
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-700 leading-snug mt-1">
+                    ملف صورة متجهة بدون بكسلات أو قيود للذاكرة، يُتيح التكبير اللانهائي دون أي بكسلة، مثالي للأشجار العائلية الضخمة جداً ذات الأفرع الكثيرة.
+                  </p>
+                </div>
+              </button>
+
+              {/* Option 4: Print Ready PDF Document */}
               <button
                 type="button"
                 disabled={isExportingPdf}
@@ -2414,7 +2448,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-xs sm:text-sm text-slate-900 block">3. وثيقة جاهزة للطباعة (PDF)</span>
+                    <span className="font-bold text-xs sm:text-sm text-slate-900 block">4. وثيقة جاهزة للطباعة (PDF)</span>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
                       طباعة A4, A3 والجداريات
                     </span>

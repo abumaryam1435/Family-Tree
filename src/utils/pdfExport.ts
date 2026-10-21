@@ -254,15 +254,33 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   const isLandscape = orientation === 'landscape';
   const targetRatio = isLandscape ? 1.41421356 : 0.70710678;
 
-  // 3. Compact, Sleek, High-Definition Node Card Sizing
+  // 3. Compact, Sleek, High-Definition Node Card Sizing (Adaptive based on tree density)
   let NODE_W = 380;
   let NODE_H = 170;
   let baseHGap = 44;
 
   if (unconstrained) {
-    NODE_W = 460;
-    NODE_H = 195;
-    baseHGap = 56;
+    if (leafCount <= 6) {
+      NODE_W = 440;
+      NODE_H = 190;
+      baseHGap = 52;
+    } else if (leafCount <= 16) {
+      NODE_W = 380;
+      NODE_H = 175;
+      baseHGap = 42;
+    } else if (leafCount <= 32) {
+      NODE_W = 330;
+      NODE_H = 160;
+      baseHGap = 32;
+    } else if (leafCount <= 60) {
+      NODE_W = 280;
+      NODE_H = 145;
+      baseHGap = 24;
+    } else {
+      NODE_W = 240;
+      NODE_H = 130;
+      baseHGap = 18;
+    }
   } else if (leafCount <= 3) {
     NODE_W = 480;
     NODE_H = 200;
@@ -287,24 +305,25 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
 
   // Margins & Banners
   const isUpward = mode === 'organic' && organicDirection === 'up';
-  const HEADER_H = unconstrained ? 260 : 220;
-  const FOOTER_H = unconstrained ? 100 : 80;
-  const SIDE_PAD = unconstrained ? 120 : 95;
-  const TOP_TREE_PAD = unconstrained ? 90 : 70;
-  const BOTTOM_TREE_PAD = isUpward ? (unconstrained ? 200 : 150) : (unconstrained ? 90 : 70);
+  const HEADER_H = unconstrained ? 250 : 220;
+  const FOOTER_H = unconstrained ? 90 : 80;
+  const SIDE_PAD = unconstrained ? 110 : 95;
+  const TOP_TREE_PAD = unconstrained ? 80 : 70;
+  const BOTTOM_TREE_PAD = isUpward ? (unconstrained ? 180 : 150) : (unconstrained ? 80 : 70);
 
   // 4. Determine Canvas Dimensions
   const minRequiredTreeW = leafCount * NODE_W + Math.max(0, leafCount - 1) * baseHGap;
   const minRequiredCanvasW = minRequiredTreeW + SIDE_PAD * 2;
-  const minRequiredTreeH = Math.max(1, maxDepth - 1) * (unconstrained ? 360 : 280) + NODE_H;
+  const treeLevelSpacing = unconstrained ? (leafCount > 30 ? 250 : 310) : 280;
+  const minRequiredTreeH = Math.max(1, maxDepth - 1) * treeLevelSpacing + NODE_H;
   const minRequiredCanvasH = HEADER_H + TOP_TREE_PAD + minRequiredTreeH + BOTTOM_TREE_PAD + FOOTER_H;
 
   let logicalW: number;
   let logicalH: number;
 
   if (unconstrained) {
-    logicalW = Math.max(5400, minRequiredCanvasW);
-    logicalH = Math.max(3800, minRequiredCanvasH);
+    logicalW = Math.max(3600, minRequiredCanvasW);
+    logicalH = Math.max(2600, minRequiredCanvasH);
   } else if (isLandscape) {
     logicalW = Math.max(3600, minRequiredCanvasW);
     logicalH = Math.round(logicalW / targetRatio);
@@ -431,14 +450,32 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
 
   assignCoords(rootLayout, (logicalW - rootLayout.subtreeWidth) / 2);
 
-  const maxDim = Math.max(logicalW, logicalH);
-  // Ultra High Definition canvas rendering scale (renders at 8000px - 12000px for crystal clear pinch-to-zoom)
-  const scale = unconstrained ? 2.0 : Math.max(1.8, Math.min(2.5, 8000 / maxDim));
+  // Browser hardware limits:
+  // Mobile Safari / Android WebViews max texture dimension is 4096-8192 px and 16-24 Megapixels.
+  // We clamp maximum dimension to 7200 px and max pixels to 22 Megapixels to ensure 100% stability without blank screens.
+  const MAX_SAFE_CANVAS_DIM = 7200;
+  const MAX_SAFE_CANVAS_PIXELS = 22_000_000;
+
+  const maxLogicalDim = Math.max(logicalW, logicalH);
+  const totalLogicalPixels = logicalW * logicalH;
+
+  const maxDimScale = MAX_SAFE_CANVAS_DIM / maxLogicalDim;
+  const maxAreaScale = Math.sqrt(MAX_SAFE_CANVAS_PIXELS / totalLogicalPixels);
+  const upperScaleLimit = Math.min(maxDimScale, maxAreaScale);
+
+  let targetScale = 2.0;
+  if (maxLogicalDim > 3400) targetScale = 1.5;
+  if (maxLogicalDim > 5200) targetScale = 1.0;
+
+  const scale = Math.max(0.25, Math.min(targetScale, upperScaleLimit));
 
   const canvas = document.createElement('canvas');
-  canvas.width = Math.round(logicalW * scale);
-  canvas.height = Math.round(logicalH * scale);
-  const ctx = canvas.getContext('2d')!;
+  canvas.width = Math.max(100, Math.round(logicalW * scale));
+  canvas.height = Math.max(100, Math.round(logicalH * scale));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('تعذر حجز ذاكرة الرسم في المتصفح لكبر حجم الشجرة. يرجى تجربة تصدير ملف HTML التفاعلي.');
+  }
   ctx.scale(scale, scale);
   ctx.direction = 'rtl';
   ctx.imageSmoothingEnabled = true;
@@ -577,6 +614,7 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
 
   // Helper for drawing Jet-Black Ultra-Sharp Text
   function drawInkText(text: string, x: number, y: number, color: string) {
+    if (!ctx) return;
     ctx.fillStyle = color;
     ctx.fillText(text, x, y);
   }
@@ -620,24 +658,27 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     // Badges: Generation & Gender
     const genLabel = isRoot ? 'الأصل الراسخ' : `الجيل ${depth}`;
     const genderLabel = person.gender === 'male' ? 'ذكر' : 'أنثى';
-    const badgeFont = Math.min(26, Math.floor(NODE_H * 0.16));
+    const badgeFont = Math.min(26, Math.max(13, Math.floor(NODE_H * 0.16)));
     ctx.font = `900 ${badgeFont}px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif`;
+
+    const badgeY = top + Math.round(NODE_H * 0.22);
+    const dividerY = top + Math.round(NODE_H * 0.33);
 
     // Right Badge
     ctx.textAlign = 'right';
-    drawInkText(genLabel, left + NODE_W - 22, top + 36, isRoot ? '#FDE68A' : '#0F172A');
+    drawInkText(genLabel, left + NODE_W - 22, badgeY, isRoot ? '#FDE68A' : '#0F172A');
 
     // Left Badge
     ctx.textAlign = 'left';
     const genderColor = isRoot ? '#FDE68A' : person.gender === 'male' ? '#047857' : '#BE123C';
-    drawInkText(genderLabel, left + 22, top + 36, genderColor);
+    drawInkText(genderLabel, left + 22, badgeY, genderColor);
 
     // Inner dividing line
     ctx.strokeStyle = isRoot ? 'rgba(253, 230, 138, 0.6)' : 'rgba(15, 23, 42, 0.25)';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(left + 18, top + 50);
-    ctx.lineTo(left + NODE_W - 18, top + 50);
+    ctx.moveTo(left + 18, dividerY);
+    ctx.lineTo(left + NODE_W - 18, dividerY);
     ctx.stroke();
 
     // ------------------------------------------------------------------------
@@ -649,8 +690,8 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
 
     const maxTextWidth = NODE_W - 36;
     const textCenterX = left + NODE_W / 2;
-    const cardTopContent = top + 50;
-    const cardContentHeight = NODE_H - 50;
+    const cardTopContent = dividerY;
+    const cardContentHeight = NODE_H - (dividerY - top);
     const textCenterY = cardTopContent + cardContentHeight / 2;
 
     ctx.textAlign = 'center';
@@ -1068,46 +1109,41 @@ export async function exportTreeToPng(options: ExportTreePdfOptions) {
     unconstrained: true,
     orientation: 'portrait'
   });
-  const dataUrl = canvas.toDataURL('image/png', 1.0);
-  const filename = `شجرة_العائلة_${rootFirstName}.png`;
 
+  const filename = `شجرة_العائلة_${rootFirstName}.png`;
   const safeName = filename.replace(/[\\/:*?"<>|]/g, '_');
+
+  // Convert canvas to binary blob safely without huge base64 strings
+  const blob: Blob = await new Promise((resolve, reject) => {
+    canvas.toBlob((b) => {
+      if (b && b.size > 0) {
+        resolve(b);
+      } else {
+        try {
+          const dataUrl = canvas.toDataURL('image/png', 0.95);
+          if (dataUrl && dataUrl.length > 50) {
+            fetch(dataUrl)
+              .then((res) => res.blob())
+              .then(resolve)
+              .catch(reject);
+            return;
+          }
+        } catch (e) {
+          // ignore
+        }
+        reject(new Error('فشل إنشاء ملف الصورة'));
+      }
+    }, 'image/png');
+  });
+
+  const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = dataUrl;
+  a.href = blobUrl;
   a.download = safeName;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-
-  // Mobile fallback window preview for long-press gallery saving
-  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  if (isMobile) {
-    const win = window.open('', '_blank');
-    if (win) {
-      win.document.write(`
-        <!DOCTYPE html>
-        <html dir="rtl" lang="ar">
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>${safeName}</title>
-          <style>
-            body { margin: 0; background: #0f172a; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; font-family: system-ui, sans-serif; text-align: center; box-sizing: border-box; }
-            img { max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); margin: 16px 0; border: 2px solid #d4af37; }
-            .hint { background: #0f4c3a; color: #fde68a; padding: 12px 18px; border-radius: 12px; font-weight: bold; font-size: 14px; margin-bottom: 8px; border: 1px solid #d4af37; }
-            .btn { display: inline-block; padding: 12px 24px; background: #d4af37; color: #0f4c3a; border-radius: 10px; font-weight: bold; font-size: 15px; text-decoration: none; margin-top: 12px; }
-          </style>
-        </head>
-        <body>
-          <div class="hint">💡 اضغط مطولاً على الصورة ثم اختر "حفظ الصورة" أو "Save Image" لحفظها في الاستوديو</div>
-          <img src="${dataUrl}" alt="شجرة العائلة" />
-          <a href="${dataUrl}" download="${safeName}" class="btn">📥 حفظ الصورة في الاستوديو</a>
-        </body>
-        </html>
-      `);
-      win.document.close();
-    }
-  }
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 20000);
 }
 
 // ============================================================================
