@@ -195,14 +195,27 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
   }, [persons]);
 
   const filteredHusbands = useMemo(() => {
-    if (!husbandSearch.trim()) return eligibleHusbands.slice(0, 15);
+    if (!husbandSearch.trim()) return eligibleHusbands.slice(0, 25);
+    const q = husbandSearch.trim();
     return eligibleHusbands
       .filter(p => {
         const f = p.fatherId ? persons.find(x => x.id === p.fatherId) : null;
-        return advancedArabicMatch(p.fullName, husbandSearch, [f?.fullName || '']);
+        const kids = persons.filter(c => c.fatherId === p.id);
+        const kidNames = kids.map(c => c.fullName).join(' ');
+        return advancedArabicMatch(p.fullName, q, [f?.fullName || '', kidNames]);
       })
-      .sort(comparePersonsMalesFirstAlphabetical)
-      .slice(0, 15);
+      .sort((a, b) => {
+        const fA = persons.find(x => x.id === a.fatherId);
+        const kidsA = persons.filter(c => c.fatherId === a.id).map(c => c.fullName).join(' ');
+        const fB = persons.find(x => x.id === b.fatherId);
+        const kidsB = persons.filter(c => c.fatherId === b.id).map(c => c.fullName).join(' ');
+        const diff =
+          scoreArabicMatch(b.fullName, q, [fB?.fullName || '', kidsB]) -
+          scoreArabicMatch(a.fullName, q, [fA?.fullName || '', kidsA]);
+        if (diff !== 0) return diff;
+        return a.fullName.localeCompare(b.fullName, 'ar');
+      })
+      .slice(0, 30);
   }, [eligibleHusbands, husbandSearch, persons]);
 
   const selectedHusbandPerson = useMemo(() => {

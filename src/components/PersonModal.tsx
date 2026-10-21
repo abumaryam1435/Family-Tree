@@ -8,6 +8,7 @@ import {
   Printer,
   Layers,
   GitFork,
+  GitMerge,
   ArrowUp,
   MessageSquare,
   Trash2,
@@ -47,6 +48,7 @@ interface PersonModalProps {
   onSelectRelative?: (personId: string) => void;
   onBackToPrevious?: () => void;
   previousPersonName?: string | null;
+  onOpenMergeModal?: (personId: string) => void;
   onQuickAddChild?: (data: { fullName: string; gender: Gender; fatherId: string }) => Promise<void>;
   editingEnabled: boolean;
   isAdmin: boolean;
@@ -72,6 +74,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
   onSelectRelative,
   onBackToPrevious,
   previousPersonName,
+  onOpenMergeModal,
   onQuickAddChild,
   editingEnabled,
   isAdmin,
@@ -253,6 +256,18 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                     <ArrowUp className="w-3.5 h-3.5 text-[#F5E6B8] shrink-0" />
                     <span>نقل لجد أعلى / + جد</span>
                   </button>
+
+                  {person.gender === 'male' && onOpenMergeModal && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenMergeModal(person.id)}
+                      className="min-h-[34px] flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-500/30 hover:bg-amber-500/50 text-white border border-amber-400/50 text-xs font-bold transition backdrop-blur-xs shadow-2xs"
+                      title="دمج هذا الجد مع جد آخر بنفس الاسم"
+                    >
+                      <GitMerge className="w-3.5 h-3.5 text-amber-200 shrink-0" />
+                      <span>دمج مع جد آخر بنفس الاسم</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"

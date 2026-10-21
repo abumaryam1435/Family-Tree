@@ -35,7 +35,7 @@ interface AddFatherModalProps {
   persons?: Person[];
   treeRoots?: Person[];
   onSelectTargetPerson?: (person: Person) => void;
-  onOpenMergeModal?: () => void;
+  onOpenMergeModal?: (sourcePersonId?: string) => void;
   onSubmit: (
     personId: string,
     data: {

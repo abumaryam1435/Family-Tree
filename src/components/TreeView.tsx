@@ -46,7 +46,8 @@ interface TreeViewProps {
   onSelectPerson: (id: string) => void;
   onOpenAddModalWithFather?: (fatherId: string) => void;
   onOpenAddFather?: (personId: string) => void;
-  onOpenMergeModal?: () => void;
+  onOpenMergeModal?: (personId?: string) => void;
+  onExecuteMerge?: (sourcePersonId: string, targetPersonId: string) => Promise<{ targetPerson: Person; movedCount: number; mergeOpId: string }>;
   onOpenEditPerson?: (person: Person) => void;
   onDeletePerson?: (id: string) => void;
   onToggleGender?: (id: string) => void;
@@ -84,6 +85,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
   onOpenAddModalWithFather,
   onOpenAddFather,
   onOpenMergeModal,
+  onExecuteMerge,
   onOpenEditPerson,
   onDeletePerson,
   onToggleGender,
@@ -186,10 +188,95 @@ export const TreeView: React.FC<TreeViewProps> = ({
   // Search filter inside tree view
   const [localSearch, setLocalSearch] = useState<string>('');
 
+  // Drag & Drop Merging States
+  const [draggedPerson, setDraggedPerson] = useState<Person | null>(null);
+  const [dragOverPersonId, setDragOverPersonId] = useState<string | null>(null);
+  const [confirmMergeDrag, setConfirmMergeDrag] = useState<{
+    source: Person;
+    target: Person;
+  } | null>(null);
+  const [isMergingLoading, setIsMergingLoading] = useState<boolean>(false);
+
+  // Side-by-Side Multi-Tree Comparison Mode States
+  const [isCompareMode, setIsCompareMode] = useState<boolean>(false);
+  const [compareTreeRootId, setCompareTreeRootId] = useState<string | null>(null);
+
   const currentRoot = useMemo(() => {
     if (!selectedTreeRootId) return treeRoots[0] || null;
     return getPerson(selectedTreeRootId) || treeRoots[0] || null;
   }, [selectedTreeRootId, treeRoots, getPerson]);
+
+  const compareRoot = useMemo(() => {
+    if (compareTreeRootId) {
+      return getPerson(compareTreeRootId) || null;
+    }
+    const second = treeRoots.find(r => r.id !== selectedTreeRootId) || treeRoots[1];
+    return second || null;
+  }, [compareTreeRootId, selectedTreeRootId, treeRoots, getPerson]);
+
+  // Drag & Drop Event Handlers
+  const handleCardDragStart = (e: React.DragEvent, person: Person) => {
+    e.stopPropagation();
+    setDraggedPerson(person);
+    e.dataTransfer.setData('text/plain', person.id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleCardDragOver = (e: React.DragEvent, targetPersonId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (draggedPerson && draggedPerson.id !== targetPersonId) {
+      e.dataTransfer.dropEffect = 'move';
+      if (dragOverPersonId !== targetPersonId) {
+        setDragOverPersonId(targetPersonId);
+      }
+    }
+  };
+
+  const handleCardDragLeave = (e: React.DragEvent, targetPersonId: string) => {
+    e.stopPropagation();
+    if (dragOverPersonId === targetPersonId) {
+      setDragOverPersonId(null);
+    }
+  };
+
+  const handleCardDrop = (e: React.DragEvent, targetPerson: Person) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverPersonId(null);
+
+    const sourceId = e.dataTransfer.getData('text/plain') || draggedPerson?.id;
+    if (!sourceId || sourceId === targetPerson.id) {
+      setDraggedPerson(null);
+      return;
+    }
+
+    const sourcePerson = getPerson(sourceId) || draggedPerson;
+    if (!sourcePerson) return;
+
+    setConfirmMergeDrag({
+      source: sourcePerson,
+      target: targetPerson
+    });
+    setDraggedPerson(null);
+  };
+
+  const executeConfirmDragMerge = async () => {
+    if (!confirmMergeDrag) return;
+    setIsMergingLoading(true);
+    try {
+      if (onExecuteMerge) {
+        await onExecuteMerge(confirmMergeDrag.source.id, confirmMergeDrag.target.id);
+      } else if (onOpenMergeModal) {
+        onOpenMergeModal(confirmMergeDrag.source.id);
+      }
+      setConfirmMergeDrag(null);
+    } catch (err) {
+      console.error('Merge execution error:', err);
+    } finally {
+      setIsMergingLoading(false);
+    }
+  };
 
   // Apply camera transform directly to DOM layer for instant GPU compositing
   const applyCameraTransform = useCallback((animate: boolean = false) => {
@@ -845,10 +932,27 @@ export const TreeView: React.FC<TreeViewProps> = ({
         {/* Person Card */}
         <div
           onClick={() => onSelectPerson(person.id)}
+          draggable={isAdmin}
+          onDragStart={(e) => handleCardDragStart(e, person)}
+          onDragOver={(e) => handleCardDragOver(e, person.id)}
+          onDragLeave={(e) => handleCardDragLeave(e, person.id)}
+          onDrop={(e) => handleCardDrop(e, person)}
           className={`relative group cursor-pointer transition-all duration-200 select-none ${
             isHighlighted ? 'ring-4 ring-[#D4AF37] scale-105' : ''
+          } ${
+            draggedPerson?.id === person.id ? 'opacity-40 border-2 border-dashed border-amber-500 scale-95' : ''
+          } ${
+            dragOverPersonId === person.id ? 'ring-4 ring-amber-500 scale-105 shadow-xl z-30' : ''
           }`}
         >
+          {/* Active Drop Target Overlay Banner */}
+          {dragOverPersonId === person.id && (
+            <div className="absolute inset-0 z-40 bg-amber-500/95 text-slate-950 rounded-2xl flex flex-col items-center justify-center p-2 text-center shadow-xl animate-in fade-in duration-150 backdrop-blur-xs">
+              <GitMerge className="w-6 h-6 text-slate-950 mb-1 animate-bounce" />
+              <span className="text-xs font-black">إفلات لدمج الجد ({formatAppName(person.fullName)})</span>
+              <span className="text-[10px] font-bold text-amber-950">سيتم نقل جميع فروع الجد المسحوب لهذا الجد</span>
+            </div>
+          )}
           <div
             className={`w-52 sm:w-60 p-3.5 rounded-2xl border transition shadow-sm hover:shadow-md ${
               person.gender === 'male'
@@ -1033,32 +1137,38 @@ export const TreeView: React.FC<TreeViewProps> = ({
         {/* Children Branches & Connecting Lines */}
         {hasChildren && !isCollapsed && (
           <div className="flex flex-col items-center">
-            {/* Vertical stem from parent down */}
-            <div className="w-0.5 h-8 bg-[#0F4C3A]/30" />
+            {/* Vertical stem from parent card down */}
+            <div className="w-[2.5px] h-6 bg-[#0F4C3A]" />
 
-            {/* Children container with horizontal connector */}
-            <div className="relative flex justify-center gap-6 sm:gap-8 pt-4">
-              {/* Horizontal bar spanning across children */}
-              {children.length > 1 && (
-                <div
-                  className="absolute top-0 h-0.5 bg-[#0F4C3A]/30"
-                  style={{
-                    left: '50%',
-                    right: '50%',
-                    transform: 'translateX(-50%)',
-                    width: `calc(100% - ${240 / children.length}px)`
-                  }}
-                />
-              )}
+            {/* Children container with seamless horizontal & vertical connectors */}
+            <div className="relative flex justify-center gap-6 sm:gap-8 pt-0">
+              {children.map((child, idx) => {
+                const isFirst = idx === 0;
+                const isLast = idx === children.length - 1;
+                const hasMultiple = children.length > 1;
 
-              {/* Children Nodes */}
-              {children.map((child) => (
-                <div key={child.id} className="relative flex flex-col items-center">
-                  {/* Vertical branch from horizontal bar down to child */}
-                  <div className="w-0.5 h-4 bg-[#0F4C3A]/30 -mt-4 mb-0" />
-                  {renderClassicNode(child, depth + 1)}
-                </div>
-              ))}
+                return (
+                  <div key={child.id} className="relative flex flex-col items-center">
+                    {/* Horizontal Connector Bar Arms (Meeting seamlessly at center-x) */}
+                    {hasMultiple && (
+                      <>
+                        {/* Left arm toward left sibling */}
+                        {!isLast && (
+                          <div className="absolute top-0 left-0 right-1/2 -left-3 sm:-left-4 h-[2.5px] bg-[#0F4C3A]" />
+                        )}
+                        {/* Right arm toward right sibling */}
+                        {!isFirst && (
+                          <div className="absolute top-0 right-0 left-1/2 -right-3 sm:-right-4 h-[2.5px] bg-[#0F4C3A]" />
+                        )}
+                      </>
+                    )}
+
+                    {/* Vertical branch stem down into child card */}
+                    <div className="w-[2.5px] h-5 bg-[#0F4C3A] mb-0" />
+                    {renderClassicNode(child, depth + 1)}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -1381,14 +1491,30 @@ export const TreeView: React.FC<TreeViewProps> = ({
             <div
               key={person.id}
               onClick={() => onSelectPerson(person.id)}
+              draggable={isAdmin}
+              onDragStart={(e) => handleCardDragStart(e, person)}
+              onDragOver={(e) => handleCardDragOver(e, person.id)}
+              onDragLeave={(e) => handleCardDragLeave(e, person.id)}
+              onDrop={(e) => handleCardDrop(e, person)}
               style={{
                 left: `${x}px`,
                 top: `${y}px`
               }}
               className={`absolute -translate-x-1/2 -translate-y-1/2 z-20 group cursor-pointer transition-all duration-200 ${
                 isHighlighted ? 'ring-4 ring-[#D4AF37] scale-110 z-30 rounded-3xl' : ''
+              } ${
+                draggedPerson?.id === person.id ? 'opacity-40 border-2 border-dashed border-amber-500 scale-95' : ''
+              } ${
+                dragOverPersonId === person.id ? 'ring-4 ring-amber-500 scale-110 shadow-2xl z-40' : ''
               }`}
             >
+              {/* Active Drop Target Overlay Banner for Organic View */}
+              {dragOverPersonId === person.id && (
+                <div className="absolute inset-0 z-40 bg-amber-500/95 text-slate-950 rounded-2xl flex flex-col items-center justify-center p-2 text-center shadow-xl animate-in fade-in duration-150 backdrop-blur-xs">
+                  <GitMerge className="w-6 h-6 text-slate-950 mb-1 animate-bounce" />
+                  <span className="text-xs font-black">إفلات لدمج الجد ({formatAppName(person.fullName)})</span>
+                </div>
+              )}
               <div
                 className={`w-[202px] px-3 py-2.5 transition-all shadow-md hover:shadow-xl relative ${
                   isRoot
@@ -1449,6 +1575,23 @@ export const TreeView: React.FC<TreeViewProps> = ({
                           title="نقل الابن وفروعه إلى جد أعلى / إضافة جد أعلى"
                         >
                           <ArrowUp className="w-3 h-3" />
+                        </button>
+                      )}
+                      {person.gender === 'male' && onOpenMergeModal && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenMergeModal(person.id);
+                          }}
+                          className={`p-0.5 rounded transition ${
+                            isRoot
+                              ? 'text-[#F5E6B8] hover:text-white hover:bg-white/15'
+                              : 'text-amber-700 hover:text-amber-900 hover:bg-amber-50'
+                          }`}
+                          title="دمج هذا الجد مع جد آخر بنفس الاسم"
+                        >
+                          <GitMerge className="w-3 h-3" />
                         </button>
                       )}
                       {onOpenEditPerson && (
@@ -1676,12 +1819,34 @@ export const TreeView: React.FC<TreeViewProps> = ({
           {isAdmin && treeRoots.length > 1 && onOpenMergeModal && (
             <button
               type="button"
-              onClick={onOpenMergeModal}
+              onClick={() => onOpenMergeModal()}
               className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#D4AF37]/20 hover:bg-[#D4AF37]/30 text-[#8C6D1F] border border-[#D4AF37]/40 text-xs font-bold transition"
               title="دمج الأشجار عند التوصل لأصل مشترك"
             >
               <GitMerge className="w-3.5 h-3.5" />
               <span>دمج الأشجار</span>
+            </button>
+          )}
+
+          {treeRoots.length > 1 && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsCompareMode(!isCompareMode);
+                if (!compareTreeRootId && treeRoots.length > 1) {
+                  const second = treeRoots.find(r => r.id !== selectedTreeRootId) || treeRoots[1];
+                  if (second) setCompareTreeRootId(second.id);
+                }
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border cursor-pointer ${
+                isCompareMode
+                  ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm'
+                  : 'bg-amber-50 hover:bg-amber-100 text-amber-950 border-amber-300'
+              }`}
+              title="عرض أكثر من شجرة في الشاشة جنباً إلى جنب للمقارنة والدمج"
+            >
+              <GitMerge className="w-4 h-4 text-amber-900" />
+              <span>{isCompareMode ? 'إغلاق وضع المقارنة' : 'مقارنة شجرتين (شاشة مقسومة)'}</span>
             </button>
           )}
         </div>
@@ -1775,181 +1940,389 @@ export const TreeView: React.FC<TreeViewProps> = ({
         </div>
       </div>
 
-      {/* Main Smooth Pan/Zoom Viewport (dir="ltr" for pure screen-space 2D coordinates) */}
-      <div
-        ref={containerRef}
-        dir="ltr"
-        onMouseDown={handleMouseDown}
-        onClickCapture={handleCanvasClickCapture}
-        className={`relative w-full h-[72vh] min-h-[500px] sm:h-[780px] overflow-hidden rounded-2xl sm:rounded-3xl border border-slate-200/80 cursor-grab select-none touch-none overscroll-none ${
-          treeDisplayMode === 'organic'
-            ? 'bg-gradient-to-b from-[#F4F9F5] via-[#FBF9F5] to-[#F3ECE1]'
-            : 'bg-[#FAF8F5]'
-        }`}
-        style={{
-          backgroundImage: 'radial-gradient(rgba(15, 76, 58, 0.08) 1px, transparent 1px)',
-          backgroundSize: '24px 24px',
-          touchAction: 'none'
-        }}
-      >
-        {/* Helper overlay hint on top right */}
-        <div
-          dir="rtl"
-          className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 bg-white/95 backdrop-blur-xs px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl border border-slate-200/70 text-[10px] sm:text-[11px] text-slate-600 shadow-2xs pointer-events-none flex items-center gap-1.5"
-        >
-          <Move className="w-3.5 h-3.5 text-[#0F4C3A]" />
-          <span>اسحب للتحريك · قرّب بأصبعين للتكبير</span>
-          <span className="text-[#0F4C3A] font-bold hidden sm:inline">
-            · {treeDisplayMode === 'organic' ? 'الشجرة (جذر وأغصان وتفريعات)' : 'المخطط الهرمي (البطاقات)'}
-          </span>
-        </div>
-
-        {/* Floating Touch-Ergonomic Control Pad on Bottom Left */}
-        <div
-          dir="rtl"
-          className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 z-20 bg-white/95 backdrop-blur-md p-1.5 sm:p-2 rounded-2xl border border-slate-200/80 shadow-md flex items-center gap-1 sm:gap-1.5"
-        >
-          {/* Zoom In */}
-          <button
-            type="button"
-            onClick={() => handleStepZoom(0.2)}
-            className="w-8 h-8 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center transition cursor-pointer"
-            title="تكبير الشجرة"
-            aria-label="تكبير"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-
-          {/* Zoom Out */}
-          <button
-            type="button"
-            onClick={() => handleStepZoom(-0.2)}
-            className="w-8 h-8 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center transition cursor-pointer"
-            title="تصغير الشجرة"
-            aria-label="تصغير"
-          >
-            <Minus className="w-4 h-4" />
-          </button>
-
-          <div className="h-5 w-px bg-slate-200 mx-0.5" />
-
-          {/* Fit entire tree to screen */}
-          <button
-            type="button"
-            onClick={() => fitTreeToScreen(true)}
-            className="h-8 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-[#0F4C3A] text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
-            title="احتواء الشجرة كاملة داخل الشاشة"
-            aria-label="احتواء الشجرة"
-          >
-            <Maximize2 className="w-3.5 h-3.5" />
-            <span>احتواء</span>
-          </button>
-
-          {/* Center Root */}
-          <button
-            type="button"
-            onClick={() => centerOnRoot(true, 1)}
-            className="h-8 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-900 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
-            title="توسيط الأصل"
-            aria-label="توسيط الجد أو الأصل"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span className="hidden xs:inline">الأصل</span>
-          </button>
-
-          {/* Directional Nudge Pad (hidden on small phone screens to keep it ultra compact) */}
-          <div className="hidden sm:flex items-center gap-0.5 border-r border-slate-200 pr-1 mr-0.5">
+      {/* Side-by-Side Multi-Tree Comparison Mode Viewport Banner & Split Grid */}
+      {isCompareMode ? (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          {/* Comparison Mode Info Banner */}
+          <div className="p-3.5 sm:p-4 bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 rounded-2xl text-slate-950 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-slate-950 text-amber-400 flex items-center justify-center shrink-0 shadow-sm">
+                <GitMerge className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-black font-display">
+                  وضع مقارنة الشجرات (عرض متجاور)
+                </h3>
+                <p className="text-xs font-bold text-slate-900 mt-0.5">
+                  تصفح شجرتين مختلفتين جنبًا إلى جنب مع إمكانية دمج أي جد بالسحب والإفلات المباشر 🎯
+                </p>
+              </div>
+            </div>
             <button
               type="button"
-              onClick={() => handleDirectionalPan(0, 140)}
-              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-              title="تحريك للأعلى"
+              onClick={() => setIsCompareMode(false)}
+              className="px-3.5 py-1.5 rounded-xl bg-slate-950 text-amber-400 hover:bg-slate-900 text-xs font-bold transition flex items-center gap-1.5 shrink-0 cursor-pointer shadow-xs"
             >
-              <ArrowUp className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDirectionalPan(0, -140)}
-              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-              title="تحريك للأسفل"
-            >
-              <ArrowDown className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDirectionalPan(-160, 0)}
-              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-              title="تحريك لليمين"
-            >
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDirectionalPan(160, 0)}
-              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-              title="تحريك لليسار"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
+              <X className="w-4 h-4" />
+              <span>إغلاق المقارنة</span>
             </button>
           </div>
-        </div>
 
-        {/* Legend for Organic Tree Mode */}
-        {treeDisplayMode === 'organic' && (
-          <div
-            dir="rtl"
-            className="absolute bottom-4 right-4 z-20 bg-white/90 backdrop-blur-xs px-3 py-2 rounded-xl border border-slate-200/80 text-[10px] text-slate-700 shadow-2xs pointer-events-none hidden sm:flex flex-wrap items-center gap-3"
-          >
-            <span className="flex items-center gap-1 font-bold text-[#4A2C11]">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#5C3A21] border border-[#D4AF37]" />
-              <span>الجذر (الأصل)</span>
-            </span>
-            <span className="flex items-center gap-1 font-bold text-[#2D5A3C]">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#6E4726]" />
-              <span>غصن متفرع</span>
-            </span>
-            <span className="flex items-center gap-1 font-bold text-[#0F4C3A]">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
-              <span>تفريع / ابن (ذكر)</span>
-            </span>
-            <span className="flex items-center gap-1 font-bold text-rose-800">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-              <span>تفريع / ابنة (أنثى)</span>
-            </span>
+          {/* Split Screen Grid (2 Column Containers) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Tree Container 1 (Primary Selected Root) */}
+            <div className="bg-white p-3.5 rounded-2xl border-2 border-[#0F4C3A]/30 shadow-sm flex flex-col space-y-3">
+              <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-[#0F4C3A]" />
+                  <span className="text-xs font-black text-slate-800">الشجرة الأولى (أ)</span>
+                </div>
+                <select
+                  value={selectedTreeRootId || ''}
+                  onChange={(e) => setSelectedTreeRootId(e.target.value)}
+                  className="text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+                >
+                  {treeRoots.map((root) => (
+                    <option key={root.id} value={root.id}>
+                      {formatDropdownName(root.fullName)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Viewport for Tree A */}
+              <div
+                dir="ltr"
+                className="relative w-full h-[520px] overflow-auto rounded-xl border border-slate-200 bg-[#FAF8F5] p-6 flex flex-col items-center justify-center select-none"
+                style={{
+                  backgroundImage: 'radial-gradient(rgba(15, 76, 58, 0.08) 1px, transparent 1px)',
+                  backgroundSize: '20px 20px'
+                }}
+              >
+                {currentRoot ? (
+                  <div dir="rtl" className="w-max">
+                    {renderClassicNode(currentRoot, 1)}
+                  </div>
+                ) : (
+                  <p className="text-xs font-bold text-slate-400">لا توجد شجرة أ</p>
+                )}
+              </div>
+            </div>
+
+            {/* Tree Container 2 (Compare Tree Root) */}
+            <div className="bg-white p-3.5 rounded-2xl border-2 border-amber-400/50 shadow-sm flex flex-col space-y-3">
+              <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-amber-500" />
+                  <span className="text-xs font-black text-slate-800">الشجرة الثانية للمقارنة (ب)</span>
+                </div>
+                <select
+                  value={compareTreeRootId || ''}
+                  onChange={(e) => setCompareTreeRootId(e.target.value)}
+                  className="text-xs font-bold bg-amber-50 border border-amber-200 rounded-xl px-2.5 py-1 text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                >
+                  {treeRoots.map((root) => (
+                    <option key={root.id} value={root.id}>
+                      {formatDropdownName(root.fullName)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Viewport for Tree B */}
+              <div
+                dir="ltr"
+                className="relative w-full h-[520px] overflow-auto rounded-xl border border-amber-200 bg-[#FFFDF9] p-6 flex flex-col items-center justify-center select-none"
+                style={{
+                  backgroundImage: 'radial-gradient(rgba(212, 175, 55, 0.1) 1px, transparent 1px)',
+                  backgroundSize: '20px 20px'
+                }}
+              >
+                {compareRoot ? (
+                  <div dir="rtl" className="w-max">
+                    {renderClassicNode(compareRoot, 1)}
+                  </div>
+                ) : (
+                  <p className="text-xs font-bold text-slate-400">اختر شجرة ثانية للمقارنة</p>
+                )}
+              </div>
+            </div>
           </div>
-        )}
-
-        {/* GPU-Accelerated Transform Layer (0,0 origin for exact focal zoom & smooth panning) */}
+        </div>
+      ) : (
+        /* Main Smooth Pan/Zoom Viewport (dir="ltr" for pure screen-space 2D coordinates) */
         <div
-          ref={transformLayerRef}
-          className="absolute top-0 left-0 origin-top-left"
+          ref={containerRef}
+          dir="ltr"
+          onMouseDown={handleMouseDown}
+          onClickCapture={handleCanvasClickCapture}
+          className={`relative w-full h-[72vh] min-h-[500px] sm:h-[780px] overflow-hidden rounded-2xl sm:rounded-3xl border border-slate-200/80 cursor-grab select-none touch-none overscroll-none ${
+            treeDisplayMode === 'organic'
+              ? 'bg-gradient-to-b from-[#F4F9F5] via-[#FBF9F5] to-[#F3ECE1]'
+              : 'bg-[#FAF8F5]'
+          }`}
           style={{
-            willChange: 'transform',
-            transform: 'translate3d(0px, 0px, 0) scale(1)',
-            backfaceVisibility: 'hidden'
+            backgroundImage: 'radial-gradient(rgba(15, 76, 58, 0.08) 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+            touchAction: 'none'
           }}
         >
+          {/* Helper overlay hint on top right */}
           <div
-            ref={contentBoxRef}
             dir="rtl"
-            className="w-max p-12 flex flex-col items-center justify-center"
+            className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 bg-white/95 backdrop-blur-xs px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl border border-slate-200/70 text-[10px] sm:text-[11px] text-slate-600 shadow-2xs pointer-events-none flex items-center gap-1.5"
           >
-            {currentRoot ? (
-              treeDisplayMode === 'classic' ? (
-                renderClassicNode(currentRoot, 1)
+            <Move className="w-3.5 h-3.5 text-[#0F4C3A]" />
+            <span>اسحب للتحريك · قرّب بأصبعين للتكبير</span>
+            <span className="text-[#0F4C3A] font-bold hidden sm:inline">
+              · {treeDisplayMode === 'organic' ? 'الشجرة (جذر وأغصان وتفريعات)' : 'المخطط الهرمي (البطاقات)'}
+            </span>
+          </div>
+
+          {/* Floating Touch-Ergonomic Control Pad on Bottom Left */}
+          <div
+            dir="rtl"
+            className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 z-20 bg-white/95 backdrop-blur-md p-1.5 sm:p-2 rounded-2xl border border-slate-200/80 shadow-md flex items-center gap-1 sm:gap-1.5"
+          >
+            {/* Zoom In */}
+            <button
+              type="button"
+              onClick={() => handleStepZoom(0.2)}
+              className="w-8 h-8 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center transition cursor-pointer"
+              title="تكبير الشجرة"
+              aria-label="تكبير"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+
+            {/* Zoom Out */}
+            <button
+              type="button"
+              onClick={() => handleStepZoom(-0.2)}
+              className="w-8 h-8 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center transition cursor-pointer"
+              title="تصغير الشجرة"
+              aria-label="تصغير"
+            >
+              <Minus className="w-4 h-4" />
+            </button>
+
+            <div className="h-5 w-px bg-slate-200 mx-0.5" />
+
+            {/* Fit entire tree to screen */}
+            <button
+              type="button"
+              onClick={() => fitTreeToScreen(true)}
+              className="h-8 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-[#0F4C3A] text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+              title="احتواء الشجرة كاملة داخل الشاشة"
+              aria-label="احتواء الشجرة"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>احتواء</span>
+            </button>
+
+            {/* Center Root */}
+            <button
+              type="button"
+              onClick={() => centerOnRoot(true, 1)}
+              className="h-8 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-900 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
+              title="توسيط الأصل"
+              aria-label="توسيط الجد أو الأصل"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span className="hidden xs:inline">الأصل</span>
+            </button>
+
+            {/* Directional Nudge Pad (hidden on small phone screens) */}
+            <div className="hidden sm:flex items-center gap-0.5 border-r border-slate-200 pr-1 mr-0.5">
+              <button
+                type="button"
+                onClick={() => handleDirectionalPan(0, 140)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
+                title="تحريك للأعلى"
+              >
+                <ArrowUp className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDirectionalPan(0, -140)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
+                title="تحريك للأسفل"
+              >
+                <ArrowDown className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDirectionalPan(-160, 0)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
+                title="تحريك لليمين"
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDirectionalPan(160, 0)}
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
+                title="تحريك لليسار"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Legend for Organic Tree Mode */}
+          {treeDisplayMode === 'organic' && (
+            <div
+              dir="rtl"
+              className="absolute bottom-4 right-4 z-20 bg-white/90 backdrop-blur-xs px-3 py-2 rounded-xl border border-slate-200/80 text-[10px] text-slate-700 shadow-2xs pointer-events-none hidden sm:flex flex-wrap items-center gap-3"
+            >
+              <span className="flex items-center gap-1 font-bold text-[#4A2C11]">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#5C3A21] border border-[#D4AF37]" />
+                <span>الجذر (الأصل)</span>
+              </span>
+              <span className="flex items-center gap-1 font-bold text-[#2D5A3C]">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#6E4726]" />
+                <span>غصن متفرع</span>
+              </span>
+              <span className="flex items-center gap-1 font-bold text-[#0F4C3A]">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
+                <span>تفريع / ابن (ذكر)</span>
+              </span>
+              <span className="flex items-center gap-1 font-bold text-rose-800">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                <span>تفريع / ابنة (أنثى)</span>
+              </span>
+            </div>
+          )}
+
+          {/* GPU-Accelerated Transform Layer (0,0 origin for exact focal zoom & smooth panning) */}
+          <div
+            ref={transformLayerRef}
+            className="absolute top-0 left-0 origin-top-left"
+            style={{
+              willChange: 'transform',
+              transform: 'translate3d(0px, 0px, 0) scale(1)',
+              backfaceVisibility: 'hidden'
+            }}
+          >
+            <div
+              ref={contentBoxRef}
+              dir="rtl"
+              className="w-max p-12 flex flex-col items-center justify-center"
+            >
+              {currentRoot ? (
+                treeDisplayMode === 'classic' ? (
+                  renderClassicNode(currentRoot, 1)
+                ) : (
+                  renderOrganicTree()
+                )
               ) : (
-                renderOrganicTree()
-              )
-            ) : (
-              <div className="text-center py-24 px-12 text-slate-400">
-                <TreeDeciduous className="w-12 h-12 mx-auto mb-2 opacity-50 text-[#0F4C3A]" />
-                <p className="text-sm font-semibold">لا توجد شجرة مسجلة بعد</p>
-                <p className="text-xs mt-1">ابدأ بإضافة الجد الأول للشجرة</p>
-              </div>
-            )}
+                <div className="text-center py-24 px-12 text-slate-400">
+                  <TreeDeciduous className="w-12 h-12 mx-auto mb-2 opacity-50 text-[#0F4C3A]" />
+                  <p className="text-sm font-semibold">لا توجد شجرة مسجلة بعد</p>
+                  <p className="text-xs mt-1">ابدأ بإضافة الجد الأول للشجرة</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Confirm Drag & Drop Merge Modal */}
+      {confirmMergeDrag && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+          <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-right my-auto animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 text-slate-950 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-slate-950 text-amber-400 flex items-center justify-center shrink-0 shadow-md">
+                  <GitMerge className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black font-display leading-snug">
+                    تأكيد دمج الأجداد بسحب البطاقة
+                  </h3>
+                  <p className="text-[11px] font-bold text-slate-900 mt-0.5">
+                    سحب وإفلات تفاعلي لتوحيد الشجرتين والأفرع
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmMergeDrag(null)}
+                className="w-8 h-8 rounded-full bg-slate-950/10 hover:bg-slate-950/20 text-slate-950 flex items-center justify-center transition shrink-0 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 sm:p-5 space-y-4">
+              <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200/80 text-xs font-bold text-amber-950 flex items-start gap-2">
+                <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  هل ترغب في دمج الجد الأول بالسحب وإلحاق كافة أبنائه وفروعه بالجد الثاني المستهدف؟
+                </span>
+              </div>
+
+              {/* Source vs Target Comparison Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Source (the dragged card) */}
+                <div className="p-3.5 rounded-2xl border-2 border-red-300 bg-red-50/60 text-right space-y-1">
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-red-100 text-red-800">
+                    الجد المسحوب (المراد نقله وإلغاؤه):
+                  </span>
+                  <h4 className="text-sm font-black text-slate-900 mt-1">
+                    {formatAppName(confirmMergeDrag.source.fullName)}
+                  </h4>
+                  <p className="text-[11px] text-slate-600">
+                    عدد الأبناء المباشرين: {getChildren(confirmMergeDrag.source.id).length}
+                  </p>
+                </div>
+
+                {/* Target (the drop card) */}
+                <div className="p-3.5 rounded-2xl border-2 border-emerald-500 bg-emerald-50/60 text-right space-y-1">
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
+                    الجد المستهدف (الأصل المعتمد):
+                  </span>
+                  <h4 className="text-sm font-black text-slate-900 mt-1">
+                    {formatAppName(confirmMergeDrag.target.fullName)}
+                  </h4>
+                  <p className="text-[11px] text-slate-600">
+                    سيتم استقبال جميع أبناء وفروع الجد الأول هنا
+                  </p>
+                </div>
+              </div>
+
+              {isMergingLoading && (
+                <div className="p-3 bg-amber-50 text-amber-900 text-xs rounded-xl font-bold text-center border border-amber-200 animate-pulse">
+                  جارٍ تنفيذ عملية الدمج ونقل الفروع بالكامل... يرجى الانتظار
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmMergeDrag(null)}
+                disabled={isMergingLoading}
+                className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 font-bold text-xs hover:bg-slate-100 transition cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={executeConfirmDragMerge}
+                disabled={isMergingLoading}
+                className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs transition shadow-sm cursor-pointer flex items-center gap-1.5"
+              >
+                <GitMerge className="w-4 h-4" />
+                <span>تأكيد دمج الجدين فوراً</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Export Options Modal */}
       {showExportModal && currentRoot && (

@@ -28,6 +28,7 @@ interface MergeTreesModalProps {
   onClose: () => void;
   persons: Person[];
   treeRoots: Person[];
+  initialSourcePersonId?: string | null;
   onExecuteMerge: (sourcePersonId: string, targetPersonId: string) => Promise<{ targetPerson: Person; movedCount: number; mergeOpId: string }>;
   onUndoLastMerge?: (mergeOpId: string) => Promise<void>;
   lastMergeOpId?: string | null;
@@ -41,6 +42,7 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
   onClose,
   persons,
   treeRoots,
+  initialSourcePersonId,
   onExecuteMerge,
   onUndoLastMerge,
   lastMergeOpId,
@@ -49,7 +51,7 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
   getAncestors
 }) => {
   const [step, setStep] = useState<number>(1); // 1: Select Persons, 2: Compare & Audit, 3: Confirm, 4: Report
-  const [sourcePersonId, setSourcePersonId] = useState<string>('');
+  const [sourcePersonId, setSourcePersonId] = useState<string>(initialSourcePersonId || '');
   const [targetPersonId, setTargetPersonId] = useState<string>('');
   
   const [sourceSearch, setSourceSearch] = useState<string>('');
@@ -65,26 +67,33 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
     mergeOpId: string;
   } | null>(null);
 
+  React.useEffect(() => {
+    if (isOpen) {
+      if (initialSourcePersonId) {
+        setSourcePersonId(initialSourcePersonId);
+      }
+    }
+  }, [isOpen, initialSourcePersonId]);
+
   const treeRootIds = useMemo(() => new Set(treeRoots.map(r => r.id)), [treeRoots]);
 
-  // Automatically detect pairs of tree roots that share the same or similar first/full name
+  // Automatically detect pairs of tree roots or grandfathers inside the tree that share the same first/full name
   const suggestedRootPairs = useMemo(() => {
     const pairs: { rootA: Person; rootB: Person }[] = [];
-    for (let i = 0; i < treeRoots.length; i++) {
-      for (let j = i + 1; j < treeRoots.length; j++) {
-        const a = treeRoots[i];
-        const b = treeRoots[j];
+    const males = persons.filter(p => p.gender === 'male');
+    for (let i = 0; i < males.length; i++) {
+      for (let j = i + 1; j < males.length; j++) {
+        const a = males[i];
+        const b = males[j];
         const normA = normalizeArabic(a.fullName);
         const normB = normalizeArabic(b.fullName);
-        const firstA = normA.split(' ')[0];
-        const firstB = normB.split(' ')[0];
-        if (normA === normB || (firstA && firstA.length >= 3 && firstA === firstB)) {
+        if (normA === normB && normA.length >= 3) {
           pairs.push({ rootA: a, rootB: b });
         }
       }
     }
-    return pairs;
-  }, [treeRoots]);
+    return pairs.slice(0, 10);
+  }, [persons]);
 
   const sourcePerson = getPerson(sourcePersonId);
   const targetPerson = getPerson(targetPersonId);

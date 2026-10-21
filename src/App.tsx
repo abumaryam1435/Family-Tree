@@ -59,7 +59,13 @@ export default function App() {
 
   const [editingPerson, setEditingPerson] = useState<Person | null>(null);
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [mergeSourcePersonId, setMergeSourcePersonId] = useState<string | null>(null);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+
+  const handleOpenMergeModal = (sourcePersonId?: string | null) => {
+    setMergeSourcePersonId(sourcePersonId || null);
+    setIsMergeModalOpen(true);
+  };
   
   const [changeRequestTarget, setChangeRequestTarget] = useState<Person | null>(null);
   const [printPersonId, setPrintPersonId] = useState<string | null>(null);
@@ -317,7 +323,8 @@ export default function App() {
                 onSelectPerson={(id) => setSelectedPersonId(id)}
                 onOpenAddModalWithFather={(fatherId) => handleOpenAdd(fatherId)}
                 onOpenAddFather={(personId) => handleOpenAddFather(personId)}
-                onOpenMergeModal={() => setIsMergeModalOpen(true)}
+                onOpenMergeModal={(id) => handleOpenMergeModal(id)}
+                onExecuteMerge={handleExecuteMerge}
                 onOpenEditPerson={(p) => {
                   if (!isAdmin) return;
                   setEditingPerson(p);
@@ -471,6 +478,7 @@ export default function App() {
               : undefined
           }
           previousPersonName={previousPerson?.fullName || null}
+          onOpenMergeModal={(id) => handleOpenMergeModal(id)}
           onQuickAddChild={handleQuickAddChild}
           editingEnabled={isAdmin}
           isAdmin={isAdmin}
@@ -509,7 +517,7 @@ export default function App() {
           persons={persons}
           treeRoots={treeRoots}
           onSelectTargetPerson={(p) => setTargetPersonForAddFather(p)}
-          onOpenMergeModal={() => setIsMergeModalOpen(true)}
+          onOpenMergeModal={(id) => handleOpenMergeModal(id)}
           onSubmit={handleExecuteAddFather}
           currentFather={targetPersonForAddFather.fatherId ? getPerson(targetPersonForAddFather.fatherId) || null : null}
         />
@@ -522,6 +530,7 @@ export default function App() {
           onClose={() => setIsMergeModalOpen(false)}
           persons={persons}
           treeRoots={treeRoots}
+          initialSourcePersonId={mergeSourcePersonId}
           onExecuteMerge={handleExecuteMerge}
           getChildren={getChildren}
           getPerson={getPerson}

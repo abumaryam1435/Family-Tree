@@ -254,59 +254,59 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   const isLandscape = orientation === 'landscape';
   const targetRatio = isLandscape ? 1.41421356 : 0.70710678;
 
-  // 3. Compact, Sleek, High-Definition Node Card Sizing (Reduces Horizontal Width for Vertical Aspect Ratio)
-  let NODE_W = 280;
-  let NODE_H = 145;
-  let baseHGap = 36;
+  // 3. Compact, Sleek, High-Definition Node Card Sizing
+  let NODE_W = 380;
+  let NODE_H = 170;
+  let baseHGap = 44;
 
   if (unconstrained) {
-    NODE_W = 310;
-    NODE_H = 155;
-    baseHGap = 42;
+    NODE_W = 460;
+    NODE_H = 195;
+    baseHGap = 56;
   } else if (leafCount <= 3) {
-    NODE_W = 320;
-    NODE_H = 155;
-    baseHGap = 48;
+    NODE_W = 480;
+    NODE_H = 200;
+    baseHGap = 60;
   } else if (leafCount <= 8) {
-    NODE_W = 290;
-    NODE_H = 148;
-    baseHGap = 38;
+    NODE_W = 420;
+    NODE_H = 180;
+    baseHGap = 48;
   } else if (leafCount <= 15) {
-    NODE_W = 265;
-    NODE_H = 140;
-    baseHGap = 30;
+    NODE_W = 380;
+    NODE_H = 170;
+    baseHGap = 40;
   } else if (leafCount <= 28) {
-    NODE_W = 245;
-    NODE_H = 135;
-    baseHGap = 24;
+    NODE_W = 340;
+    NODE_H = 160;
+    baseHGap = 32;
   } else {
-    NODE_W = 225;
-    NODE_H = 130;
-    baseHGap = 20;
+    NODE_W = 310;
+    NODE_H = 150;
+    baseHGap = 26;
   }
 
   // Margins & Banners
   const isUpward = mode === 'organic' && organicDirection === 'up';
-  const HEADER_H = unconstrained ? 240 : 200;
-  const FOOTER_H = unconstrained ? 90 : 70;
-  const SIDE_PAD = unconstrained ? 110 : 85;
-  const TOP_TREE_PAD = unconstrained ? 80 : 60;
-  const BOTTOM_TREE_PAD = isUpward ? (unconstrained ? 180 : 130) : (unconstrained ? 80 : 60);
+  const HEADER_H = unconstrained ? 260 : 220;
+  const FOOTER_H = unconstrained ? 100 : 80;
+  const SIDE_PAD = unconstrained ? 120 : 95;
+  const TOP_TREE_PAD = unconstrained ? 90 : 70;
+  const BOTTOM_TREE_PAD = isUpward ? (unconstrained ? 200 : 150) : (unconstrained ? 90 : 70);
 
   // 4. Determine Canvas Dimensions
   const minRequiredTreeW = leafCount * NODE_W + Math.max(0, leafCount - 1) * baseHGap;
   const minRequiredCanvasW = minRequiredTreeW + SIDE_PAD * 2;
-  const minRequiredTreeH = Math.max(1, maxDepth - 1) * (unconstrained ? 320 : 240) + NODE_H;
+  const minRequiredTreeH = Math.max(1, maxDepth - 1) * (unconstrained ? 360 : 280) + NODE_H;
   const minRequiredCanvasH = HEADER_H + TOP_TREE_PAD + minRequiredTreeH + BOTTOM_TREE_PAD + FOOTER_H;
 
   let logicalW: number;
   let logicalH: number;
 
   if (unconstrained) {
-    logicalW = Math.max(4800, minRequiredCanvasW);
-    logicalH = Math.max(3400, minRequiredCanvasH);
+    logicalW = Math.max(5400, minRequiredCanvasW);
+    logicalH = Math.max(3800, minRequiredCanvasH);
   } else if (isLandscape) {
-    logicalW = Math.max(2800, minRequiredCanvasW);
+    logicalW = Math.max(3600, minRequiredCanvasW);
     logicalH = Math.round(logicalW / targetRatio);
 
     if (logicalH < minRequiredCanvasH) {
@@ -315,7 +315,7 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     }
   } else {
     // Portrait mode (Vertical page)
-    logicalH = Math.max(3200, minRequiredCanvasH);
+    logicalH = Math.max(4200, minRequiredCanvasH);
     logicalW = Math.round(logicalH * targetRatio);
 
     if (logicalW < minRequiredCanvasW) {
@@ -432,7 +432,8 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   assignCoords(rootLayout, (logicalW - rootLayout.subtreeWidth) / 2);
 
   const maxDim = Math.max(logicalW, logicalH);
-  const scale = unconstrained ? 1.2 : Math.min(1.5, 4200 / maxDim);
+  // Ultra High Definition canvas rendering scale (renders at 8000px - 12000px for crystal clear pinch-to-zoom)
+  const scale = unconstrained ? 2.0 : Math.max(1.8, Math.min(2.5, 8000 / maxDim));
 
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(logicalW * scale);
@@ -453,10 +454,10 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
 
   // Borders
   ctx.strokeStyle = '#064E3B';
-  ctx.lineWidth = unconstrained ? 10 : 7;
+  ctx.lineWidth = unconstrained ? 12 : 9;
   ctx.strokeRect(20, 20, logicalW - 40, logicalH - 40);
   ctx.strokeStyle = '#D97706';
-  ctx.lineWidth = unconstrained ? 5 : 3.5;
+  ctx.lineWidth = unconstrained ? 6 : 4.5;
   ctx.strokeRect(32, 32, logicalW - 64, logicalH - 64);
 
   // Header Banner
@@ -470,7 +471,7 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   ctx.fill();
 
   ctx.strokeStyle = '#D97706';
-  ctx.lineWidth = 3.5;
+  ctx.lineWidth = 4;
   drawRoundedRect(ctx, bannerLeft, bannerTop, bannerW, bannerH, 22);
   ctx.stroke();
 
@@ -478,22 +479,22 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
 
   ctx.textAlign = 'center';
   ctx.fillStyle = '#FDE68A';
-  ctx.font = "bold 26px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif";
-  ctx.fillText('بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ — سجل شجرة العائلة الرقمي الموثق', logicalW / 2, bannerTop + 42);
+  ctx.font = "900 28px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif";
+  ctx.fillText('بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ — سجل شجرة العائلة الرقمي الموثق', logicalW / 2, bannerTop + 46);
 
   ctx.fillStyle = '#FFFFFF';
-  ctx.font = "bold 44px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif";
+  ctx.font = "900 48px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif";
   const modeTitle =
     mode === 'organic' ? 'شجرة العائلة (الجذر والأغصان والتفريعات)' : 'شجرة العائلة (المخطط الهرمي)';
   const fullRootTitle = formatAppName(rootPerson.fullName) || rootFirstName;
-  ctx.fillText(`${modeTitle} — أصل الشجرة: ${fullRootTitle}`, logicalW / 2, bannerTop + 96);
+  ctx.fillText(`${modeTitle} — أصل الشجرة: ${fullRootTitle}`, logicalW / 2, bannerTop + 106);
 
   ctx.fillStyle = '#E2E8F0';
-  ctx.font = "bold 22px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif";
+  ctx.font = "900 24px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif";
   ctx.fillText(
     `عدد الأفراد: ${totalNodes} فرداً · ${maxDepth} أجيال موثقة · تاريخ التصدير: ${new Date().toLocaleDateString('ar-SA')}`,
     logicalW / 2,
-    bannerTop + 138
+    bannerTop + 154
   );
 
   // Organic Mode Trunk
@@ -504,41 +505,41 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     if (isUpward) {
       ctx.fillStyle = 'rgba(92, 58, 33, 0.2)';
       ctx.beginPath();
-      ctx.ellipse(rx, ry + Math.round(NODE_H * 0.72), 220, 30, 0, 0, Math.PI * 2);
+      ctx.ellipse(rx, ry + Math.round(NODE_H * 0.72), 260, 36, 0, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = '#5C3A21';
       ctx.beginPath();
-      ctx.moveTo(rx - 40, ry + Math.round(NODE_H * 0.72));
-      ctx.quadraticCurveTo(rx - 22, ry + 60, rx - 15, ry + NODE_H / 2);
-      ctx.lineTo(rx + 15, ry + NODE_H / 2);
-      ctx.quadraticCurveTo(rx + 22, ry + 60, rx + 40, ry + Math.round(NODE_H * 0.72));
+      ctx.moveTo(rx - 50, ry + Math.round(NODE_H * 0.72));
+      ctx.quadraticCurveTo(rx - 28, ry + 70, rx - 18, ry + NODE_H / 2);
+      ctx.lineTo(rx + 18, ry + NODE_H / 2);
+      ctx.quadraticCurveTo(rx + 28, ry + 70, rx + 50, ry + Math.round(NODE_H * 0.72));
       ctx.closePath();
       ctx.fill();
 
       ctx.strokeStyle = '#4A2C11';
       ctx.lineCap = 'round';
-      ctx.lineWidth = 8;
+      ctx.lineWidth = 10;
       ctx.beginPath();
       ctx.moveTo(rx, ry + Math.round(NODE_H * 0.72));
-      ctx.quadraticCurveTo(rx - 4, ry + 100, rx, ry + 120);
+      ctx.quadraticCurveTo(rx - 4, ry + 110, rx, ry + 130);
       ctx.stroke();
 
-      ctx.lineWidth = 6;
+      ctx.lineWidth = 7;
       ctx.beginPath();
-      ctx.moveTo(rx + 20, ry + Math.round(NODE_H * 0.70));
-      ctx.quadraticCurveTo(rx + 70, ry + 100, rx + 140, ry + 120);
+      ctx.moveTo(rx + 24, ry + Math.round(NODE_H * 0.70));
+      ctx.quadraticCurveTo(rx + 80, ry + 110, rx + 160, ry + 130);
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.moveTo(rx - 20, ry + Math.round(NODE_H * 0.70));
-      ctx.quadraticCurveTo(rx - 70, ry + 100, rx - 140, ry + 120);
+      ctx.moveTo(rx - 24, ry + Math.round(NODE_H * 0.70));
+      ctx.quadraticCurveTo(rx - 80, ry + 110, rx - 160, ry + 130);
       ctx.stroke();
 
       ctx.fillStyle = '#4A2C11';
-      ctx.font = "bold 20px Cairo, 'Segoe UI', Tahoma, sans-serif";
+      ctx.font = "900 22px Cairo, 'Segoe UI', Tahoma, sans-serif";
       ctx.textAlign = 'center';
-      ctx.fillText('جذر الشجرة وأصلها الراسخ', rx, ry + Math.round(NODE_H * 0.72) + 24);
+      ctx.fillText('جذر الشجرة وأصلها الراسخ', rx, ry + Math.round(NODE_H * 0.72) + 28);
     }
   }
 
@@ -547,7 +548,7 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     if (mode === 'organic') {
       const ctrlY1 = link.fromY + (link.toY - link.fromY) * 0.45;
       const ctrlY2 = link.fromY + (link.toY - link.fromY) * 0.55;
-      const strokeW = Math.max(5, 14 - link.depth * 1.5);
+      const strokeW = Math.max(6, 16 - link.depth * 1.5);
 
       ctx.strokeStyle =
         link.depth === 1
@@ -564,7 +565,7 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     } else {
       const midY = (link.fromY + link.toY) / 2;
       ctx.strokeStyle = '#064E3B';
-      ctx.lineWidth = 6;
+      ctx.lineWidth = 7;
       ctx.beginPath();
       ctx.moveTo(link.fromX, link.fromY);
       ctx.lineTo(link.fromX, midY);
@@ -574,18 +575,13 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     }
   }
 
-  // Helper for drawing Jet-Black Ink Text with Stroke Outline
-  function drawInkText(text: string, x: number, y: number, color: string, isRootCard: boolean, strokeWidth: number = 2.0) {
-    if (!isRootCard) {
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = strokeWidth;
-      ctx.strokeText(text, x, y);
-    }
+  // Helper for drawing Jet-Black Ultra-Sharp Text
+  function drawInkText(text: string, x: number, y: number, color: string) {
     ctx.fillStyle = color;
     ctx.fillText(text, x, y);
   }
 
-  // Nodes Drawing (Giant, Bold, Ultra Clear Black Ink Text)
+  // Nodes Drawing (Giant, Bold, Ultra Clear Text)
   for (const node of flatNodes) {
     const { person, depth, x, y } = node;
     const isRoot = depth === 1;
@@ -594,8 +590,8 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
 
     ctx.save();
     ctx.shadowColor = 'rgba(0, 0, 0, 0.22)';
-    ctx.shadowBlur = 14;
-    ctx.shadowOffsetY = 6;
+    ctx.shadowBlur = 16;
+    ctx.shadowOffsetY = 7;
 
     if (isRoot) {
       const rootGrad = ctx.createLinearGradient(left, top, left, top + NODE_H);
@@ -608,40 +604,40 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
       ctx.fillStyle = '#FFF1F2';
     }
 
-    drawRoundedRect(ctx, left, top, NODE_W, NODE_H, 20);
+    drawRoundedRect(ctx, left, top, NODE_W, NODE_H, 22);
     ctx.fill();
     ctx.restore();
 
-    ctx.lineWidth = isRoot ? 6 : 4.5;
+    ctx.lineWidth = isRoot ? 7 : 5;
     ctx.strokeStyle = isRoot
       ? '#F59E0B'
       : person.gender === 'male'
       ? '#064E3B'
       : '#BE123C';
-    drawRoundedRect(ctx, left, top, NODE_W, NODE_H, 20);
+    drawRoundedRect(ctx, left, top, NODE_W, NODE_H, 22);
     ctx.stroke();
 
     // Badges: Generation & Gender
     const genLabel = isRoot ? 'الأصل الراسخ' : `الجيل ${depth}`;
     const genderLabel = person.gender === 'male' ? 'ذكر' : 'أنثى';
-    const badgeFont = Math.min(24, Math.floor(NODE_H * 0.16));
+    const badgeFont = Math.min(26, Math.floor(NODE_H * 0.16));
     ctx.font = `900 ${badgeFont}px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif`;
 
     // Right Badge
     ctx.textAlign = 'right';
-    drawInkText(genLabel, left + NODE_W - 20, top + 34, isRoot ? '#FDE68A' : '#0F172A', isRoot, 1.2);
+    drawInkText(genLabel, left + NODE_W - 22, top + 36, isRoot ? '#FDE68A' : '#0F172A');
 
     // Left Badge
     ctx.textAlign = 'left';
     const genderColor = isRoot ? '#FDE68A' : person.gender === 'male' ? '#047857' : '#BE123C';
-    drawInkText(genderLabel, left + 20, top + 34, genderColor, isRoot, 1.2);
+    drawInkText(genderLabel, left + 22, top + 36, genderColor);
 
     // Inner dividing line
     ctx.strokeStyle = isRoot ? 'rgba(253, 230, 138, 0.6)' : 'rgba(15, 23, 42, 0.25)';
-    ctx.lineWidth = 2.2;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(left + 16, top + 46);
-    ctx.lineTo(left + NODE_W - 16, top + 46);
+    ctx.moveTo(left + 18, top + 50);
+    ctx.lineTo(left + NODE_W - 18, top + 50);
     ctx.stroke();
 
     // ------------------------------------------------------------------------
@@ -651,31 +647,31 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
       ? formatAppName(person.fullName)
       : extractGivenName(person.fullName);
 
-    const maxTextWidth = NODE_W - 32;
+    const maxTextWidth = NODE_W - 36;
     const textCenterX = left + NODE_W / 2;
-    const cardTopContent = top + 46;
-    const cardContentHeight = NODE_H - 46;
+    const cardTopContent = top + 50;
+    const cardContentHeight = NODE_H - 50;
     const textCenterY = cardTopContent + cardContentHeight / 2;
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
     // Giant Font Sizing for single given name
-    let nameFontSize = Math.min(58, Math.floor(NODE_H * 0.38));
+    let nameFontSize = Math.min(68, Math.floor(NODE_H * 0.40));
     ctx.font = `900 ${nameFontSize}px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif`;
 
-    while (nameFontSize > 22 && ctx.measureText(displayName).width > maxTextWidth) {
+    while (nameFontSize > 24 && ctx.measureText(displayName).width > maxTextWidth) {
       nameFontSize -= 2;
       ctx.font = `900 ${nameFontSize}px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif`;
     }
 
-    drawInkText(displayName, textCenterX, textCenterY, isRoot ? '#FFFFFF' : '#000000', isRoot, 2.2);
+    drawInkText(displayName, textCenterX, textCenterY, isRoot ? '#FFFFFF' : '#0F172A');
   }
 
   // Footer
   ctx.textAlign = 'center';
   ctx.fillStyle = '#0F172A';
-  ctx.font = "bold 20px Cairo, 'Segoe UI', Tahoma, sans-serif";
+  ctx.font = "900 22px Cairo, 'Segoe UI', Tahoma, sans-serif";
   ctx.fillText(
     'تم استخراج هذه الوثيقة آلياً من نظام شجرة العائلة الرقمي — وثيقة نسب معتمدة وموثقة',
     logicalW / 2,
@@ -1036,8 +1032,11 @@ export async function exportTiledTreePdf(
 }
 
 export async function exportTreeToPdf(options: ExportTreePdfOptions) {
-  const { canvas, rootFirstName, isLandscape } = await renderTreeToCanvas(options);
-  const jpegBytes = canvasToJpegBytes(canvas, 0.95);
+  const { canvas, rootFirstName, isLandscape } = await renderTreeToCanvas({
+    ...options,
+    unconstrained: true
+  });
+  const jpegBytes = canvasToJpegBytes(canvas, 0.98);
 
   let pageWidthPt: number;
   let pageHeightPt: number;
@@ -1064,7 +1063,11 @@ export async function exportTreeToPdf(options: ExportTreePdfOptions) {
 }
 
 export async function exportTreeToPng(options: ExportTreePdfOptions) {
-  const { canvas, rootFirstName } = await renderTreeToCanvas({ ...options, orientation: 'portrait' });
+  const { canvas, rootFirstName } = await renderTreeToCanvas({
+    ...options,
+    unconstrained: true,
+    orientation: 'portrait'
+  });
   const dataUrl = canvas.toDataURL('image/png', 1.0);
   const filename = `شجرة_العائلة_${rootFirstName}.png`;
 
