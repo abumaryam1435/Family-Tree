@@ -24,7 +24,6 @@ import {
   X,
   Sparkles,
   Smartphone,
-  Image,
   FileText,
   Globe,
   Crown,
@@ -147,12 +146,23 @@ export const TreeView: React.FC<TreeViewProps> = ({
   // In organic mode, allow growing from root at bottom upward ('up') or from root at top downward ('down')
   const [organicDirection, setOrganicDirection] = useState<'up' | 'down'>('up');
 
+  // Default: display males only (عرض الذكور فقط افتراضياً) with toggle button to show females
+  const [showFemales, setShowFemales] = useState<boolean>(false);
+
+  const getVisibleChildren = useCallback(
+    (personId: string) => {
+      const all = getChildren(personId);
+      return showFemales ? all : all.filter((c) => c.gender === 'male');
+    },
+    [getChildren, showFemales]
+  );
+
   // Display zoom percentage for UI badge (updated without re-rendering tree on every drag frame)
   const [zoomDisplay, setZoomDisplay] = useState<number>(100);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
 
-  const handleExportTreeFormat = async (format: 'png' | 'pdf' | 'html' | 'svg') => {
+  const handleExportTreeFormat = async (format: 'png' | 'svg' | 'pdf' | 'html') => {
     if (!currentRoot) return;
     setIsExportingPdf(true);
     try {
@@ -163,23 +173,23 @@ export const TreeView: React.FC<TreeViewProps> = ({
           getAllPersons: () => persons,
           mode: treeDisplayMode
         });
-      } else if (format === 'svg') {
-        await exportTreeToSvg({
-          rootPerson: currentRoot,
-          getChildren,
-          mode: treeDisplayMode,
-          organicDirection,
-          collapsedNodes
-        });
       } else if (format === 'png') {
         await exportTreeToPng({
           rootPerson: currentRoot,
-          getChildren,
+          getChildren: getVisibleChildren,
           mode: treeDisplayMode,
           organicDirection,
           collapsedNodes,
           orientation: 'portrait',
           unconstrained: true
+        });
+      } else if (format === 'svg') {
+        await exportTreeToSvg({
+          rootPerson: currentRoot,
+          getChildren: getVisibleChildren,
+          mode: treeDisplayMode,
+          organicDirection,
+          collapsedNodes
         });
       } else {
         await exportTreeToPdf({
@@ -640,6 +650,38 @@ export const TreeView: React.FC<TreeViewProps> = ({
     [centerOnRoot, stopInertia, applyCameraTransform]
   );
 
+  // Smoothly center a specific person card in the exact dead-center of the screen
+  const centerOnPersonCard = useCallback(
+    (personId: string, animate: boolean = true) => {
+      // Delay slightly so the DOM updates after direct children are expanded
+      setTimeout(() => {
+        const container = containerRef.current;
+        const cardEl =
+          document.getElementById(`person-node-${personId}`) ||
+          document.querySelector(`[data-person-id="${personId}"]`);
+        if (!container || !cardEl) return;
+
+        const containerRect = container.getBoundingClientRect();
+        const cardRect = cardEl.getBoundingClientRect();
+
+        const currentCardCenterX = cardRect.left + cardRect.width / 2;
+        const currentCardCenterY = cardRect.top + cardRect.height / 2;
+
+        const targetCenterX = containerRect.left + containerRect.width / 2;
+        const targetCenterY = containerRect.top + containerRect.height / 2;
+
+        const deltaX = targetCenterX - currentCardCenterX;
+        const deltaY = targetCenterY - currentCardCenterY;
+
+        stopInertia();
+        cameraRef.current.x += deltaX;
+        cameraRef.current.y += deltaY;
+        applyCameraTransform(animate);
+      }, 60);
+    },
+    [applyCameraTransform, stopInertia]
+  );
+
   // Re-center or auto-fit smoothly when root, display mode, or direction changes
   useEffect(() => {
     const timer = requestAnimationFrame(() => {
@@ -693,13 +735,13 @@ export const TreeView: React.FC<TreeViewProps> = ({
   // Mouse pan handlers with window-level tracking & velocity recording
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return; // only left click
+    didDragRef.current = false;
     // Ignore if clicking directly on a button, select, or input
     const target = e.target as HTMLElement;
     if (target.closest('button, select, input, a')) return;
 
     stopInertia();
     isDraggingRef.current = true;
-    didDragRef.current = false;
     containerRef.current?.classList.add('cursor-grabbing');
 
     dragOriginRef.current = {
@@ -757,6 +799,11 @@ export const TreeView: React.FC<TreeViewProps> = ({
       isDraggingRef.current = false;
       containerRef.current?.classList.remove('cursor-grabbing');
       startInertiaCoast();
+      if (didDragRef.current) {
+        setTimeout(() => {
+          didDragRef.current = false;
+        }, 50);
+      }
     };
 
     window.addEventListener('mousemove', onWindowMouseMove, { passive: true });
@@ -793,6 +840,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
     };
 
     const onTouchStart = (e: TouchEvent) => {
+      didDragRef.current = false;
       const target = e.target as HTMLElement;
       if (target.closest('button, select, input, a')) return;
       stopInertia();
@@ -897,11 +945,19 @@ export const TreeView: React.FC<TreeViewProps> = ({
     const onTouchEnd = () => {
       if (pinchStateRef.current.active) {
         pinchStateRef.current.active = false;
+        setTimeout(() => {
+          didDragRef.current = false;
+        }, 50);
         return;
       }
       if (isDraggingRef.current) {
         isDraggingRef.current = false;
         startInertiaCoast();
+        if (didDragRef.current) {
+          setTimeout(() => {
+            didDragRef.current = false;
+          }, 50);
+        }
       }
     };
 
@@ -922,6 +978,11 @@ export const TreeView: React.FC<TreeViewProps> = ({
 
   // Prevent accidental card clicks when releasing a drag gesture
   const handleCanvasClickCapture = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button, select, input, a')) {
+      didDragRef.current = false;
+      return;
+    }
     if (didDragRef.current) {
       e.stopPropagation();
       e.preventDefault();
@@ -948,16 +1009,16 @@ export const TreeView: React.FC<TreeViewProps> = ({
   );
 
   // Progressive Disclosure:
-  // - Clicking card:
-  //   * If currently collapsed: expands ONLY direct immediate children (keeping grandchildren collapsed)
-  //   * If currently expanded: collapses card AND all its descendant branches recursively
+  // - Clicking card: ONLY expands/collapses direct immediate children (and centers the clicked card)
+  // - Clicking the small "تفاصيل" button inside the card: opens the Person Details popup modal
   const handleCardClickToggle = useCallback(
     (personId: string, e?: React.MouseEvent) => {
       e?.stopPropagation();
-      const directChildren = getChildren(personId);
-      if (directChildren.length === 0) {
-        // Leaf person without children: clicking card opens details modal as a natural fallback
-        onSelectPerson(personId);
+      const visibleChildren = getVisibleChildren(personId);
+      const allDirectChildren = getChildren(personId);
+      if (visibleChildren.length === 0) {
+        // Leaf person without currently visible children: simply center the card on screen
+        centerOnPersonCard(personId, true);
         return;
       }
 
@@ -969,11 +1030,13 @@ export const TreeView: React.FC<TreeViewProps> = ({
           // Un-collapse this card so its direct children become visible
           next.delete(personId);
           // Ensure all its direct children start collapsed so clicking only reveals direct immediate branches
-          for (const child of directChildren) {
+          for (const child of allDirectChildren) {
             if (getChildren(child.id).length > 0) {
               next.add(child.id);
             }
           }
+          // Center the clicked name in the center of the screen when revealing its branches
+          centerOnPersonCard(personId, true);
         } else {
           // Collapse this card
           next.add(personId);
@@ -988,7 +1051,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
         return next;
       });
     },
-    [getChildren, getAllDescendantIds, onSelectPerson]
+    [getVisibleChildren, getChildren, getAllDescendantIds, centerOnPersonCard]
   );
 
   const toggleCollapse = (id: string, e: React.MouseEvent) => {
@@ -997,6 +1060,9 @@ export const TreeView: React.FC<TreeViewProps> = ({
 
   const expandAll = () => {
     setCollapsedNodes(new Set());
+    setTimeout(() => {
+      centerOnRoot(true, cameraRef.current.zoom);
+    }, 50);
   };
 
   const collapseAll = () => {
@@ -1007,7 +1073,12 @@ export const TreeView: React.FC<TreeViewProps> = ({
         allParentIds.add(p.id);
       }
     }
+    // Ensure root itself is in collapsedNodes so only the original root card remains visible
+    allParentIds.add(currentRoot.id);
     setCollapsedNodes(allParentIds);
+    setTimeout(() => {
+      centerOnRoot(true, 1);
+    }, 50);
   };
 
   const handleExportTreePdf = async () => {
@@ -1042,11 +1113,14 @@ export const TreeView: React.FC<TreeViewProps> = ({
       visited.add(person.id);
       if (depth > maxDepth) maxDepth = depth;
 
-      const allChildren = getChildren(person.id).filter(c => !visited.has(c.id));
-      const hasChildren = allChildren.length > 0;
+      const allRawChildren = getChildren(person.id).filter(c => !visited.has(c.id));
+      const visibleChildren = showFemales
+        ? allRawChildren
+        : allRawChildren.filter(c => c.gender === 'male');
+      const hasChildren = visibleChildren.length > 0;
       const isCollapsed = collapsedNodes.has(person.id);
-      const maleChildrenCount = allChildren.filter(c => c.gender === 'male').length;
-      const femaleChildrenCount = allChildren.filter(c => c.gender === 'female').length;
+      const maleChildrenCount = allRawChildren.filter(c => c.gender === 'male').length;
+      const femaleChildrenCount = allRawChildren.filter(c => c.gender === 'female').length;
 
       if (!hasChildren || isCollapsed) {
         return {
@@ -1059,12 +1133,12 @@ export const TreeView: React.FC<TreeViewProps> = ({
           isCollapsed,
           maleChildrenCount,
           femaleChildrenCount,
-          totalChildrenCount: allChildren.length,
+          totalChildrenCount: visibleChildren.length,
           childrenLayouts: []
         };
       }
 
-      const childrenLayouts = allChildren.map(ch => buildMeasure(ch, depth + 1));
+      const childrenLayouts = visibleChildren.map(ch => buildMeasure(ch, depth + 1));
       const totalChildrenWidth =
         childrenLayouts.reduce((acc, c) => acc + c.subtreeWidth, 0) +
         (childrenLayouts.length - 1) * H_GAP;
@@ -1079,7 +1153,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
         isCollapsed,
         maleChildrenCount,
         femaleChildrenCount,
-        totalChildrenCount: allChildren.length,
+        totalChildrenCount: visibleChildren.length,
         childrenLayouts
       };
     }
@@ -1155,19 +1229,20 @@ export const TreeView: React.FC<TreeViewProps> = ({
       canvasHeight,
       maxDepth
     };
-  }, [currentRoot, getChildren, collapsedNodes, organicDirection]);
+  }, [currentRoot, getChildren, collapsedNodes, organicDirection, showFemales]);
 
   // ============================================================================
   // MODE 1 RENDERER: Classic Hierarchical Cards (المخطط الهرمي - البطاقات)
   // ============================================================================
   const renderClassicNode = (person: Person, depth: number = 1): React.ReactNode => {
-    const children = getChildren(person.id);
+    const allChildren = getChildren(person.id);
+    const children = getVisibleChildren(person.id);
     const hasChildren = children.length > 0;
     const isCollapsed = collapsedNodes.has(person.id);
     const isHighlighted = Boolean(localSearch.trim() && advancedArabicMatch(person.fullName, localSearch));
 
-    const maleChildrenCount = children.filter(c => c.gender === 'male').length;
-    const femaleChildrenCount = children.filter(c => c.gender === 'female').length;
+    const maleChildrenCount = allChildren.filter(c => c.gender === 'male').length;
+    const femaleChildrenCount = allChildren.filter(c => c.gender === 'female').length;
 
     return (
       <div key={person.id} className="flex flex-col items-center">
@@ -1192,6 +1267,8 @@ export const TreeView: React.FC<TreeViewProps> = ({
 
         {/* Person Card */}
         <div
+          id={`person-node-${person.id}`}
+          data-person-id={person.id}
           onClick={(e) => handleCardClickToggle(person.id, e)}
           draggable={isAdmin}
           onDragStart={(e) => handleCardDragStart(e, person)}
@@ -1222,30 +1299,44 @@ export const TreeView: React.FC<TreeViewProps> = ({
             </div>
           )}
           <div
-            className={`w-56 sm:w-64 p-3.5 sm:p-4 rounded-2xl border-2 transition-all shadow-sm hover:shadow-lg ${
-              person.gender === 'male'
-                ? 'bg-gradient-to-b from-white via-[#F8FCFA] to-[#EFF7F2] border-[#0F4C3A]/30 hover:border-[#0F4C3A]'
-                : 'bg-gradient-to-b from-white via-[#FFF7F7] to-[#FDF0F0] border-rose-200/90 hover:border-rose-400'
+            className={`w-60 sm:w-68 p-3 sm:p-3.5 rounded-2xl transition-all ${
+              depth === 1
+                ? 'bg-gradient-to-b from-[#093829] to-[#0F4C3A] text-white border-[2.5px] border-[#D4AF37] shadow-md hover:shadow-xl'
+                : person.gender === 'male'
+                ? 'bg-white text-black border-2 border-[#064E3B] hover:border-[#0F4C3A] shadow-sm hover:shadow-lg'
+                : 'bg-[#FFF1F2] text-black border-2 border-[#BE123C] hover:border-rose-700 shadow-sm hover:shadow-lg'
             }`}
           >
             {/* Header / Generation Badge & Small Details Button */}
-            <div className="flex items-center justify-between gap-1 mb-2.5">
-              <div className="flex items-center gap-1.5">
+            <div
+              className={`flex items-center justify-between gap-1 pb-2 border-b ${
+                depth === 1
+                  ? 'border-[#D4AF37]/35'
+                  : person.gender === 'male'
+                  ? 'border-[#CBD5E1]'
+                  : 'border-[#FECDD3]'
+              }`}
+            >
+              <div className="flex items-center gap-1">
                 <span
-                  className={`text-[10px] sm:text-[11px] font-black px-2 py-0.5 rounded-lg shadow-2xs ${
-                    person.gender === 'male'
-                      ? 'bg-[#0F4C3A] text-white'
-                      : 'bg-rose-600 text-white'
+                  className={`text-[10px] sm:text-[11px] font-black px-2 py-0.5 rounded-md shadow-2xs ${
+                    depth === 1
+                      ? 'bg-[#D4AF37] text-[#0F291E]'
+                      : person.gender === 'male'
+                      ? 'bg-[#064E3B] text-white'
+                      : 'bg-[#BE123C] text-white'
                   }`}
                 >
                   {depth === 1 ? 'الأصل الراسخ' : `الجيل ${depth}`}
                 </span>
 
                 <span
-                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                    person.gender === 'male'
-                      ? 'bg-emerald-100/80 text-emerald-900 border border-emerald-200/60'
-                      : 'bg-rose-100/80 text-rose-900 border border-rose-200/60'
+                  className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md ${
+                    depth === 1
+                      ? 'bg-white/15 text-[#FDE68A] border border-[#D4AF37]/40'
+                      : person.gender === 'male'
+                      ? 'bg-[#D1FAE5] text-[#064E3B]'
+                      : 'bg-[#FFE4E6] text-[#9F1239]'
                   }`}
                 >
                   {person.gender === 'male' ? 'ذكر' : 'أنثى'}
@@ -1261,12 +1352,16 @@ export const TreeView: React.FC<TreeViewProps> = ({
                     e.stopPropagation();
                     onSelectPerson(person.id);
                   }}
-                  className="px-2 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-950 border border-amber-300 text-[11px] font-black flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-black flex items-center gap-1 transition shadow-2xs cursor-pointer ${
+                    depth === 1
+                      ? 'bg-[#D4AF37] hover:bg-amber-400 text-slate-950 border border-amber-200'
+                      : 'bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-950 border border-amber-300'
+                  }`}
                   title="عرض تفاصيل ومعلومات الاسم"
                   aria-label="عرض التفاصيل"
                 >
-                  <Info className="w-3.5 h-3.5 text-amber-700" />
-                  <span className="text-[11px] font-extrabold">تفاصيل</span>
+                  <Info className={`w-3 h-3 ${depth === 1 ? 'text-slate-950' : 'text-amber-700'}`} />
+                  <span className="text-[10px] font-extrabold">تفاصيل</span>
                 </button>
 
                 {isAdmin && (
@@ -1281,7 +1376,11 @@ export const TreeView: React.FC<TreeViewProps> = ({
                           onOpenEditPerson(person);
                         }
                       }}
-                      className="p-1 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 border border-slate-200 transition"
+                      className={`p-1 rounded-lg border transition ${
+                        depth === 1
+                          ? 'text-white/90 hover:text-white hover:bg-white/15 border-white/25'
+                          : 'text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 border-slate-200'
+                      }`}
                       title="تبديل الجنس (ذكر / أنثى)"
                     >
                       <span className="text-[10px] font-bold">جنس</span>
@@ -1294,7 +1393,11 @@ export const TreeView: React.FC<TreeViewProps> = ({
                           e.stopPropagation();
                           onOpenAddFather(person.id);
                         }}
-                        className="p-1 rounded-lg text-[#0F4C3A] hover:text-emerald-800 hover:bg-emerald-50 border border-emerald-200 transition"
+                        className={`p-1 rounded-lg border transition ${
+                          depth === 1
+                            ? 'text-[#FDE68A] hover:text-white hover:bg-white/15 border-[#D4AF37]/40'
+                            : 'text-[#0F4C3A] hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200'
+                        }`}
                         title="نقل الابن وفروعه إلى جد أعلى / إضافة جد أعلى"
                       >
                         <ArrowUp className="w-3.5 h-3.5" />
@@ -1308,7 +1411,11 @@ export const TreeView: React.FC<TreeViewProps> = ({
                           e.stopPropagation();
                           onOpenEditPerson(person);
                         }}
-                        className="p-1 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 transition"
+                        className={`p-1 rounded-lg border transition ${
+                          depth === 1
+                            ? 'text-white/90 hover:text-white hover:bg-white/15 border-white/25'
+                            : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50 border-slate-200'
+                        }`}
                         title="تعديل الاسم"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
@@ -1322,7 +1429,11 @@ export const TreeView: React.FC<TreeViewProps> = ({
                           e.stopPropagation();
                           onDeletePerson(person.id);
                         }}
-                        className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 border border-slate-200 transition"
+                        className={`p-1 rounded-lg border transition ${
+                          depth === 1
+                            ? 'text-red-300 hover:text-red-100 hover:bg-red-500/25 border-red-300/30'
+                            : 'text-slate-500 hover:text-red-600 hover:bg-red-50 border-slate-200'
+                        }`}
                         title="حذف الاسم"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1333,54 +1444,84 @@ export const TreeView: React.FC<TreeViewProps> = ({
               </div>
             </div>
 
-            {/* Name Display - Ultra Clear, Bold, High-Contrast Typography */}
-            <div className="flex items-center gap-2.5 py-1">
-              <div
-                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-xs border ${
-                  person.gender === 'male'
-                    ? 'bg-gradient-to-br from-[#0F4C3A] to-[#15664F] text-[#D4AF37] border-[#D4AF37]/50 ring-1 ring-[#0F4C3A]/20'
-                    : 'bg-gradient-to-br from-rose-500 to-rose-600 text-white border-rose-300 ring-1 ring-rose-400/20'
-                }`}
-              >
-                <User className="w-5 h-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h4
-                  className="text-sm sm:text-base font-black text-slate-950 group-hover:text-[#0F4C3A] transition break-words leading-tight"
-                  title={formatAppName(person.fullName)}
-                >
-                  {depth === 1 ? formatAppName(person.fullName) : formatBranchName(person.fullName)}
-                </h4>
-              </div>
-            </div>
+            {/* Center Name Display - Prominently Centered & Crystal Clear Like PNG Export */}
+            {(() => {
+              const displayName = depth === 1 ? formatAppName(person.fullName) : formatBranchName(person.fullName);
+              const nameSizeClass =
+                displayName.length <= 10
+                  ? 'text-3xl sm:text-4xl'
+                  : displayName.length <= 18
+                  ? 'text-2xl sm:text-3xl'
+                  : 'text-xl sm:text-2xl';
+              return (
+                <div className="min-h-[64px] sm:min-h-[72px] py-3 px-2 flex flex-col items-center justify-center text-center">
+                  <h4
+                    className={`${nameSizeClass} font-black text-center break-words leading-tight tracking-tight transition ${
+                      depth === 1
+                        ? 'text-white drop-shadow-2xs'
+                        : person.gender === 'male'
+                        ? 'text-black group-hover:text-[#064E3B]'
+                        : 'text-black group-hover:text-[#9F1239]'
+                    }`}
+                    title={formatAppName(person.fullName)}
+                  >
+                    {displayName}
+                  </h4>
 
-            {/* Notes snippet if exists */}
-            {person.notes && (
-              <p className="text-[11px] text-slate-500 mt-1 truncate">
-                {person.notes}
-              </p>
-            )}
+                  {/* Notes snippet if exists */}
+                  {person.notes && (
+                    <p
+                      className={`text-[11px] font-bold mt-1.5 truncate max-w-full text-center ${
+                        depth === 1 ? 'text-[#FDE68A]/90' : 'text-slate-600'
+                      }`}
+                    >
+                      {person.notes}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Footer / Children or Spouse Indicators & Direct Branches Hint */}
-            <div className="mt-3 pt-2.5 border-t border-slate-200/70 flex items-center justify-between text-[11px] text-slate-600">
+            <div
+              className={`pt-2 border-t flex items-center justify-between text-[11px] ${
+                depth === 1
+                  ? 'border-[#D4AF37]/35 text-[#FDE68A]'
+                  : person.gender === 'male'
+                  ? 'border-[#CBD5E1] text-slate-700'
+                  : 'border-[#FECDD3] text-slate-700'
+              }`}
+            >
               {person.gender === 'male' ? (
                 <span>
-                  {hasChildren ? (
-                    <strong className="text-[#0F4C3A] font-bold">
-                      {maleChildrenCount} أبناء · {femaleChildrenCount} بنات
+                  {showFemales ? (
+                    allChildren.length > 0 ? (
+                      <strong className={depth === 1 ? 'text-[#FDE68A] font-black' : 'text-[#064E3B] font-black'}>
+                        {maleChildrenCount} أبناء · {femaleChildrenCount} بنات
+                      </strong>
+                    ) : (
+                      <span className={depth === 1 ? 'text-white/75 font-bold' : 'text-slate-500 font-bold'}>
+                        لا يوجد أبناء مسجلون
+                      </span>
+                    )
+                  ) : maleChildrenCount > 0 ? (
+                    <strong className={depth === 1 ? 'text-[#FDE68A] font-black' : 'text-[#064E3B] font-black'}>
+                      {maleChildrenCount} أبناء
                     </strong>
                   ) : (
-                    <span className="text-slate-400">لا يوجد أبناء مسجلون</span>
+                    <span className={depth === 1 ? 'text-white/75 font-bold' : 'text-slate-500 font-bold'}>
+                      لا يوجد أبناء ذكور
+                    </span>
                   )}
                 </span>
               ) : (
                 <span>
                   {person.husbandName ? (
-                    <span className="text-rose-700 font-bold text-[10px] break-words line-clamp-1 block max-w-[170px]">
+                    <span className="text-[#9F1239] font-black text-[11px] break-words line-clamp-1 block max-w-[170px]">
                       زوجة: {formatAppName(person.husbandName)}
                     </span>
                   ) : (
-                    <span className="text-slate-400 text-[10px]">أنثى</span>
+                    <span className="text-[#9F1239] font-bold text-[11px]">أنثى</span>
                   )}
                 </span>
               )}
@@ -1389,8 +1530,10 @@ export const TreeView: React.FC<TreeViewProps> = ({
               {hasChildren && (
                 <div
                   className={`px-2 py-0.5 rounded-lg text-[10px] font-black flex items-center gap-1 transition ${
-                    isCollapsed
-                      ? 'bg-emerald-100/90 text-[#0F4C3A] group-hover:bg-[#0F4C3A] group-hover:text-white shadow-2xs'
+                    depth === 1
+                      ? 'bg-[#D4AF37] text-[#0F291E] group-hover:bg-amber-400 shadow-2xs'
+                      : isCollapsed
+                      ? 'bg-emerald-100 text-[#064E3B] group-hover:bg-[#064E3B] group-hover:text-white shadow-2xs'
                       : 'bg-amber-100 text-amber-950 group-hover:bg-amber-500 group-hover:text-slate-950 shadow-2xs'
                   }`}
                   title={isCollapsed ? 'انقر على البطاقة لعرض الفروع المباشرة' : 'انقر على البطاقة لطي كافة الأفرع'}
@@ -1783,7 +1926,9 @@ export const TreeView: React.FC<TreeViewProps> = ({
           return (
             <div
               key={person.id}
-              onClick={() => onSelectPerson(person.id)}
+              id={`person-node-${person.id}`}
+              data-person-id={person.id}
+              onClick={(e) => handleCardClickToggle(person.id, e)}
               draggable={isAdmin}
               onDragStart={(e) => handleCardDragStart(e, person)}
               onDragOver={(e) => handleCardDragOver(e, person.id)}
@@ -1809,14 +1954,14 @@ export const TreeView: React.FC<TreeViewProps> = ({
                 </div>
               )}
               <div
-                className={`w-[202px] px-3 py-2.5 transition-all shadow-md hover:shadow-xl relative ${
+                className={`w-[210px] px-3 py-2.5 transition-all shadow-md hover:shadow-xl relative ${
                   isRoot
-                    ? 'rounded-3xl bg-gradient-to-b from-[#4A2C11] via-[#3A230E] to-[#0F4C3A] text-white border-2 border-[#D4AF37] ring-4 ring-[#D4AF37]/20'
+                    ? 'rounded-3xl bg-gradient-to-b from-[#4A2C11] via-[#3A230E] to-[#0F4C3A] text-white border-[2.5px] border-[#D4AF37] ring-4 ring-[#D4AF37]/20'
                     : isBough
-                    ? 'rounded-2xl bg-gradient-to-b from-[#F4FBF7] via-white to-[#EBF5EE] text-slate-900 border-2 border-[#2D5A3C]/50 hover:border-[#0F4C3A]'
+                    ? 'rounded-2xl bg-white text-black border-2 border-[#064E3B] hover:border-[#0F4C3A]'
                     : person.gender === 'male'
-                    ? 'rounded-tl-3xl rounded-br-3xl rounded-tr-xl rounded-bl-xl bg-gradient-to-br from-[#E9F7EF] via-white to-[#D8F3E5] text-slate-900 border-2 border-emerald-500/50 hover:border-[#0F4C3A]'
-                    : 'rounded-tl-3xl rounded-br-3xl rounded-tr-xl rounded-bl-xl bg-gradient-to-br from-[#FFF0F3] via-white to-[#FFE4E9] text-slate-900 border-2 border-rose-300 hover:border-rose-500'
+                    ? 'rounded-tl-3xl rounded-br-3xl rounded-tr-xl rounded-bl-xl bg-white text-black border-2 border-[#064E3B] hover:border-[#0F4C3A]'
+                    : 'rounded-tl-3xl rounded-br-3xl rounded-tr-xl rounded-bl-xl bg-[#FFF1F2] text-black border-2 border-[#BE123C] hover:border-rose-700'
                 }`}
               >
                 {/* Decorative Leaf Icon on corner for non-root nodes */}
@@ -1827,144 +1972,200 @@ export const TreeView: React.FC<TreeViewProps> = ({
                       isBough
                         ? 'bg-[#6E4726] text-[#F5E6B8] border-[#D4AF37]/50'
                         : person.gender === 'male'
-                        ? 'bg-emerald-600 text-white border-emerald-200'
-                        : 'bg-rose-500 text-white border-rose-200'
+                        ? 'bg-[#064E3B] text-white border-emerald-200'
+                        : 'bg-[#BE123C] text-white border-rose-200'
                     }`}
                   >
                     <TreeDeciduous className="w-3 h-3" />
                   </span>
                 )}
 
-                {/* Top row: Role label + Admin controls */}
-                <div className="flex items-center justify-between gap-1 mb-1">
+                {/* Top row: Role label + Details button + Admin controls */}
+                <div
+                  className={`flex items-center justify-between gap-1 pb-1.5 border-b ${
+                    isRoot
+                      ? 'border-[#D4AF37]/35'
+                      : person.gender === 'male'
+                      ? 'border-[#CBD5E1]'
+                      : 'border-[#FECDD3]'
+                  }`}
+                >
                   <span
-                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${
+                    className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${
                       isRoot
-                        ? 'bg-[#D4AF37]/25 text-[#F5E6B8] border border-[#D4AF37]/40'
+                        ? 'bg-[#D4AF37] text-[#0F291E]'
                         : isBough
-                        ? 'bg-[#6E4726]/12 text-[#5C3A21]'
+                        ? 'bg-[#6E4726] text-white'
                         : person.gender === 'male'
-                        ? 'bg-emerald-100/90 text-[#0F4C3A]'
-                        : 'bg-rose-100/90 text-rose-800'
+                        ? 'bg-[#064E3B] text-white'
+                        : 'bg-[#BE123C] text-white'
                     }`}
                   >
                     {roleLabel}
                   </span>
 
-                  {isAdmin && (
-                    <div className="flex items-center gap-0.5">
-                      {onOpenAddFather && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenAddFather(person.id);
-                          }}
-                          className={`p-0.5 rounded transition ${
-                            isRoot
-                              ? 'text-[#F5E6B8] hover:text-white hover:bg-white/15'
-                              : 'text-[#0F4C3A] hover:text-emerald-800 hover:bg-emerald-50'
-                          }`}
-                          title="نقل الابن وفروعه إلى جد أعلى / إضافة جد أعلى"
-                        >
-                          <ArrowUp className="w-3 h-3" />
-                        </button>
-                      )}
-                      {person.gender === 'male' && onOpenMergeModal && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenMergeModal(person.id);
-                          }}
-                          className={`p-0.5 rounded transition ${
-                            isRoot
-                              ? 'text-[#F5E6B8] hover:text-white hover:bg-white/15'
-                              : 'text-amber-700 hover:text-amber-900 hover:bg-amber-50'
-                          }`}
-                          title="دمج هذا الجد مع جد آخر بنفس الاسم"
-                        >
-                          <GitMerge className="w-3 h-3" />
-                        </button>
-                      )}
-                      {onOpenEditPerson && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenEditPerson(person);
-                          }}
-                          className={`p-0.5 rounded transition ${
-                            isRoot
-                              ? 'text-white/80 hover:text-white hover:bg-white/15'
-                              : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'
-                          }`}
-                          title="تعديل"
-                        >
-                          <Edit2 className="w-3 h-3" />
-                        </button>
-                      )}
-                      {onDeletePerson && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeletePerson(person.id);
-                          }}
-                          className={`p-0.5 rounded transition ${
-                            isRoot
-                              ? 'text-red-300 hover:text-red-100 hover:bg-red-500/20'
-                              : 'text-slate-400 hover:text-red-600 hover:bg-red-50'
-                          }`}
-                          title="حذف"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectPerson(person.id);
+                      }}
+                      className={`px-1.5 py-0.5 rounded-md text-[9px] font-black flex items-center gap-0.5 transition cursor-pointer ${
+                        isRoot
+                          ? 'bg-[#D4AF37] text-slate-950 hover:bg-amber-400'
+                          : 'bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300'
+                      }`}
+                      title="عرض تفاصيل الاسم"
+                    >
+                      <Info className="w-2.5 h-2.5" />
+                      <span>تفاصيل</span>
+                    </button>
+
+                    {isAdmin && (
+                      <>
+                        {onOpenAddFather && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenAddFather(person.id);
+                            }}
+                            className={`p-0.5 rounded transition ${
+                              isRoot
+                                ? 'text-[#F5E6B8] hover:text-white hover:bg-white/15'
+                                : 'text-[#0F4C3A] hover:text-emerald-800 hover:bg-emerald-50'
+                            }`}
+                            title="نقل الابن وفروعه إلى جد أعلى / إضافة جد أعلى"
+                          >
+                            <ArrowUp className="w-3 h-3" />
+                          </button>
+                        )}
+                        {person.gender === 'male' && onOpenMergeModal && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenMergeModal(person.id);
+                            }}
+                            className={`p-0.5 rounded transition ${
+                              isRoot
+                                ? 'text-[#F5E6B8] hover:text-white hover:bg-white/15'
+                                : 'text-amber-700 hover:text-amber-900 hover:bg-amber-50'
+                            }`}
+                            title="دمج هذا الجد مع جد آخر بنفس الاسم"
+                          >
+                            <GitMerge className="w-3 h-3" />
+                          </button>
+                        )}
+                        {onOpenEditPerson && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenEditPerson(person);
+                            }}
+                            className={`p-0.5 rounded transition ${
+                              isRoot
+                                ? 'text-white/80 hover:text-white hover:bg-white/15'
+                                : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'
+                            }`}
+                            title="تعديل"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                        )}
+                        {onDeletePerson && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeletePerson(person.id);
+                            }}
+                            className={`p-0.5 rounded transition ${
+                              isRoot
+                                ? 'text-red-300 hover:text-red-100 hover:bg-red-500/20'
+                                : 'text-slate-400 hover:text-red-600 hover:bg-red-50'
+                            }`}
+                            title="حذف"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
 
-                {/* Person Name */}
-                <h4
-                  className={`text-xs font-bold leading-snug truncate ${
-                    isRoot ? 'text-white font-display text-sm' : 'text-slate-900 group-hover:text-[#0F4C3A]'
-                  }`}
-                  title={formatAppName(person.fullName)}
-                >
-                  {isRoot ? formatAppName(person.fullName) : formatBranchName(person.fullName)}
-                </h4>
+                {/* Person Name - Prominently Centered & Ultra Clear Like PNG */}
+                {(() => {
+                  const displayName = isRoot ? formatAppName(person.fullName) : formatBranchName(person.fullName);
+                  const nameSizeClass =
+                    displayName.length <= 10
+                      ? 'text-2xl sm:text-3xl'
+                      : displayName.length <= 18
+                      ? 'text-xl sm:text-2xl'
+                      : 'text-lg sm:text-xl';
+                  return (
+                    <div className="min-h-[54px] py-2.5 px-1.5 flex items-center justify-center text-center">
+                      <h4
+                        className={`${nameSizeClass} font-black leading-tight tracking-tight text-center break-words ${
+                          isRoot
+                            ? 'text-white drop-shadow-2xs'
+                            : person.gender === 'male'
+                            ? 'text-black group-hover:text-[#064E3B]'
+                            : 'text-black group-hover:text-[#9F1239]'
+                        }`}
+                        title={formatAppName(person.fullName)}
+                      >
+                        {displayName}
+                      </h4>
+                    </div>
+                  );
+                })()}
 
                 {/* Footer Info: Branches count or spouse */}
                 <div
-                  className={`mt-1.5 pt-1 border-t flex items-center justify-between text-[10px] ${
-                    isRoot ? 'border-white/15 text-emerald-100' : 'border-slate-200/70 text-slate-600'
+                  className={`pt-1.5 border-t flex items-center justify-between text-[10px] ${
+                    isRoot
+                      ? 'border-[#D4AF37]/35 text-[#FDE68A]'
+                      : person.gender === 'male'
+                      ? 'border-[#CBD5E1] text-slate-700'
+                      : 'border-[#FECDD3] text-slate-700'
                   }`}
                 >
                   {person.gender === 'male' ? (
-                    hasChildren ? (
-                      <span className={isRoot ? 'text-[#F5E6B8] font-bold' : 'text-[#0F4C3A] font-bold'}>
-                        يتفرع منه: {maleChildrenCount} ذكور · {femaleChildrenCount} إناث
+                    showFemales ? (
+                      maleChildrenCount + femaleChildrenCount > 0 ? (
+                        <span className={isRoot ? 'text-[#FDE68A] font-black' : 'text-[#064E3B] font-black'}>
+                          يتفرع منه: {maleChildrenCount} ذكور · {femaleChildrenCount} إناث
+                        </span>
+                      ) : (
+                        <span className={isRoot ? 'text-white/75 font-bold' : 'text-slate-500 font-bold'}>ورقة طرفية</span>
+                      )
+                    ) : maleChildrenCount > 0 ? (
+                      <span className={isRoot ? 'text-[#FDE68A] font-black' : 'text-[#064E3B] font-black'}>
+                        يتفرع منه: {maleChildrenCount} أبناء
                       </span>
                     ) : (
-                      <span className={isRoot ? 'text-white/70' : 'text-slate-400'}>ورقة طرفية</span>
+                      <span className={isRoot ? 'text-white/75 font-bold' : 'text-slate-500 font-bold'}>ورقة طرفية</span>
                     )
                   ) : person.husbandName ? (
-                    <span className="text-rose-700 font-bold truncate max-w-[155px]">
+                    <span className="text-[#9F1239] font-black truncate max-w-[155px]">
                       زوجة: {formatAppName(person.husbandName)}
                     </span>
                   ) : (
-                    <span className="text-rose-700/80">ابنة / فرع</span>
+                    <span className="text-[#9F1239] font-bold">ابنة / فرع</span>
                   )}
 
                   {hasChildren && (
                     <button
                       type="button"
                       onClick={(e) => toggleCollapse(person.id, e)}
-                      className={`px-1.5 py-0.5 rounded-md font-bold text-[9px] transition flex items-center gap-0.5 ${
+                      className={`px-1.5 py-0.5 rounded-md font-black text-[9px] transition flex items-center gap-0.5 ${
                         isRoot
-                          ? 'bg-white/20 hover:bg-white/30 text-white'
-                          : 'bg-[#0F4C3A]/10 hover:bg-[#0F4C3A]/20 text-[#0F4C3A]'
+                          ? 'bg-[#D4AF37] text-[#0F291E] hover:bg-amber-400'
+                          : 'bg-emerald-100 hover:bg-[#064E3B] hover:text-white text-[#064E3B]'
                       }`}
                       title={isCollapsed ? 'توسيع الأغصان المتفرعة' : 'طي الأغصان المتفرعة'}
                     >
@@ -2006,89 +2207,14 @@ export const TreeView: React.FC<TreeViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Tree View Mode Selector Banner: 1. المخطط الهرمي (البطاقات) | 2. الشجرة (جذر وأغصان وتفريعات) */}
-      <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-slate-700 shrink-0">طريقة استعراض الشجرة:</span>
-          <div className="flex-1 sm:flex-initial inline-flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
-            <button
-              type="button"
-              onClick={() => {
-                setTreeDisplayMode('classic');
-              }}
-              className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                treeDisplayMode === 'classic'
-                  ? 'bg-[#0F4C3A] text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-              }`}
-            >
-              <LayoutGrid className="w-3.5 h-3.5 text-[#D4AF37]" />
-              <span>1. المخطط الهرمي (البطاقات)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setTreeDisplayMode('organic');
-              }}
-              className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                treeDisplayMode === 'organic'
-                  ? 'bg-[#0F4C3A] text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-              }`}
-            >
-              <TreeDeciduous className="w-3.5 h-3.5 text-[#D4AF37]" />
-              <span>2. الشجرة (جذر وأغصان وتفريعات)</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Direction sub-toggle when in Organic Tree Mode */}
-        {treeDisplayMode === 'organic' && (
-          <div className="flex items-center gap-2 self-end md:self-center">
-            <span className="text-[11px] font-semibold text-slate-500">اتجاه الأغصان:</span>
-            <div className="inline-flex items-center gap-1 p-1 bg-amber-50/80 rounded-xl border border-amber-200/80 text-[11px]">
-              <button
-                type="button"
-                onClick={() => {
-                  setOrganicDirection('up');
-                }}
-                className={`px-2.5 py-1 rounded-lg font-bold transition ${
-                  organicDirection === 'up'
-                    ? 'bg-[#5C3A21] text-white shadow-2xs'
-                    : 'text-amber-900 hover:bg-amber-100/60'
-                }`}
-              >
-                جذر بالأسفل وأغصان صاعدة
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setOrganicDirection('down');
-                }}
-                className={`px-2.5 py-1 rounded-lg font-bold transition ${
-                  organicDirection === 'down'
-                    ? 'bg-[#5C3A21] text-white shadow-2xs'
-                    : 'text-amber-900 hover:bg-amber-100/60'
-                }`}
-              >
-                جذر بالأعلى وتفريعات نازلة
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Tree View Controls Bar */}
-      <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-wrap items-center justify-between gap-3">
-        {/* Tree Root Selector & Root Actions */}
-        <div className="flex flex-wrap items-center gap-2">
-          <TreeDeciduous className="w-4 h-4 text-[#0F4C3A] shrink-0" />
-          <span className="text-xs font-bold text-slate-700 hidden sm:inline">أصل الشجرة:</span>
+      {/* MOBILE COMPACT HEADER BAR: Fits comfortably on phone screens (~68px height) */}
+      <div className="sm:hidden bg-white p-2.5 rounded-2xl border border-slate-200/80 shadow-2xs space-y-2">
+        {/* Row 1: Root selector + Mode switch + Export */}
+        <div className="flex items-center gap-1.5">
           <select
             value={selectedTreeRootId || ''}
             onChange={(e) => setSelectedTreeRootId(e.target.value)}
-            className="text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+            className="flex-1 min-w-0 h-8 text-[11px] font-bold bg-slate-50 border border-slate-200 rounded-xl px-2 text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
           >
             {treeRoots.map((root) => (
               <option key={root.id} value={root.id}>
@@ -2097,142 +2223,362 @@ export const TreeView: React.FC<TreeViewProps> = ({
             ))}
           </select>
 
-          {isAdmin && currentRoot && onOpenAddFather && (
+          {/* Mode Switch (Classic vs Organic) */}
+          <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-xl border border-slate-200/80 text-[11px] shrink-0">
             <button
               type="button"
-              onClick={() => onOpenAddFather(currentRoot.id)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F4C3A] border border-emerald-200 text-xs font-bold transition"
-              title="نقل الابن وفروعه إلى الجد الأعلى أو إضافة جد أو أكثر من جد"
-            >
-              <ArrowUp className="w-3.5 h-3.5" />
-              <span>+ إضافة جد أعلى / نقل فرع لجد أعلى</span>
-            </button>
-          )}
-
-          {isAdmin && treeRoots.length > 1 && onOpenMergeModal && (
-            <button
-              type="button"
-              onClick={() => onOpenMergeModal()}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#D4AF37]/20 hover:bg-[#D4AF37]/30 text-[#8C6D1F] border border-[#D4AF37]/40 text-xs font-bold transition"
-              title="دمج الأشجار عند التوصل لأصل مشترك"
-            >
-              <GitMerge className="w-3.5 h-3.5" />
-              <span>دمج الأشجار</span>
-            </button>
-          )}
-
-          {treeRoots.length > 1 && (
-            <button
-              type="button"
-              onClick={toggleCompareMode}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border cursor-pointer ${
-                isCompareMode
-                  ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm'
-                  : 'bg-amber-50 hover:bg-amber-100 text-amber-950 border-amber-300'
+              onClick={() => setTreeDisplayMode('classic')}
+              className={`px-2 py-1 rounded-lg font-bold transition flex items-center gap-1 ${
+                treeDisplayMode === 'classic'
+                  ? 'bg-[#0F4C3A] text-white shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
-              title="عرض شجرتين أو أكثر في شاشة واحدة جنباً إلى جنب للمقارنة والدمج"
+              title="المخطط الهرمي"
             >
-              <GitMerge className="w-4 h-4 text-amber-900" />
-              <span>{isCompareMode ? 'إغلاق وضع المقارنة' : 'وضع مقارنة الشجرات (عرض متجاور)'}</span>
+              <LayoutGrid className="w-3 h-3 text-[#D4AF37]" />
+              <span>بطاقات</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTreeDisplayMode('organic')}
+              className={`px-2 py-1 rounded-lg font-bold transition flex items-center gap-1 ${
+                treeDisplayMode === 'organic'
+                  ? 'bg-[#0F4C3A] text-white shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="شجرة تفريعات"
+            >
+              <TreeDeciduous className="w-3 h-3 text-[#D4AF37]" />
+              <span>شجرة</span>
+            </button>
+          </div>
+
+          {/* Export Button */}
+          {currentRoot && (
+            <button
+              type="button"
+              disabled={isExportingPdf}
+              onClick={() => setShowExportModal(true)}
+              className="h-8 px-2.5 rounded-xl bg-[#0F4C3A] text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs shrink-0 cursor-pointer disabled:opacity-60"
+              title="تصدير الشجرة"
+            >
+              <FileDown className="w-3.5 h-3.5 text-[#D4AF37]" />
+              <span>تصدير</span>
             </button>
           )}
         </div>
 
-        {/* Local Tree Search */}
-        <div className="relative w-44 sm:w-56">
-          <input
-            type="text"
-            value={localSearch}
-            onChange={(e) => setLocalSearch(e.target.value)}
-            placeholder="تمييز اسم في الشجرة..."
-            className="w-full h-8 pr-7 pl-2 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
-          />
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-2.5" />
-        </div>
+        {/* Row 2: Search + Expand All / Collapse All + Quick View Buttons */}
+        <div className="flex items-center gap-1">
+          <div className="relative flex-1 min-w-[90px]">
+            <input
+              type="text"
+              value={localSearch}
+              onChange={(e) => setLocalSearch(e.target.value)}
+              placeholder="بحث اسم..."
+              className="w-full h-7 pr-6 pl-1.5 text-[11px] rounded-lg border border-slate-200 bg-slate-50 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+            />
+            <Search className="w-3 h-3 text-slate-400 absolute right-1.5 top-2" />
+          </div>
 
-        {/* Zoom & Expand Controls */}
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <button
-            type="button"
-            onClick={() => handleStepZoom(0.18)}
-            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 transition"
-            title="تكبير"
-          >
-            <ZoomIn className="w-4 h-4" />
-          </button>
-          <span className="text-[11px] font-bold text-slate-600 min-w-[42px] text-center select-none">
-            {zoomDisplay}%
-          </span>
-          <button
-            type="button"
-            onClick={() => handleStepZoom(-0.18)}
-            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 transition"
-            title="تصغير"
-          >
-            <ZoomOut className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => fitTreeToScreen(true)}
-            className="px-2 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1 transition"
-            title="ملاءمة الشجرة بالكامل داخل الشاشة"
-          >
-            <Maximize2 className="w-3.5 h-3.5 text-[#0F4C3A]" />
-            <span className="hidden sm:inline">احتواء الشجرة</span>
-          </button>
-          <button
-            type="button"
-            onClick={resetView}
-            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 transition"
-            title="إعادة ضبط الرؤية وتوسيط الجد"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-          <div className="h-4 w-px bg-slate-200 mx-1" />
-          <button
-            type="button"
-            onClick={() => {
-              expandAll();
-              setTimeout(() => centerOnRoot(true, cameraRef.current.zoom), 40);
-            }}
-            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
-          >
-            توسيع الكل
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              collapseAll();
-              setTimeout(() => centerOnRoot(true, 1), 40);
-            }}
-            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
-          >
-            طي الكل
-          </button>
-          {currentRoot && (
-            <>
-              <div className="h-4 w-px bg-slate-200 mx-1" />
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowFemales((prev) => !prev)}
+              className={`h-7 px-2 flex items-center justify-center gap-0.5 rounded-lg border text-[10px] font-black transition cursor-pointer ${
+                showFemales
+                  ? 'border-rose-700 bg-rose-600 text-white shadow-2xs'
+                  : 'border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-900'
+              }`}
+              title={showFemales ? 'إخفاء الإناث وعرض الذكور فقط' : 'إظهار الإناث (البنات) في الشجرة'}
+            >
+              <span>{showFemales ? 'إخفاء البنات' : 'إظهار البنات'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={expandAll}
+              className="h-7 px-2 flex items-center justify-center gap-0.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-[#0F4C3A] text-[10px] font-black transition cursor-pointer"
+              title="توسيع وإظهار جميع فروع الشجرة"
+            >
+              <ChevronDown className="w-3 h-3" />
+              <span>توسيع الكل</span>
+            </button>
+            <button
+              type="button"
+              onClick={collapseAll}
+              className="h-7 px-2 flex items-center justify-center gap-0.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-950 text-[10px] font-black transition cursor-pointer"
+              title="طي جميع الفروع وإبقاء الجذر الأصلي فقط"
+            >
+              <ChevronUp className="w-3 h-3" />
+              <span>طي الكل</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => fitTreeToScreen(true)}
+              className="h-7 px-1.5 flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-[10px] font-bold"
+              title="احتواء الشجرة في الشاشة"
+            >
+              احتواء
+            </button>
+            {treeRoots.length > 1 && (
               <button
                 type="button"
-                disabled={isExportingPdf}
-                onClick={() => setShowExportModal(true)}
-                className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-[#0F4C3A] hover:bg-[#0c3c2e] active:bg-[#08281f] text-white flex items-center gap-1.5 shadow-2xs transition cursor-pointer disabled:opacity-60"
-                title="تصدير الشجرة كصورة عالية الدقة للجوال أو ملف PDF للطباعة"
+                onClick={toggleCompareMode}
+                className={`h-7 px-1.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                  isCompareMode
+                    ? 'bg-amber-500 text-slate-950 border-amber-600'
+                    : 'bg-amber-50 text-amber-900 border-amber-300'
+                }`}
+                title="مقارنة الشجرات"
               >
-                <FileDown className="w-3.5 h-3.5 text-[#D4AF37]" />
-                <span>{isExportingPdf ? 'جارٍ معالجة الملف...' : 'تصدير الشجرة'}</span>
+                مقارنة
               </button>
-            </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* DESKTOP HEADER BANNERS: Full spacious layout for larger screens */}
+      <div className="hidden sm:block space-y-3">
+        {/* Tree View Mode Selector Banner: 1. المخطط الهرمي (البطاقات) | 2. الشجرة (جذر وأغصان وتفريعات) */}
+        <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-700 shrink-0">طريقة استعراض الشجرة:</span>
+            <div className="flex-1 sm:flex-initial inline-flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+              <button
+                type="button"
+                onClick={() => {
+                  setTreeDisplayMode('classic');
+                }}
+                className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  treeDisplayMode === 'classic'
+                    ? 'bg-[#0F4C3A] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <span>1. المخطط الهرمي (البطاقات)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTreeDisplayMode('organic');
+                }}
+                className={`px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  treeDisplayMode === 'organic'
+                    ? 'bg-[#0F4C3A] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                }`}
+              >
+                <TreeDeciduous className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <span>2. الشجرة (جذر وأغصان وتفريعات)</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Direction sub-toggle when in Organic Tree Mode */}
+          {treeDisplayMode === 'organic' && (
+            <div className="flex items-center gap-2 self-end md:self-center">
+              <span className="text-[11px] font-semibold text-slate-500">اتجاه الأغصان:</span>
+              <div className="inline-flex items-center gap-1 p-1 bg-amber-50/80 rounded-xl border border-amber-200/80 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOrganicDirection('up');
+                  }}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                    organicDirection === 'up'
+                      ? 'bg-[#5C3A21] text-white shadow-2xs'
+                      : 'text-amber-900 hover:bg-amber-100/60'
+                  }`}
+                >
+                  جذر بالأسفل وأغصان صاعدة
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOrganicDirection('down');
+                  }}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                    organicDirection === 'down'
+                      ? 'bg-[#5C3A21] text-white shadow-2xs'
+                      : 'text-amber-900 hover:bg-amber-100/60'
+                  }`}
+                >
+                  جذر بالأعلى وتفريعات نازلة
+                </button>
+              </div>
+            </div>
           )}
+        </div>
+
+        {/* Tree View Controls Bar */}
+        <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-wrap items-center justify-between gap-3">
+          {/* Tree Root Selector & Root Actions */}
+          <div className="flex flex-wrap items-center gap-2">
+            <TreeDeciduous className="w-4 h-4 text-[#0F4C3A] shrink-0" />
+            <span className="text-xs font-bold text-slate-700 hidden sm:inline">أصل الشجرة:</span>
+            <select
+              value={selectedTreeRootId || ''}
+              onChange={(e) => setSelectedTreeRootId(e.target.value)}
+              className="text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+            >
+              {treeRoots.map((root) => (
+                <option key={root.id} value={root.id}>
+                  {formatDropdownName(root.fullName)}
+                </option>
+              ))}
+            </select>
+
+            {isAdmin && currentRoot && onOpenAddFather && (
+              <button
+                type="button"
+                onClick={() => onOpenAddFather(currentRoot.id)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F4C3A] border border-emerald-200 text-xs font-bold transition"
+                title="نقل الابن وفروعه إلى الجد الأعلى أو إضافة جد أو أكثر من جد"
+              >
+                <ArrowUp className="w-3.5 h-3.5" />
+                <span>+ إضافة جد أعلى / نقل فرع لجد أعلى</span>
+              </button>
+            )}
+
+            {isAdmin && treeRoots.length > 1 && onOpenMergeModal && (
+              <button
+                type="button"
+                onClick={() => onOpenMergeModal()}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#D4AF37]/20 hover:bg-[#D4AF37]/30 text-[#8C6D1F] border border-[#D4AF37]/40 text-xs font-bold transition"
+                title="دمج الأشجار عند التوصل لأصل مشترك"
+              >
+                <GitMerge className="w-3.5 h-3.5" />
+                <span>دمج الأشجار</span>
+              </button>
+            )}
+
+            {treeRoots.length > 1 && (
+              <button
+                type="button"
+                onClick={toggleCompareMode}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition border cursor-pointer ${
+                  isCompareMode
+                    ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm'
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-950 border-amber-300'
+                }`}
+                title="عرض شجرتين أو أكثر في شاشة واحدة جنباً إلى جنب للمقارنة والدمج"
+              >
+                <GitMerge className="w-4 h-4 text-amber-900" />
+                <span>{isCompareMode ? 'إغلاق وضع المقارنة' : 'وضع مقارنة الشجرات (عرض متجاور)'}</span>
+              </button>
+            )}
+          </div>
+
+          {/* Local Tree Search */}
+          <div className="relative w-44 sm:w-56">
+            <input
+              type="text"
+              value={localSearch}
+              onChange={(e) => setLocalSearch(e.target.value)}
+              placeholder="تمييز اسم في الشجرة..."
+              className="w-full h-8 pr-7 pl-2 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+            />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-2.5" />
+          </div>
+
+          {/* Zoom & Expand Controls */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => handleStepZoom(0.18)}
+              className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 transition"
+              title="تكبير"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+            <span className="text-[11px] font-bold text-slate-600 min-w-[42px] text-center select-none">
+              {zoomDisplay}%
+            </span>
+            <button
+              type="button"
+              onClick={() => handleStepZoom(-0.18)}
+              className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 transition"
+              title="تصغير"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => fitTreeToScreen(true)}
+              className="px-2 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1 transition"
+              title="ملاءمة الشجرة بالكامل داخل الشاشة"
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-[#0F4C3A]" />
+              <span className="hidden sm:inline">احتواء الشجرة</span>
+            </button>
+            <button
+              type="button"
+              onClick={resetView}
+              className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 transition"
+              title="إعادة ضبط الرؤية وتوسيط الجد"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+            <div className="h-4 w-px bg-slate-200 mx-1" />
+            <button
+              type="button"
+              onClick={() => setShowFemales((prev) => !prev)}
+              className={`px-2.5 py-1.5 text-xs font-bold rounded-xl border transition flex items-center gap-1.5 cursor-pointer ${
+                showFemales
+                  ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700 shadow-2xs'
+                  : 'bg-rose-50 hover:bg-rose-100 text-rose-900 border-rose-200'
+              }`}
+              title={showFemales ? 'إخفاء الإناث وعرض الذكور فقط' : 'إظهار الإناث (البنات) في الشجرة'}
+            >
+              <User className="w-3.5 h-3.5" />
+              <span>{showFemales ? 'إخفاء البنات' : 'إظهار البنات'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={expandAll}
+              className="px-2.5 py-1.5 text-xs font-bold rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F4C3A] border border-emerald-200 transition flex items-center gap-1 cursor-pointer"
+              title="توسيع وإظهار جميع فروع الشجرة"
+            >
+              <ChevronDown className="w-3.5 h-3.5" />
+              <span>توسيع الكل</span>
+            </button>
+            <button
+              type="button"
+              onClick={collapseAll}
+              className="px-2.5 py-1.5 text-xs font-bold rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-200 transition flex items-center gap-1 cursor-pointer"
+              title="طي جميع الفروع وإبقاء الجذر الأصلي فقط"
+            >
+              <ChevronUp className="w-3.5 h-3.5" />
+              <span>طي الكل</span>
+            </button>
+            {currentRoot && (
+              <>
+                <div className="h-4 w-px bg-slate-200 mx-1" />
+                <button
+                  type="button"
+                  disabled={isExportingPdf}
+                  onClick={() => setShowExportModal(true)}
+                  className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-[#0F4C3A] hover:bg-[#0c3c2e] active:bg-[#08281f] text-white flex items-center gap-1.5 shadow-2xs transition cursor-pointer disabled:opacity-60"
+                  title="تصدير الشجرة كصورة عالية الدقة للجوال أو ملف PDF للطباعة"
+                >
+                  <FileDown className="w-3.5 h-3.5 text-[#D4AF37]" />
+                  <span>{isExportingPdf ? 'جارٍ معالجة الملف...' : 'تصدير الشجرة'}</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Side-by-Side Multi-Tree Comparison Mode Top Banner */}
       {isCompareMode && (
-        <div className="p-3.5 sm:p-4 bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 rounded-2xl text-slate-950 shadow-md flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3 animate-in fade-in duration-200">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-slate-950 text-amber-400 flex items-center justify-center shrink-0 shadow-sm">
-              <GitMerge className="w-5 h-5" />
+        <div className="p-2.5 sm:p-4 bg-gradient-to-r from-amber-600 via-amber-500 to-amber-600 rounded-2xl text-slate-950 shadow-md flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2.5 sm:gap-3 animate-in fade-in duration-200">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-slate-950 text-amber-400 flex items-center justify-center shrink-0 shadow-sm">
+              <GitMerge className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -2409,6 +2755,44 @@ export const TreeView: React.FC<TreeViewProps> = ({
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span className="hidden xs:inline">الأصل</span>
+          </button>
+
+          <div className="h-5 w-px bg-slate-200 mx-0.5" />
+
+          {/* Show / Hide Females Toggle */}
+          <button
+            type="button"
+            onClick={() => setShowFemales((prev) => !prev)}
+            className={`h-8 px-2.5 rounded-xl border text-[11px] font-black transition flex items-center gap-1 cursor-pointer ${
+              showFemales
+                ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700 shadow-2xs'
+                : 'bg-rose-50 hover:bg-rose-100 text-rose-900 border-rose-200/80'
+            }`}
+            title={showFemales ? 'إخفاء الإناث وعرض الذكور فقط' : 'إظهار الإناث (البنات) في الشجرة'}
+          >
+            <span>{showFemales ? 'إخفاء البنات' : 'إظهار البنات'}</span>
+          </button>
+
+          {/* Expand All */}
+          <button
+            type="button"
+            onClick={expandAll}
+            className="h-8 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-[#0F4C3A] border border-emerald-200/80 text-[11px] font-black transition flex items-center gap-1 cursor-pointer"
+            title="توسيع جميع فروع الشجرة"
+          >
+            <ChevronDown className="w-3.5 h-3.5" />
+            <span>توسيع الكل</span>
+          </button>
+
+          {/* Collapse All (Keep only Original Root) */}
+          <button
+            type="button"
+            onClick={collapseAll}
+            className="h-8 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-950 border border-amber-200/80 text-[11px] font-black transition flex items-center gap-1 cursor-pointer"
+            title="طي جميع الفروع وإبقاء الجذر الأصلي فقط"
+          >
+            <ChevronUp className="w-3.5 h-3.5" />
+            <span>طي الكل</span>
           </button>
 
           {/* Directional Nudge Pad (hidden on small phone screens) */}
@@ -2763,59 +3147,59 @@ export const TreeView: React.FC<TreeViewProps> = ({
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-xs sm:text-sm text-[#0F4C3A]">2. صورة فائقة الوضوح (PNG)</span>
+                    <span className="font-bold text-xs sm:text-sm text-[#0F4C3A]">2. صورة فائقة الوضوح للمعروض (PNG)</span>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[#D4AF37]/30 text-[#8C6D1F]">
-                      دقة فائقة (300 DPI)
+                      {showFemales ? 'الذكور والإناث' : 'الذكور فقط'}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-700 leading-snug mt-1">
-                    صورة رقمية فائقة الوضوح والنقاء (4800px)، تناسب شاشات الجوال والحاسوب وتصلح للطباعة بأي حجم (A4, A3، واللوحات الجدارية الضخمة).
+                    تصدير الفروع المعروضة حالياً في الشجرة (سواء الشجرة بالكامل أو الفروع المفتوحة فقط، بالذكور فقط أو مع الإناث حسب العرض الحالي) بوضوح تام.
                   </p>
                 </div>
               </button>
 
-              {/* Option 3: Infinite Vector SVG Image */}
+              {/* Option 3: Vector SVG for Large Commercial Wall Posters */}
               <button
                 type="button"
                 disabled={isExportingPdf}
                 onClick={() => handleExportTreeFormat('svg')}
-                className="w-full p-3.5 rounded-2xl border-2 border-purple-500/40 bg-purple-50/80 hover:bg-purple-100/90 text-right transition flex items-start gap-3 cursor-pointer group disabled:opacity-50 shadow-xs"
+                className="w-full p-3.5 rounded-2xl border-2 border-indigo-500/40 bg-indigo-50/70 hover:bg-indigo-100/80 text-right transition flex items-start gap-3 cursor-pointer group disabled:opacity-50 shadow-xs"
               >
-                <div className="w-10 h-10 rounded-xl bg-purple-900 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
-                  <Image className="w-5 h-5 text-purple-300" />
+                <div className="w-10 h-10 rounded-xl bg-indigo-900 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                  <Maximize2 className="w-5 h-5 text-amber-300" />
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-xs sm:text-sm text-purple-950">3. صورة متجهة لا متناهية التكبير (SVG)</span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-200/80 text-purple-900">
-                      للأشجار الكبيرة جداً
+                    <span className="font-bold text-xs sm:text-sm text-indigo-950">3. ملف فيكتور للمطابع واللوحات الجدارية (SVG)</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-200/70 text-indigo-950">
+                      دقة لا نهائية للمطابع
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-700 leading-snug mt-1">
-                    ملف صورة متجهة بدون بكسلات أو قيود للذاكرة، يُتيح التكبير اللانهائي دون أي بكسلة، مثالي للأشجار العائلية الضخمة جداً ذات الأفرع الكثيرة.
+                    صيغة متجهة (Vector) مخصصة للمطابع الكبرى واللوحات الجدارية العملاقة؛ تقبل التكبير لأي مقاس (أمتار متعددة) دون أي فقدان في الوضوح.
                   </p>
                 </div>
               </button>
 
-              {/* Option 4: Print Ready PDF Document */}
+              {/* Option 4: Print Ready Sequential A4 Review PDF Document */}
               <button
                 type="button"
                 disabled={isExportingPdf}
                 onClick={() => handleExportTreeFormat('pdf')}
-                className="w-full p-3.5 rounded-2xl border border-slate-300 bg-white hover:bg-slate-50 text-right transition flex items-start gap-3 cursor-pointer disabled:opacity-50 shadow-xs"
+                className="w-full p-3.5 rounded-2xl border-2 border-[#0F4C3A]/30 bg-[#F4FBF7] hover:bg-emerald-100/70 text-right transition flex items-start gap-3 cursor-pointer disabled:opacity-50 shadow-xs"
               >
-                <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0 mt-0.5">
-                  <FileText className="w-5 h-5 text-[#0F4C3A]" />
+                <div className="w-10 h-10 rounded-xl bg-[#0F4C3A] text-white flex items-center justify-center shrink-0 mt-0.5">
+                  <FileText className="w-5 h-5 text-[#D4AF37]" />
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-xs sm:text-sm text-slate-900 block">4. وثيقة جاهزة للطباعة (PDF)</span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
-                      طباعة A4, A3 والجداريات
+                    <span className="font-bold text-xs sm:text-sm text-[#0F4C3A] block">4. سجل مراجعة الآباء والفروع (PDF - A4)</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-[#0F4C3A] border border-emerald-300">
+                      تسلسلي للطباعة والمراجعة (A4)
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-600 leading-snug mt-1">
-                    ملف PDF عالي الجودة بمقاييس قياسية واضحة، جاهز للطباعة المباشرة على الورق وبوسترات الحائط دون تقطيع.
+                  <p className="text-[11px] text-slate-700 leading-snug mt-1">
+                    صفحات PDF مقاس A4 مرتبة بطريقة تسلسلية واضحة للمراجعة والطباعة؛ تعرض كل أب متبوعاً بـ (أبنائه) ثم (بناته) بالاسم الأول، ثم فروع كل ابن بالتسلسل.
                   </p>
                 </div>
               </button>

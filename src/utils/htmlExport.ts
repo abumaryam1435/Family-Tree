@@ -70,71 +70,143 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
     }
     .header-bar {
       position: absolute;
-      top: 12px;
-      right: 12px;
-      left: 12px;
+      top: 10px;
+      right: 10px;
+      left: 10px;
       z-index: 100;
-      background: rgba(255, 255, 255, 0.94);
-      backdrop-filter: blur(8px);
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
       border: 1px solid rgba(15, 76, 58, 0.2);
-      border-radius: 18px;
-      padding: 10px 16px;
+      border-radius: 16px;
+      padding: 8px 14px;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.06);
+      gap: 8px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+      max-width: 1300px;
+      margin: 0 auto;
     }
-    .title-group { display: flex; align-items: center; gap: 10px; }
+    .title-group { display: flex; align-items: center; gap: 8px; }
     .badge-icon {
-      width: 38px;
-      height: 38px;
-      border-radius: 12px;
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
       background: #0F4C3A;
       color: #FDE68A;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 20px;
+      font-size: 18px;
       font-weight: bold;
       flex-shrink: 0;
     }
-    .app-title { font-size: 15px; font-weight: 800; color: #0F4C3A; line-height: 1.2; }
+    .app-title { font-size: 14px; font-weight: 800; color: #0F4C3A; line-height: 1.2; }
     .app-subtitle { font-size: 11px; color: #64748b; font-weight: 600; }
-    .controls-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .controls-group { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
     .btn {
-      padding: 6px 12px;
-      border-radius: 10px;
+      padding: 5px 11px;
+      border-radius: 9px;
       border: 1px solid #e2e8f0;
       background: #ffffff;
       color: #0f172a;
       font-family: inherit;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 5px;
+      gap: 4px;
       transition: all 0.15s ease;
       box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      white-space: nowrap;
     }
     .btn:hover { background: #f8fafc; border-color: #cbd5e1; }
     .btn-primary { background: #0F4C3A; color: #ffffff; border-color: #0F4C3A; }
     .btn-primary:hover { background: #0c3c2e; }
     .btn-gold { background: #FEF3C7; color: #92400E; border-color: #FCD34D; }
     .btn-gold:hover { background: #FDE68A; }
+    .btn-rose { background: #FFF1F2; color: #9F1239; border-color: #FECDD3; }
+    .btn-rose:hover { background: #FFE4E6; border-color: #FDA4AF; }
+    .btn-rose.active { background: #E11D48; color: #ffffff; border-color: #BE123C; }
+    .btn-rose.active:hover { background: #BE123C; }
     .search-input {
-      padding: 6px 12px;
-      border-radius: 10px;
+      padding: 5px 10px;
+      border-radius: 9px;
       border: 1px solid #cbd5e1;
       font-family: inherit;
-      font-size: 12px;
-      width: 150px;
+      font-size: 11px;
+      width: 130px;
       outline: none;
       background: #ffffff;
     }
     .search-input:focus { border-color: #0F4C3A; box-shadow: 0 0 0 2px rgba(15, 76, 58, 0.15); }
+
+    /* Mobile Responsive Header for Phone Screens */
+    @media (max-width: 640px) {
+      .header-bar {
+        top: 6px;
+        right: 6px;
+        left: 6px;
+        padding: 6px 8px;
+        border-radius: 12px;
+        gap: 5px;
+      }
+      .badge-icon {
+        width: 26px;
+        height: 26px;
+        font-size: 14px;
+        border-radius: 8px;
+      }
+      .title-group {
+        gap: 6px;
+      }
+      .app-title {
+        font-size: 12px;
+        max-width: 190px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .app-subtitle {
+        display: none;
+      }
+      .controls-group {
+        width: 100%;
+        gap: 3.5px;
+        justify-content: space-between;
+      }
+      .search-input {
+        width: 80px;
+        flex: 1;
+        min-width: 60px;
+        padding: 4px 6px;
+        font-size: 10px;
+        border-radius: 7px;
+      }
+      .btn {
+        padding: 4px 6px;
+        font-size: 10px;
+        border-radius: 7px;
+        gap: 2px;
+      }
+      .btn-text-full {
+        display: none;
+      }
+      .btn-text-short {
+        display: inline;
+      }
+      .footer-hint {
+        display: none;
+      }
+    }
+    @media (min-width: 641px) {
+      .btn-text-short {
+        display: none;
+      }
+    }
 
     /* Canvas Viewport */
     #viewport {
@@ -279,17 +351,33 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
       <div class="badge-icon">🌳</div>
       <div>
         <div class="app-title">شجرة العائلة التفاعلية — أصل الشجرة: ${rootFirstName}</div>
-        <div class="app-subtitle">${totalCount} فرداً موثقاً · اضغط على أي بطاقة لتوسيع أو طي فروعها المباشرة</div>
+        <div id="app-subtitle" class="app-subtitle">عرض الذكور فقط افتراضياً · اضغط «إظهار البنات» لعرض الإناث</div>
       </div>
     </div>
 
     <div class="controls-group">
-      <input type="text" id="search-input" class="search-input" placeholder="بحث عن اسم..." oninput="onSearchInput(this.value)">
-      <button class="btn btn-gold" onclick="expandAll()">➕ توسيع الكل</button>
-      <button class="btn" onclick="collapseAll()">➖ طي الكل</button>
-      <button class="btn btn-primary" onclick="resetCamera()">🎯 توسيط الجد</button>
-      <button class="btn" onclick="zoomStep(0.2)">🔍+</button>
-      <button class="btn" onclick="zoomStep(-0.2)">🔍-</button>
+      <input type="text" id="search-input" class="search-input" placeholder="بحث..." oninput="onSearchInput(this.value)">
+      <button id="toggle-females-btn" class="btn btn-rose" onclick="toggleFemales()" title="إظهار أو إخفاء الإناث (البنات) في الشجرة">
+        <span id="toggle-females-text-full" class="btn-text-full">إظهار البنات</span>
+        <span id="toggle-females-text-short" class="btn-text-short">إظهار البنات</span>
+      </button>
+      <button class="btn btn-gold" onclick="expandAll()" title="توسيع جميع الفروع">
+        <span>➕</span>
+        <span class="btn-text-full">توسيع الكل</span>
+        <span class="btn-text-short">توسيع</span>
+      </button>
+      <button class="btn" onclick="collapseAll()" title="طي جميع الفروع">
+        <span>➖</span>
+        <span class="btn-text-full">طي الكل</span>
+        <span class="btn-text-short">طي</span>
+      </button>
+      <button class="btn btn-primary" onclick="resetCamera()" title="توسيط الشجرة">
+        <span>🎯</span>
+        <span class="btn-text-full">توسيط الجد</span>
+        <span class="btn-text-short">توسيط</span>
+      </button>
+      <button class="btn" onclick="zoomStep(0.2)" title="تكبير">+</button>
+      <button class="btn" onclick="zoomStep(-0.2)" title="تصغير">-</button>
     </div>
   </div>
 
@@ -310,6 +398,9 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
     const familyData = ${JSON.stringify(familyList, null, 2)};
     const rootId = "${rootPerson.id}";
 
+    // Default: show males only; user can toggle females with button
+    let showFemales = false;
+
     // Map by ID & Parent -> Children Index
     const personMap = new Map();
     const childrenMap = new Map();
@@ -321,6 +412,31 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
         childrenMap.get(p.fatherId).push(p);
       }
     });
+
+    function getVisibleKids(personId) {
+      const allKids = childrenMap.get(personId) || [];
+      return showFemales ? allKids : allKids.filter(k => k.gender === 'male');
+    }
+
+    function toggleFemales() {
+      showFemales = !showFemales;
+      const btn = document.getElementById('toggle-females-btn');
+      const txtFull = document.getElementById('toggle-females-text-full');
+      const txtShort = document.getElementById('toggle-females-text-short');
+      const sub = document.getElementById('app-subtitle');
+      if (showFemales) {
+        btn.classList.add('active');
+        txtFull.textContent = 'إخفاء البنات';
+        txtShort.textContent = 'إخفاء البنات';
+        if (sub) sub.textContent = '${totalCount} فرداً موثقاً (الذكور والإناث) · اضغط على أي بطاقة لتوسيع أو طي فروعها';
+      } else {
+        btn.classList.remove('active');
+        txtFull.textContent = 'إظهار البنات';
+        txtShort.textContent = 'إظهار البنات';
+        if (sub) sub.textContent = 'عرض الذكور فقط افتراضياً · اضغط «إظهار البنات» لعرض الإناث';
+      }
+      renderTree();
+    }
 
     // Tracking collapsed nodes (Nodes whose direct children are hidden)
     const collapsedSet = new Set();
@@ -336,14 +452,14 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
     const treeContainer = document.getElementById('tree-container');
 
     function applyTransform() {
-      transformLayer.style.transform = \`translate3d(\${camera.x}px, \${camera.y}px, 0) scale(\${camera.zoom})\`;
+      transformLayer.style.transform = "translate3d(" + camera.x + "px, " + camera.y + "px, 0) scale(" + camera.zoom + ")";
     }
 
     function resetCamera() {
       const vW = window.innerWidth;
       const vH = window.innerHeight;
       const cW = transformLayer.offsetWidth || 800;
-      camera = { x: (vW - cW) / 2, y: 110, zoom: 1 };
+      camera = { x: (vW - cW) / 2, y: vH < 640 ? 70 : 110, zoom: 1 };
       applyTransform();
     }
 
@@ -369,7 +485,7 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
         const cardY = cardRect.top + cardRect.height / 2;
 
         const targetX = vW / 2;
-        const targetY = Math.min(200, vH * 0.3);
+        const targetY = vH / 2; // Center exactly in middle of screen on both mobile & desktop!
 
         const dx = targetX - cardX;
         const dy = targetY - cardY;
@@ -389,7 +505,7 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
     // Toggle node direct children
     function toggleNode(personId, event) {
       if (event) event.stopPropagation();
-      const kids = childrenMap.get(personId) || [];
+      const kids = getVisibleKids(personId);
       if (kids.length === 0) return;
 
       const wasCollapsed = collapsedSet.has(personId);
@@ -424,7 +540,7 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
 
     // Build Recursive HTML DOM Nodes
     function buildNodeDom(person, depth) {
-      const kids = childrenMap.get(person.id) || [];
+      const kids = getVisibleKids(person.id);
       const isCollapsed = collapsedSet.has(person.id);
       const isRoot = person.id === rootId;
 
@@ -538,6 +654,9 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
 
       familyData.forEach(p => {
         if (p.fullName.includes(q) || p.firstName.includes(q)) {
+          if (p.gender === 'female' && !showFemales) {
+            toggleFemales();
+          }
           // Expand ancestors to reveal searched node
           let curr = p;
           while (curr && curr.fatherId) {

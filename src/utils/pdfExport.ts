@@ -1,6 +1,6 @@
 import { Person } from '../types/family';
-import { KinshipInfo } from './kinship';
-import { extractGivenName, formatAppName, formatNameWithLimit } from './nameUtils';
+import { calculateKinship, getCoupleRelationship, KinshipInfo } from './kinship';
+import { extractGivenName, formatAppName, formatBranchName, formatNameWithLimit } from './nameUtils';
 
 /**
  * Pure TypeScript PDF-1.4 multi-page generator from High-DPI HTML5 Canvas pages.
@@ -228,7 +228,6 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   let maxDepth = 1;
   let totalNodes = 0;
   let leafCount = 0;
-  let maxSiblingsInAnyNode = 0;
 
   function measureTree(person: Person, depth: number) {
     visitedMeasure.add(person.id);
@@ -236,10 +235,7 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     if (depth > maxDepth) maxDepth = depth;
     const kids = collapsedNodes.has(person.id)
       ? []
-      : getChildren(person.id).filter(c => !visitedMeasure.has(c.id));
-    if (kids.length > maxSiblingsInAnyNode) {
-      maxSiblingsInAnyNode = kids.length;
-    }
+      : getChildren(person.id).filter((c) => !visitedMeasure.has(c.id));
     if (kids.length === 0) {
       leafCount++;
     } else {
@@ -250,122 +246,51 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   }
   measureTree(rootPerson, 1);
 
-  // 2. Decide Target Ratio (Portrait or Landscape)
   const isLandscape = orientation === 'landscape';
-  const targetRatio = isLandscape ? 1.41421356 : 0.70710678;
 
-  // 3. Compact, Sleek, High-Definition Node Card Sizing (Adaptive based on tree density)
-  let NODE_W = 380;
-  let NODE_H = 170;
-  let baseHGap = 44;
+  // 2. High-Definition Node Card Sizing (All cards of each generation on the exact same row)
+  let NODE_W = 320;
+  let NODE_H = 152;
+  let H_GAP = 32;
 
-  if (unconstrained) {
-    if (leafCount <= 6) {
-      NODE_W = 440;
-      NODE_H = 190;
-      baseHGap = 52;
-    } else if (leafCount <= 16) {
-      NODE_W = 380;
-      NODE_H = 175;
-      baseHGap = 42;
-    } else if (leafCount <= 32) {
-      NODE_W = 330;
-      NODE_H = 160;
-      baseHGap = 32;
-    } else if (leafCount <= 60) {
-      NODE_W = 280;
-      NODE_H = 145;
-      baseHGap = 24;
-    } else {
-      NODE_W = 240;
-      NODE_H = 130;
-      baseHGap = 18;
-    }
-  } else if (leafCount <= 3) {
-    NODE_W = 480;
-    NODE_H = 200;
-    baseHGap = 60;
-  } else if (leafCount <= 8) {
-    NODE_W = 420;
-    NODE_H = 180;
-    baseHGap = 48;
-  } else if (leafCount <= 15) {
-    NODE_W = 380;
-    NODE_H = 170;
-    baseHGap = 40;
-  } else if (leafCount <= 28) {
-    NODE_W = 340;
-    NODE_H = 160;
-    baseHGap = 32;
-  } else {
+  if (leafCount <= 12) {
+    NODE_W = 360;
+    NODE_H = 168;
+    H_GAP = 42;
+  } else if (leafCount <= 25) {
     NODE_W = 310;
-    NODE_H = 150;
-    baseHGap = 26;
-  }
-
-  // Margins & Banners
-  const isUpward = mode === 'organic' && organicDirection === 'up';
-  const HEADER_H = unconstrained ? 250 : 220;
-  const FOOTER_H = unconstrained ? 90 : 80;
-  const SIDE_PAD = unconstrained ? 110 : 95;
-  const TOP_TREE_PAD = unconstrained ? 80 : 70;
-  const BOTTOM_TREE_PAD = isUpward ? (unconstrained ? 180 : 150) : (unconstrained ? 80 : 70);
-
-  // 4. Determine Canvas Dimensions
-  const minRequiredTreeW = leafCount * NODE_W + Math.max(0, leafCount - 1) * baseHGap;
-  const minRequiredCanvasW = minRequiredTreeW + SIDE_PAD * 2;
-  const treeLevelSpacing = unconstrained ? (leafCount > 30 ? 250 : 310) : 280;
-  const minRequiredTreeH = Math.max(1, maxDepth - 1) * treeLevelSpacing + NODE_H;
-  const minRequiredCanvasH = HEADER_H + TOP_TREE_PAD + minRequiredTreeH + BOTTOM_TREE_PAD + FOOTER_H;
-
-  let logicalW: number;
-  let logicalH: number;
-
-  if (unconstrained) {
-    logicalW = Math.max(3600, minRequiredCanvasW);
-    logicalH = Math.max(2600, minRequiredCanvasH);
-  } else if (isLandscape) {
-    logicalW = Math.max(3600, minRequiredCanvasW);
-    logicalH = Math.round(logicalW / targetRatio);
-
-    if (logicalH < minRequiredCanvasH) {
-      logicalH = minRequiredCanvasH;
-      logicalW = Math.round(logicalH * targetRatio);
-    }
+    NODE_H = 152;
+    H_GAP = 32;
+  } else if (leafCount <= 45) {
+    NODE_W = 275;
+    NODE_H = 142;
+    H_GAP = 24;
+  } else if (leafCount <= 75) {
+    NODE_W = 248;
+    NODE_H = 134;
+    H_GAP = 20;
   } else {
-    // Portrait mode (Vertical page)
-    logicalH = Math.max(4200, minRequiredCanvasH);
-    logicalW = Math.round(logicalH * targetRatio);
-
-    if (logicalW < minRequiredCanvasW) {
-      logicalW = minRequiredCanvasW;
-      logicalH = Math.round(logicalW / targetRatio);
-    }
+    NODE_W = 228;
+    NODE_H = 128;
+    H_GAP = 16;
   }
 
-  // 5. 100% Space Distribution
-  const availTreeH = logicalH - HEADER_H - TOP_TREE_PAD - BOTTOM_TREE_PAD - FOOTER_H - NODE_H;
-  const availTreeW = logicalW - SIDE_PAD * 2;
+  const isUpward = mode === 'organic' && organicDirection === 'up';
+  const HEADER_H = 230;
+  const FOOTER_H = 85;
+  const SIDE_PAD = 90;
+  const TOP_TREE_PAD = 80;
+  const BOTTOM_TREE_PAD = isUpward ? 175 : 85;
+  const LEVEL_H = Math.max(255, Math.round(NODE_H * 1.82));
 
-  const LEVEL_H = maxDepth > 1 ? Math.round(availTreeH / (maxDepth - 1)) : 0;
-
-  let H_GAP = baseHGap;
-  if (leafCount > 1) {
-    const rawTreeW = leafCount * NODE_W + (leafCount - 1) * baseHGap;
-    if (availTreeW > rawTreeW) {
-      const extraGap = Math.floor((availTreeW - rawTreeW) / (leafCount - 1));
-      H_GAP = baseHGap + extraGap;
-    }
-  }
-
-  // 6. Recursive layout builder
-  function buildLayoutWithGap(person: Person, depth: number, visitedSet: Set<string>): TreeLayoutNode {
+  // 3. Recursive Layout Builder (Every generation strictly on its single horizontal row)
+  function buildLayout(person: Person, depth: number, visitedSet: Set<string>): TreeLayoutNode {
     visitedSet.add(person.id);
     const children = collapsedNodes.has(person.id)
       ? []
-      : getChildren(person.id).filter(c => !visitedSet.has(c.id));
-    const maleChildrenCount = children.filter(c => c.gender === 'male').length;
-    const femaleChildrenCount = children.filter(c => c.gender === 'female').length;
+      : getChildren(person.id).filter((c) => !visitedSet.has(c.id));
+    const maleChildrenCount = children.filter((c) => c.gender === 'male').length;
+    const femaleChildrenCount = children.filter((c) => c.gender === 'female').length;
 
     if (children.length === 0) {
       return {
@@ -380,10 +305,10 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
       };
     }
 
-    const childrenLayouts = children.map(ch => buildLayoutWithGap(ch, depth + 1, visitedSet));
+    const childrenLayouts = children.map((ch) => buildLayout(ch, depth + 1, visitedSet));
     const childrenTotalW =
       childrenLayouts.reduce((acc, c) => acc + c.subtreeWidth, 0) +
-      (childrenLayouts.length - 1) * H_GAP;
+      Math.max(0, childrenLayouts.length - 1) * H_GAP;
 
     return {
       person,
@@ -398,7 +323,7 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   }
 
   const visitedLayout = new Set<string>();
-  const rootLayout = buildLayoutWithGap(rootPerson, 1, visitedLayout);
+  const rootLayout = buildLayout(rootPerson, 1, visitedLayout);
 
   const flatNodes: TreeLayoutNode[] = [];
   const links: {
@@ -411,71 +336,122 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     childHasChildren: boolean;
   }[] = [];
 
+  function getDepthCenterY(depth: number): number {
+    if (isUpward) {
+      return HEADER_H + TOP_TREE_PAD + (maxDepth - depth) * LEVEL_H + NODE_H / 2;
+    }
+    return HEADER_H + TOP_TREE_PAD + (depth - 1) * LEVEL_H + NODE_H / 2;
+  }
+
   function assignCoords(node: TreeLayoutNode, leftX: number) {
     node.x = leftX + node.subtreeWidth / 2;
-    if (isUpward) {
-      node.y = HEADER_H + TOP_TREE_PAD + (maxDepth - node.depth) * LEVEL_H + NODE_H / 2;
-    } else {
-      node.y = HEADER_H + TOP_TREE_PAD + (node.depth - 1) * LEVEL_H + NODE_H / 2;
-    }
+    node.y = getDepthCenterY(node.depth);
     flatNodes.push(node);
 
-    if (node.childrenLayouts.length > 0) {
-      const totalChildrenW =
-        node.childrenLayouts.reduce((acc, c) => acc + c.subtreeWidth, 0) +
-        (node.childrenLayouts.length - 1) * H_GAP;
+    if (node.childrenLayouts.length === 0) return;
 
-      let currentRight = leftX + (node.subtreeWidth + totalChildrenW) / 2;
+    const totalChildrenW =
+      node.childrenLayouts.reduce((acc, c) => acc + c.subtreeWidth, 0) +
+      Math.max(0, node.childrenLayouts.length - 1) * H_GAP;
 
-      for (const ch of node.childrenLayouts) {
-        const chLeft = currentRight - ch.subtreeWidth;
-        assignCoords(ch, chLeft);
-        currentRight = chLeft - H_GAP;
+    let currentRight = leftX + (node.subtreeWidth + totalChildrenW) / 2;
+    const fromY = isUpward ? node.y - NODE_H / 2 : node.y + NODE_H / 2;
 
-        const fromY = isUpward ? node.y - NODE_H / 2 : node.y + NODE_H / 2;
-        const toY = isUpward ? ch.y + NODE_H / 2 : ch.y - NODE_H / 2;
+    for (const ch of node.childrenLayouts) {
+      const chLeft = currentRight - ch.subtreeWidth;
+      currentRight = chLeft - H_GAP;
 
-        links.push({
-          fromX: node.x,
-          fromY,
-          toX: ch.x,
-          toY,
-          depth: node.depth,
-          childGender: ch.person.gender,
-          childHasChildren: ch.childrenLayouts.length > 0
-        });
-      }
+      assignCoords(ch, chLeft);
+      const toY = isUpward ? ch.y + NODE_H / 2 : ch.y - NODE_H / 2;
+      links.push({
+        fromX: node.x,
+        fromY,
+        toX: ch.x,
+        toY,
+        depth: node.depth,
+        childGender: ch.person.gender,
+        childHasChildren: ch.childrenLayouts.length > 0
+      });
     }
   }
 
-  assignCoords(rootLayout, (logicalW - rootLayout.subtreeWidth) / 2);
+  const initialLogicalW = Math.max(1800, rootLayout.subtreeWidth + SIDE_PAD * 2);
+  assignCoords(rootLayout, (initialLogicalW - rootLayout.subtreeWidth) / 2);
 
-  // Browser hardware limits:
-  // Mobile Safari / Android WebViews max texture dimension is 4096-8192 px and 16-24 Megapixels.
-  // We clamp maximum dimension to 7200 px and max pixels to 22 Megapixels to ensure 100% stability without blank screens.
-  const MAX_SAFE_CANVAS_DIM = 7200;
-  const MAX_SAFE_CANVAS_PIXELS = 22_000_000;
+  // 4. Verify Vertical & Horizontal Bounds
+  let minNodeTop = Infinity;
+  let maxNodeBottom = -Infinity;
+  for (const n of flatNodes) {
+    if (n.y - NODE_H / 2 < minNodeTop) minNodeTop = n.y - NODE_H / 2;
+    if (n.y + NODE_H / 2 > maxNodeBottom) maxNodeBottom = n.y + NODE_H / 2;
+  }
 
+  const minTopAllowed = HEADER_H + TOP_TREE_PAD;
+  if (minNodeTop < minTopAllowed) {
+    const shiftDown = minTopAllowed - minNodeTop;
+    for (const n of flatNodes) n.y += shiftDown;
+    for (const l of links) {
+      l.fromY += shiftDown;
+      l.toY += shiftDown;
+    }
+    maxNodeBottom += shiftDown;
+  }
+
+  const logicalW = initialLogicalW;
+  const logicalH = Math.max(920, Math.ceil(maxNodeBottom + BOTTOM_TREE_PAD + FOOTER_H));
+
+  // 5. High-Resolution Canvas Allocation with Hardware Backing-Store Verification
+  //    Because all cards of a generation sit on a single row, logicalH is compact,
+  //    allowing wide high-DPI canvases up to 16,384 px / 20,480 px with crystal-clear text.
   const maxLogicalDim = Math.max(logicalW, logicalH);
   const totalLogicalPixels = logicalW * logicalH;
 
-  const maxDimScale = MAX_SAFE_CANVAS_DIM / maxLogicalDim;
-  const maxAreaScale = Math.sqrt(MAX_SAFE_CANVAS_PIXELS / totalLogicalPixels);
-  const upperScaleLimit = Math.min(maxDimScale, maxAreaScale);
+  const limitProfiles = [
+    { maxDim: 20480, maxPixels: 50_000_000, desiredScale: 2.6 },
+    { maxDim: 16384, maxPixels: 42_000_000, desiredScale: 2.4 },
+    { maxDim: 12288, maxPixels: 34_000_000, desiredScale: 2.0 },
+    { maxDim: 8192, maxPixels: 22_000_000, desiredScale: 1.6 }
+  ];
 
-  let targetScale = 2.0;
-  if (maxLogicalDim > 3400) targetScale = 1.5;
-  if (maxLogicalDim > 5200) targetScale = 1.0;
+  let canvas: HTMLCanvasElement | null = null;
+  let ctx: CanvasRenderingContext2D | null = null;
+  let scale = 1.5;
 
-  const scale = Math.max(0.25, Math.min(targetScale, upperScaleLimit));
+  for (const profile of limitProfiles) {
+    const maxDimScale = profile.maxDim / maxLogicalDim;
+    const maxAreaScale = Math.sqrt(profile.maxPixels / totalLogicalPixels);
+    const candidateScale = Math.max(0.35, Math.min(profile.desiredScale, maxDimScale, maxAreaScale));
 
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(100, Math.round(logicalW * scale));
-  canvas.height = Math.max(100, Math.round(logicalH * scale));
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    throw new Error('تعذر حجز ذاكرة الرسم في المتصفح لكبر حجم الشجرة. يرجى تجربة تصدير ملف HTML التفاعلي.');
+    const testW = Math.max(100, Math.round(logicalW * candidateScale));
+    const testH = Math.max(100, Math.round(logicalH * candidateScale));
+
+    try {
+      const testCanvas = document.createElement('canvas');
+      testCanvas.width = testW;
+      testCanvas.height = testH;
+      const testCtx = testCanvas.getContext('2d');
+      if (testCtx) {
+        // Verify GPU backing store is genuinely allocated at the far corner
+        testCtx.fillStyle = '#000000';
+        testCtx.fillRect(testW - 2, testH - 2, 2, 2);
+        const pixel = testCtx.getImageData(testW - 1, testH - 1, 1, 1).data;
+        if (pixel[3] === 255) {
+          testCtx.clearRect(0, 0, testW, testH);
+          canvas = testCanvas;
+          ctx = testCtx;
+          scale = candidateScale;
+          break;
+        }
+      }
+    } catch (e) {
+      // Try next profile down
+    }
   }
+
+  if (!canvas || !ctx) {
+    throw new Error('تعذر حجز ذاكرة الرسم في المتصفح لكبر حجم الشجرة.');
+  }
+
   ctx.scale(scale, scale);
   ctx.direction = 'rtl';
   ctx.imageSmoothingEnabled = true;
@@ -491,17 +467,17 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
 
   // Borders
   ctx.strokeStyle = '#064E3B';
-  ctx.lineWidth = unconstrained ? 12 : 9;
+  ctx.lineWidth = unconstrained ? 10 : 8;
   ctx.strokeRect(20, 20, logicalW - 40, logicalH - 40);
   ctx.strokeStyle = '#D97706';
-  ctx.lineWidth = unconstrained ? 6 : 4.5;
+  ctx.lineWidth = unconstrained ? 4 : 3.5;
   ctx.strokeRect(32, 32, logicalW - 64, logicalH - 64);
 
   // Header Banner
   const bannerLeft = 50;
-  const bannerTop = 40;
+  const bannerTop = 42;
   const bannerW = logicalW - 100;
-  const bannerH = HEADER_H - 24;
+  const bannerH = HEADER_H - 36;
 
   ctx.fillStyle = '#064E3B';
   drawRoundedRect(ctx, bannerLeft, bannerTop, bannerW, bannerH, 22);
@@ -513,25 +489,20 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   ctx.stroke();
 
   const rootFirstName = extractGivenName(rootPerson.fullName);
+  const fullRootTitle = formatAppName(rootPerson.fullName) || rootFirstName;
 
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#FDE68A';
-  ctx.font = "900 28px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif";
-  ctx.fillText('بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ — سجل شجرة العائلة الرقمي الموثق', logicalW / 2, bannerTop + 46);
-
+  ctx.textBaseline = 'middle';
   ctx.fillStyle = '#FFFFFF';
-  ctx.font = "900 48px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif";
-  const modeTitle =
-    mode === 'organic' ? 'شجرة العائلة (الجذر والأغصان والتفريعات)' : 'شجرة العائلة (المخطط الهرمي)';
-  const fullRootTitle = formatAppName(rootPerson.fullName) || rootFirstName;
-  ctx.fillText(`${modeTitle} — أصل الشجرة: ${fullRootTitle}`, logicalW / 2, bannerTop + 106);
+  ctx.font = "900 52px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif";
+  ctx.fillText(`شجرة ${fullRootTitle}`, logicalW / 2, bannerTop + 72);
 
-  ctx.fillStyle = '#E2E8F0';
-  ctx.font = "900 24px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif";
+  ctx.fillStyle = '#FDE68A';
+  ctx.font = "900 26px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif";
   ctx.fillText(
-    `عدد الأفراد: ${totalNodes} فرداً · ${maxDepth} أجيال موثقة · تاريخ التصدير: ${new Date().toLocaleDateString('ar-SA')}`,
+    `إجمالي الأفراد: ${totalNodes} فرداً   ·   عدد الأجيال: ${maxDepth} أجيال   ·   تاريخ الإصدار: ${new Date().toLocaleDateString('ar-SA')}`,
     logicalW / 2,
-    bannerTop + 154
+    bannerTop + 138
   );
 
   // Organic Mode Trunk
@@ -580,12 +551,12 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     }
   }
 
-  // Connecting Lines (Thick High-Contrast Solid)
+  // Standard Connecting Lines
   for (const link of links) {
     if (mode === 'organic') {
       const ctrlY1 = link.fromY + (link.toY - link.fromY) * 0.45;
       const ctrlY2 = link.fromY + (link.toY - link.fromY) * 0.55;
-      const strokeW = Math.max(6, 16 - link.depth * 1.5);
+      const strokeW = Math.max(6, 15 - link.depth * 1.4);
 
       ctx.strokeStyle =
         link.depth === 1
@@ -602,7 +573,9 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     } else {
       const midY = (link.fromY + link.toY) / 2;
       ctx.strokeStyle = '#064E3B';
-      ctx.lineWidth = 7;
+      ctx.lineWidth = 6.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
       ctx.beginPath();
       ctx.moveTo(link.fromX, link.fromY);
       ctx.lineTo(link.fromX, midY);
@@ -612,14 +585,7 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     }
   }
 
-  // Helper for drawing Jet-Black Ultra-Sharp Text
-  function drawInkText(text: string, x: number, y: number, color: string) {
-    if (!ctx) return;
-    ctx.fillStyle = color;
-    ctx.fillText(text, x, y);
-  }
-
-  // Nodes Drawing (Giant, Bold, Ultra Clear Text)
+  // Nodes Drawing (Ultra-Clear, High-Contrast Cards)
   for (const node of flatNodes) {
     const { person, depth, x, y } = node;
     const isRoot = depth === 1;
@@ -627,14 +593,14 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     const top = y - NODE_H / 2;
 
     ctx.save();
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.22)';
-    ctx.shadowBlur = 16;
-    ctx.shadowOffsetY = 7;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.18)';
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 5;
 
     if (isRoot) {
       const rootGrad = ctx.createLinearGradient(left, top, left, top + NODE_H);
-      rootGrad.addColorStop(0, '#3E2410');
-      rootGrad.addColorStop(1, '#063B2C');
+      rootGrad.addColorStop(0, '#093829');
+      rootGrad.addColorStop(1, '#0F4C3A');
       ctx.fillStyle = rootGrad;
     } else if (person.gender === 'male') {
       ctx.fillStyle = '#FFFFFF';
@@ -642,81 +608,83 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
       ctx.fillStyle = '#FFF1F2';
     }
 
-    drawRoundedRect(ctx, left, top, NODE_W, NODE_H, 22);
+    drawRoundedRect(ctx, left, top, NODE_W, NODE_H, 20);
     ctx.fill();
     ctx.restore();
 
-    ctx.lineWidth = isRoot ? 7 : 5;
+    ctx.lineWidth = isRoot ? 6.5 : 4.5;
     ctx.strokeStyle = isRoot
-      ? '#F59E0B'
+      ? '#D4AF37'
       : person.gender === 'male'
       ? '#064E3B'
       : '#BE123C';
-    drawRoundedRect(ctx, left, top, NODE_W, NODE_H, 22);
+    drawRoundedRect(ctx, left, top, NODE_W, NODE_H, 20);
     ctx.stroke();
 
     // Badges: Generation & Gender
     const genLabel = isRoot ? 'الأصل الراسخ' : `الجيل ${depth}`;
     const genderLabel = person.gender === 'male' ? 'ذكر' : 'أنثى';
-    const badgeFont = Math.min(26, Math.max(13, Math.floor(NODE_H * 0.16)));
+    const badgeFont = Math.min(24, Math.max(15, Math.floor(NODE_H * 0.155)));
     ctx.font = `900 ${badgeFont}px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif`;
+    ctx.textBaseline = 'middle';
 
-    const badgeY = top + Math.round(NODE_H * 0.22);
-    const dividerY = top + Math.round(NODE_H * 0.33);
+    const badgeY = top + Math.round(NODE_H * 0.20);
+    const dividerY = top + Math.round(NODE_H * 0.34);
 
-    // Right Badge
+    // Right Badge (Generation)
     ctx.textAlign = 'right';
-    drawInkText(genLabel, left + NODE_W - 22, badgeY, isRoot ? '#FDE68A' : '#0F172A');
+    ctx.fillStyle = isRoot ? '#FDE68A' : '#0F4C3A';
+    ctx.fillText(genLabel, left + NODE_W - 20, badgeY);
 
-    // Left Badge
+    // Left Badge (Gender)
     ctx.textAlign = 'left';
-    const genderColor = isRoot ? '#FDE68A' : person.gender === 'male' ? '#047857' : '#BE123C';
-    drawInkText(genderLabel, left + 22, badgeY, genderColor);
+    ctx.fillStyle = isRoot ? '#FDE68A' : person.gender === 'male' ? '#047857' : '#BE123C';
+    ctx.fillText(genderLabel, left + 20, badgeY);
 
     // Inner dividing line
-    ctx.strokeStyle = isRoot ? 'rgba(253, 230, 138, 0.6)' : 'rgba(15, 23, 42, 0.25)';
-    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = isRoot ? 'rgba(253, 230, 138, 0.5)' : 'rgba(15, 23, 42, 0.2)';
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(left + 18, dividerY);
-    ctx.lineTo(left + NODE_W - 18, dividerY);
+    ctx.moveTo(left + 16, dividerY);
+    ctx.lineTo(left + NODE_W - 16, dividerY);
     ctx.stroke();
 
     // ------------------------------------------------------------------------
-    // HIGH-DEFINITION CRYSTAL CLEAR NAME TYPOGRAPHY (First Name Only)
+    // HIGH-DEFINITION CRYSTAL CLEAR NAME TYPOGRAPHY
     // ------------------------------------------------------------------------
     const displayName = isRoot
       ? formatAppName(person.fullName)
       : extractGivenName(person.fullName);
 
-    const maxTextWidth = NODE_W - 36;
+    const maxTextWidth = NODE_W - 32;
     const textCenterX = left + NODE_W / 2;
-    const cardTopContent = dividerY;
     const cardContentHeight = NODE_H - (dividerY - top);
-    const textCenterY = cardTopContent + cardContentHeight / 2;
+    const textCenterY = dividerY + cardContentHeight / 2;
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // Giant Font Sizing for single given name
-    let nameFontSize = Math.min(68, Math.floor(NODE_H * 0.40));
+    let nameFontSize = Math.min(62, Math.floor(NODE_H * 0.41));
     ctx.font = `900 ${nameFontSize}px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif`;
 
-    while (nameFontSize > 24 && ctx.measureText(displayName).width > maxTextWidth) {
+    while (nameFontSize > 22 && ctx.measureText(displayName).width > maxTextWidth) {
       nameFontSize -= 2;
       ctx.font = `900 ${nameFontSize}px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif`;
     }
 
-    drawInkText(displayName, textCenterX, textCenterY, isRoot ? '#FFFFFF' : '#0F172A');
+    ctx.fillStyle = isRoot ? '#FFFFFF' : '#000000';
+    ctx.fillText(displayName, textCenterX, textCenterY);
   }
 
   // Footer
   ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
   ctx.fillStyle = '#0F172A';
   ctx.font = "900 22px Cairo, 'Segoe UI', Tahoma, sans-serif";
   ctx.fillText(
-    'تم استخراج هذه الوثيقة آلياً من نظام شجرة العائلة الرقمي — وثيقة نسب معتمدة وموثقة',
+    `شجرة ${fullRootTitle}`,
     logicalW / 2,
-    logicalH - 22
+    logicalH - 36
   );
 
   return { canvas, rootFirstName, isLandscape };
@@ -736,10 +704,17 @@ export async function exportTreeToSvg(options: ExportTreePdfOptions) {
 
   await ensureCairoFontLoaded();
 
+  const escapeXml = (str: string) =>
+    str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+
   const visitedMeasure = new Set<string>();
   let maxDepth = 1;
   let totalNodes = 0;
-  let leafCount = 0;
 
   function measureTree(person: Person, depth: number) {
     visitedMeasure.add(person.id);
@@ -747,53 +722,31 @@ export async function exportTreeToSvg(options: ExportTreePdfOptions) {
     if (depth > maxDepth) maxDepth = depth;
     const kids = collapsedNodes.has(person.id)
       ? []
-      : getChildren(person.id).filter(c => !visitedMeasure.has(c.id));
-    if (kids.length === 0) {
-      leafCount++;
-    } else {
-      for (const kid of kids) {
-        measureTree(kid, depth + 1);
-      }
+      : getChildren(person.id).filter((c) => !visitedMeasure.has(c.id));
+    for (const kid of kids) {
+      measureTree(kid, depth + 1);
     }
   }
   measureTree(rootPerson, 1);
 
-  const NODE_W = 280;
-  const NODE_H = 145;
-  const baseHGap = 36;
-  const HEADER_H = 200;
-  const FOOTER_H = 70;
-  const SIDE_PAD = 75;
-  const TOP_TREE_PAD = 60;
-  const BOTTOM_TREE_PAD = mode === 'organic' && organicDirection === 'up' ? 150 : 60;
-
-  const minRequiredTreeW = leafCount * NODE_W + Math.max(0, leafCount - 1) * baseHGap;
-  const logicalW = Math.max(3400, minRequiredTreeW + SIDE_PAD * 2);
-  const minRequiredTreeH = Math.max(1, maxDepth - 1) * 260 + NODE_H;
-  const logicalH = Math.max(2400, HEADER_H + TOP_TREE_PAD + minRequiredTreeH + BOTTOM_TREE_PAD + FOOTER_H);
-
-  const availTreeH = logicalH - HEADER_H - TOP_TREE_PAD - BOTTOM_TREE_PAD - FOOTER_H - NODE_H;
-  const availTreeW = logicalW - SIDE_PAD * 2;
-  const LEVEL_H = maxDepth > 1 ? Math.round(availTreeH / (maxDepth - 1)) : 0;
-
-  let H_GAP = baseHGap;
-  if (leafCount > 1) {
-    const rawTreeW = leafCount * NODE_W + (leafCount - 1) * baseHGap;
-    if (availTreeW > rawTreeW) {
-      const extraGap = Math.floor((availTreeW - rawTreeW) / (leafCount - 1));
-      H_GAP = baseHGap + extraGap;
-    }
-  }
-
+  const NODE_W = 300;
+  const NODE_H = 150;
+  const H_GAP = 32;
   const isUpward = mode === 'organic' && organicDirection === 'up';
+  const HEADER_H = 230;
+  const FOOTER_H = 85;
+  const SIDE_PAD = 90;
+  const TOP_TREE_PAD = 80;
+  const BOTTOM_TREE_PAD = isUpward ? 175 : 85;
+  const LEVEL_H = 270;
 
   function buildLayout(person: Person, depth: number, visitedSet: Set<string>): TreeLayoutNode {
     visitedSet.add(person.id);
     const children = collapsedNodes.has(person.id)
       ? []
-      : getChildren(person.id).filter(c => !visitedSet.has(c.id));
-    const maleChildrenCount = children.filter(c => c.gender === 'male').length;
-    const femaleChildrenCount = children.filter(c => c.gender === 'female').length;
+      : getChildren(person.id).filter((c) => !visitedSet.has(c.id));
+    const maleChildrenCount = children.filter((c) => c.gender === 'male').length;
+    const femaleChildrenCount = children.filter((c) => c.gender === 'female').length;
 
     if (children.length === 0) {
       return {
@@ -808,10 +761,10 @@ export async function exportTreeToSvg(options: ExportTreePdfOptions) {
       };
     }
 
-    const childrenLayouts = children.map(ch => buildLayout(ch, depth + 1, visitedSet));
+    const childrenLayouts = children.map((ch) => buildLayout(ch, depth + 1, visitedSet));
     const childrenTotalW =
       childrenLayouts.reduce((acc, c) => acc + c.subtreeWidth, 0) +
-      (childrenLayouts.length - 1) * H_GAP;
+      Math.max(0, childrenLayouts.length - 1) * H_GAP;
 
     return {
       person,
@@ -827,110 +780,169 @@ export async function exportTreeToSvg(options: ExportTreePdfOptions) {
 
   const rootLayout = buildLayout(rootPerson, 1, new Set<string>());
   const flatNodes: TreeLayoutNode[] = [];
-  const links: { fromX: number; fromY: number; toX: number; toY: number; depth: number }[] = [];
+  const links: {
+    fromX: number;
+    fromY: number;
+    toX: number;
+    toY: number;
+    depth: number;
+    childGender: 'male' | 'female';
+    childHasChildren: boolean;
+  }[] = [];
+
+  function getDepthCenterY(depth: number): number {
+    if (isUpward) {
+      return HEADER_H + TOP_TREE_PAD + (maxDepth - depth) * LEVEL_H + NODE_H / 2;
+    }
+    return HEADER_H + TOP_TREE_PAD + (depth - 1) * LEVEL_H + NODE_H / 2;
+  }
 
   function assignCoords(node: TreeLayoutNode, leftX: number) {
     node.x = leftX + node.subtreeWidth / 2;
-    if (isUpward) {
-      node.y = HEADER_H + TOP_TREE_PAD + (maxDepth - node.depth) * LEVEL_H + NODE_H / 2;
-    } else {
-      node.y = HEADER_H + TOP_TREE_PAD + (node.depth - 1) * LEVEL_H + NODE_H / 2;
-    }
+    node.y = getDepthCenterY(node.depth);
     flatNodes.push(node);
 
     if (node.childrenLayouts.length > 0) {
       const totalChildrenW =
         node.childrenLayouts.reduce((acc, c) => acc + c.subtreeWidth, 0) +
-        (node.childrenLayouts.length - 1) * H_GAP;
+        Math.max(0, node.childrenLayouts.length - 1) * H_GAP;
 
       let currentRight = leftX + (node.subtreeWidth + totalChildrenW) / 2;
+      const fromY = isUpward ? node.y - NODE_H / 2 : node.y + NODE_H / 2;
 
       for (const ch of node.childrenLayouts) {
         const chLeft = currentRight - ch.subtreeWidth;
         assignCoords(ch, chLeft);
         currentRight = chLeft - H_GAP;
 
-        const fromY = isUpward ? node.y - NODE_H / 2 : node.y + NODE_H / 2;
         const toY = isUpward ? ch.y + NODE_H / 2 : ch.y - NODE_H / 2;
-
-        links.push({ fromX: node.x, fromY, toX: ch.x, toY, depth: node.depth });
+        links.push({
+          fromX: node.x,
+          fromY,
+          toX: ch.x,
+          toY,
+          depth: node.depth,
+          childGender: ch.person.gender,
+          childHasChildren: ch.childrenLayouts.length > 0
+        });
       }
     }
   }
 
+  const logicalW = Math.max(1800, rootLayout.subtreeWidth + SIDE_PAD * 2);
   assignCoords(rootLayout, (logicalW - rootLayout.subtreeWidth) / 2);
+
+  let maxNodeBottom = 0;
+  for (const n of flatNodes) {
+    if (n.y + NODE_H / 2 > maxNodeBottom) maxNodeBottom = n.y + NODE_H / 2;
+  }
+  const logicalH = Math.max(920, Math.ceil(maxNodeBottom + BOTTOM_TREE_PAD + FOOTER_H));
 
   const rootFirstName = extractGivenName(rootPerson.fullName);
   const fullRootTitle = formatAppName(rootPerson.fullName) || rootFirstName;
 
-  let svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${logicalW} ${logicalH}" width="${logicalW}" height="${logicalH}" dir="rtl">\n`;
+  let svgStr = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+  svgStr += `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${logicalW} ${logicalH}" width="${logicalW}" height="${logicalH}" dir="rtl">\n`;
   svgStr += `<defs>\n`;
   svgStr += `  <style>\n`;
   svgStr += `    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;900&amp;display=swap');\n`;
-  svgStr += `    text { font-family: 'Cairo', 'Segoe UI', system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }\n`;
+  svgStr += `    text { font-family: 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif; dominant-baseline: central; }\n`;
   svgStr += `  </style>\n`;
+  svgStr += `  <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">\n`;
+  svgStr += `    <stop offset="0%" stop-color="#FFFFFF" />\n`;
+  svgStr += `    <stop offset="50%" stop-color="#FDFBF7" />\n`;
+  svgStr += `    <stop offset="100%" stop-color="#F6EFE5" />\n`;
+  svgStr += `  </linearGradient>\n`;
   svgStr += `  <linearGradient id="rootGrad" x1="0" y1="0" x2="0" y2="1">\n`;
-  svgStr += `    <stop offset="0%" stop-color="#3E2410" />\n`;
-  svgStr += `    <stop offset="100%" stop-color="#063B2C" />\n`;
+  svgStr += `    <stop offset="0%" stop-color="#093829" />\n`;
+  svgStr += `    <stop offset="100%" stop-color="#0F4C3A" />\n`;
   svgStr += `  </linearGradient>\n`;
   svgStr += `</defs>\n`;
 
-  // Background
-  svgStr += `<rect width="100%" height="100%" fill="#FAF8F5" />\n`;
-  svgStr += `<rect x="20" y="20" width="${logicalW - 40}" height="${logicalH - 40}" fill="none" stroke="#064E3B" stroke-width="7" />\n`;
-  svgStr += `<rect x="32" y="32" width="${logicalW - 64}" height="${logicalH - 64}" fill="none" stroke="#D97706" stroke-width="3.5" />\n`;
+  // Background & Borders
+  svgStr += `<rect width="100%" height="100%" fill="url(#bgGrad)" />\n`;
+  svgStr += `<rect x="20" y="20" width="${logicalW - 40}" height="${logicalH - 40}" fill="none" stroke="#064E3B" stroke-width="10" />\n`;
+  svgStr += `<rect x="32" y="32" width="${logicalW - 64}" height="${logicalH - 64}" fill="none" stroke="#D97706" stroke-width="4" />\n`;
 
   // Header Banner
   const bannerLeft = 50;
-  const bannerTop = 40;
+  const bannerTop = 42;
   const bannerW = logicalW - 100;
-  const bannerH = HEADER_H - 24;
-  svgStr += `<rect x="${bannerLeft}" y="${bannerTop}" width="${bannerW}" height="${bannerH}" rx="22" fill="#064E3B" stroke="#D97706" stroke-width="3.5" />\n`;
-  svgStr += `<text x="${logicalW / 2}" y="${bannerTop + 42}" font-size="26" font-weight="900" fill="#FDE68A">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ — سجل شجرة العائلة الرقمي الموثق</text>\n`;
-  svgStr += `<text x="${logicalW / 2}" y="${bannerTop + 96}" font-size="44" font-weight="900" fill="#FFFFFF">شجرة العائلة — أصل الشجرة: ${fullRootTitle}</text>\n`;
-  svgStr += `<text x="${logicalW / 2}" y="${bannerTop + 138}" font-size="22" font-weight="700" fill="#E2E8F0">عدد الأفراد: ${totalNodes} فرداً · ${maxDepth} أجيال موثقة · تاريخ التصدير: ${new Date().toLocaleDateString('ar-SA')}</text>\n`;
+  const bannerH = HEADER_H - 36;
+  svgStr += `<rect x="${bannerLeft}" y="${bannerTop}" width="${bannerW}" height="${bannerH}" rx="22" fill="#064E3B" stroke="#D97706" stroke-width="4" />\n`;
+  svgStr += `<text x="${logicalW / 2}" y="${bannerTop + 72}" text-anchor="middle" font-size="52" font-weight="900" fill="#FFFFFF">${escapeXml(`شجرة ${fullRootTitle}`)}</text>\n`;
+  svgStr += `<text x="${logicalW / 2}" y="${bannerTop + 138}" text-anchor="middle" font-size="26" font-weight="900" fill="#FDE68A">${escapeXml(`إجمالي الأفراد: ${totalNodes} فرداً   ·   عدد الأجيال: ${maxDepth} أجيال   ·   تاريخ الإصدار: ${new Date().toLocaleDateString('ar-SA')}`)}</text>\n`;
+
+  // Organic Trunk if applicable
+  if (mode === 'organic' && isUpward) {
+    const rx = rootLayout.x;
+    const ry = rootLayout.y;
+    const baseY = ry + Math.round(NODE_H * 0.72);
+    svgStr += `<ellipse cx="${rx}" cy="${baseY}" rx="260" ry="36" fill="rgba(92, 58, 33, 0.2)" />\n`;
+    svgStr += `<path d="M ${rx - 50} ${baseY} Q ${rx - 28} ${ry + 70} ${rx - 18} ${ry + NODE_H / 2} L ${rx + 18} ${ry + NODE_H / 2} Q ${rx + 28} ${ry + 70} ${rx + 50} ${baseY} Z" fill="#5C3A21" />\n`;
+    svgStr += `<text x="${rx}" y="${baseY + 28}" text-anchor="middle" font-size="22" font-weight="900" fill="#4A2C11">جذر الشجرة وأصلها الراسخ</text>\n`;
+  }
 
   // Links
-  links.forEach(l => {
-    const midY = (l.fromY + l.toY) / 2;
-    svgStr += `<path d="M ${l.fromX} ${l.fromY} L ${l.fromX} ${midY} L ${l.toX} ${midY} L ${l.toX} ${l.toY}" fill="none" stroke="#064E3B" stroke-width="6" stroke-linecap="round" />\n`;
+  links.forEach((l) => {
+    if (mode === 'organic') {
+      const ctrlY1 = l.fromY + (l.toY - l.fromY) * 0.45;
+      const ctrlY2 = l.fromY + (l.toY - l.fromY) * 0.55;
+      const strokeW = Math.max(6, 15 - l.depth * 1.4);
+      const strokeColor =
+        l.depth === 1
+          ? '#5C3A21'
+          : l.childGender === 'female' && !l.childHasChildren
+          ? '#9F1239'
+          : '#064E3B';
+      svgStr += `<path d="M ${l.fromX} ${l.fromY} C ${l.fromX} ${ctrlY1}, ${l.toX} ${ctrlY2}, ${l.toX} ${l.toY}" fill="none" stroke="${strokeColor}" stroke-width="${strokeW}" stroke-linecap="round" />\n`;
+    } else {
+      const midY = (l.fromY + l.toY) / 2;
+      svgStr += `<path d="M ${l.fromX} ${l.fromY} L ${l.fromX} ${midY} L ${l.toX} ${midY} L ${l.toX} ${l.toY}" fill="none" stroke="#064E3B" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round" />\n`;
+    }
   });
 
   // Nodes
-  flatNodes.forEach(node => {
+  flatNodes.forEach((node) => {
     const { person, depth, x, y } = node;
     const isRoot = depth === 1;
     const left = x - NODE_W / 2;
     const top = y - NODE_H / 2;
 
     const fill = isRoot ? 'url(#rootGrad)' : person.gender === 'female' ? '#FFF1F2' : '#FFFFFF';
-    const stroke = isRoot ? '#F59E0B' : person.gender === 'male' ? '#064E3B' : '#BE123C';
-    const strokeW = isRoot ? 6 : 4.5;
+    const stroke = isRoot ? '#D4AF37' : person.gender === 'male' ? '#064E3B' : '#BE123C';
+    const strokeW = isRoot ? 6.5 : 4.5;
+
+    const badgeY = top + Math.round(NODE_H * 0.20);
+    const dividerY = top + Math.round(NODE_H * 0.34);
+    const cardContentHeight = NODE_H - (dividerY - top);
+    const textCenterY = dividerY + cardContentHeight / 2;
 
     svgStr += `<g>\n`;
     svgStr += `  <rect x="${left}" y="${top}" width="${NODE_W}" height="${NODE_H}" rx="20" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}" />\n`;
 
     const genLabel = isRoot ? 'الأصل الراسخ' : `الجيل ${depth}`;
     const genderLabel = person.gender === 'male' ? 'ذكر' : 'أنثى';
-    const genColor = isRoot ? '#FDE68A' : '#0F172A';
+    const genColor = isRoot ? '#FDE68A' : '#0F4C3A';
     const genderColor = isRoot ? '#FDE68A' : person.gender === 'male' ? '#047857' : '#BE123C';
 
-    svgStr += `  <text x="${left + NODE_W - 20}" y="${top + 34}" text-anchor="end" font-size="20" font-weight="900" fill="${genColor}">${genLabel}</text>\n`;
-    svgStr += `  <text x="${left + 20}" y="${top + 34}" text-anchor="start" font-size="20" font-weight="900" fill="${genderColor}">${genderLabel}</text>\n`;
-    svgStr += `  <line x1="${left + 16}" y1="${top + 46}" x2="${left + NODE_W - 16}" y2="${top + 46}" stroke="${isRoot ? 'rgba(253,230,138,0.6)' : 'rgba(15,23,42,0.25)'}" stroke-width="2" />\n`;
+    svgStr += `  <text x="${left + NODE_W - 20}" y="${badgeY}" text-anchor="start" font-size="22" font-weight="900" fill="${genColor}">${escapeXml(genLabel)}</text>\n`;
+    svgStr += `  <text x="${left + 20}" y="${badgeY}" text-anchor="end" font-size="22" font-weight="900" fill="${genderColor}">${escapeXml(genderLabel)}</text>\n`;
+    svgStr += `  <line x1="${left + 16}" y1="${dividerY}" x2="${left + NODE_W - 16}" y2="${dividerY}" stroke="${isRoot ? 'rgba(253,230,138,0.5)' : 'rgba(15,23,42,0.2)'}" stroke-width="2" />\n`;
 
-    const displayName = isRoot ? formatAppName(person.fullName) : formatNameWithLimit(person.fullName, 2);
+    const displayName = isRoot ? formatAppName(person.fullName) : extractGivenName(person.fullName);
     const textColor = isRoot ? '#FFFFFF' : '#000000';
-    svgStr += `  <text x="${left + NODE_W / 2}" y="${top + 46 + (NODE_H - 46) / 2}" font-size="44" font-weight="900" fill="${textColor}">${displayName}</text>\n`;
+    const nameFontSize = displayName.length > 14 ? 36 : displayName.length > 10 ? 44 : 54;
+    svgStr += `  <text x="${left + NODE_W / 2}" y="${textCenterY}" text-anchor="middle" font-size="${nameFontSize}" font-weight="900" fill="${textColor}">${escapeXml(displayName)}</text>\n`;
     svgStr += `</g>\n`;
   });
 
   // Footer
-  svgStr += `<text x="${logicalW / 2}" y="${logicalH - 24}" font-size="20" font-weight="700" fill="#0F172A">تم استخراج هذه الوثيقة آلياً من نظام شجرة العائلة الرقمي — وثيقة نسب معتمدة وموثقة</text>\n`;
+  svgStr += `<text x="${logicalW / 2}" y="${logicalH - 36}" text-anchor="middle" font-size="22" font-weight="900" fill="#0F172A">${escapeXml(`شجرة ${fullRootTitle}`)}</text>\n`;
   svgStr += `</svg>`;
 
   const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
-  const filename = `شجرة_العائلة_متجهة_${rootFirstName}.svg`;
+  const filename = `شجرة_العائلة_للمطابع_${rootFirstName}.svg`;
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement('a');
@@ -1073,39 +1085,610 @@ export async function exportTiledTreePdf(
 }
 
 export async function exportTreeToPdf(options: ExportTreePdfOptions) {
-  const { canvas, rootFirstName, isLandscape } = await renderTreeToCanvas({
-    ...options,
-    unconstrained: true
-  });
-  const jpegBytes = canvasToJpegBytes(canvas, 0.98);
+  const { rootPerson, getChildren } = options;
 
-  let pageWidthPt: number;
-  let pageHeightPt: number;
+  await ensureCairoFontLoaded();
 
-  if (isLandscape) {
-    pageWidthPt = 1190.55;
-    pageHeightPt = 841.89;
-  } else {
-    pageWidthPt = 841.89;
-    pageHeightPt = 1190.55;
+  const rootFirstName = extractGivenName(rootPerson.fullName);
+
+  // ============================================================================
+  // 1. COLLECT SEQUENTIAL FATHER BLOCKS FOR A4 REVIEW
+  //    Traverses the entire tree starting from rootPerson (ignoring collapsed state
+  //    so all fathers and branches are included for paper review).
+  // ============================================================================
+  interface ReviewChildItem {
+    person: Person;
+    firstName: string;
+    hasBranches: boolean;
+    childrenCount: number;
+    branchSeq?: number; // Sequence number of this son's own Father Block
   }
 
-  const pdfBlob = createPdfBlobFromJpegPages([
-    {
+  interface FatherReviewBlock {
+    seq: number;
+    father: Person;
+    firstName: string;
+    ancestorChainFirstNames: string[]; // First names of father, grandfather, etc. up to root
+    depth: number;
+    sons: ReviewChildItem[];
+    daughters: ReviewChildItem[];
+  }
+
+  const fatherBlocks: FatherReviewBlock[] = [];
+  const personToSeqMap = new Map<string, number>();
+  const visitedIds = new Set<string>();
+  let totalIndividualsCount = 0;
+
+  // Pre-order traversal so each father is followed logically by his sons who have branches
+  function collectFathersRecursive(person: Person, depth: number, ancestorFirstNames: string[]) {
+    if (visitedIds.has(person.id)) return;
+    visitedIds.add(person.id);
+    totalIndividualsCount++;
+
+    const allChildren = getChildren(person.id).filter((c) => !visitedIds.has(c.id));
+    const maleChildren = allChildren.filter((c) => c.gender === 'male');
+    const femaleChildren = allChildren.filter((c) => c.gender === 'female');
+
+    // Count leaf children towards total individuals
+    const hasChildren = allChildren.length > 0;
+    if (!hasChildren && depth > 1) {
+      return;
+    }
+
+    const firstName = extractGivenName(person.fullName);
+    const seq = fatherBlocks.length + 1;
+    personToSeqMap.set(person.id, seq);
+
+    const sons: ReviewChildItem[] = maleChildren.map((son) => {
+      const sonChildren = getChildren(son.id);
+      return {
+        person: son,
+        firstName: extractGivenName(son.fullName),
+        hasBranches: sonChildren.length > 0,
+        childrenCount: sonChildren.length
+      };
+    });
+
+    const daughters: ReviewChildItem[] = femaleChildren.map((daughter) => {
+      const daughterChildren = getChildren(daughter.id);
+      return {
+        person: daughter,
+        firstName: extractGivenName(daughter.fullName),
+        hasBranches: daughterChildren.length > 0,
+        childrenCount: daughterChildren.length
+      };
+    });
+
+    const block: FatherReviewBlock = {
+      seq,
+      father: person,
+      firstName,
+      ancestorChainFirstNames: ancestorFirstNames,
+      depth,
+      sons,
+      daughters
+    };
+
+    fatherBlocks.push(block);
+
+    const nextAncestors = [firstName, ...ancestorFirstNames];
+
+    // Traverse each child who has branches (sons first, then any child with branches)
+    for (const child of allChildren) {
+      const grandChildren = getChildren(child.id);
+      if (grandChildren.length > 0) {
+        collectFathersRecursive(child, depth + 1, nextAncestors);
+      } else {
+        visitedIds.add(child.id);
+        totalIndividualsCount++;
+      }
+    }
+  }
+
+  collectFathersRecursive(rootPerson, 1, []);
+
+  // Link each son who has branches to his assigned Father Block sequence number (#seq)
+  for (const block of fatherBlocks) {
+    for (const son of block.sons) {
+      const targetSeq = personToSeqMap.get(son.person.id);
+      if (targetSeq) {
+        son.branchSeq = targetSeq;
+      }
+    }
+  }
+
+  // ============================================================================
+  // 2. PAGINATE & RENDER SEQUENTIAL A4 PORTRAIT SHEETS
+  //    A4 Portrait Logical Size: 1240 x 1754 px (Scale 2x = 2480 x 3508 px @ 300 DPI)
+  // ============================================================================
+  const PAGE_W = 1240;
+  const PAGE_H = 1754;
+  const SCALE = 2;
+
+  const MARGIN_X = 56;
+  const CONTENT_W = PAGE_W - MARGIN_X * 2; // 1128 px
+  const FOOTER_RESERVED_H = 86;
+  const MAX_CONTENT_Y = PAGE_H - FOOTER_RESERVED_H;
+
+  const COLS_PER_ROW = 4;
+  const LABEL_COL_W = 158;
+  const PILLS_AREA_W = CONTENT_W - LABEL_COL_W - 36; // 934 px
+  const PILL_GAP_X = 12;
+  const PILL_GAP_Y = 10;
+  const PILL_W = Math.floor((PILLS_AREA_W - PILL_GAP_X * (COLS_PER_ROW - 1)) / COLS_PER_ROW);
+  const PILL_H = 42;
+
+  // Calculate exact pixel height of a FatherReviewBlock before drawing
+  function measureFatherBlockHeight(block: FatherReviewBlock): number {
+    const headerH = 58;
+    const sonsRows = Math.max(1, Math.ceil(block.sons.length / COLS_PER_ROW));
+    const daughtersRows = Math.max(1, Math.ceil(block.daughters.length / COLS_PER_ROW));
+
+    const sonsSectionH = sonsRows * PILL_H + (sonsRows - 1) * PILL_GAP_Y + 24;
+    const dividerH = 1;
+    const daughtersSectionH = daughtersRows * PILL_H + (daughtersRows - 1) * PILL_GAP_Y + 24;
+
+    return headerH + sonsSectionH + dividerH + daughtersSectionH;
+  }
+
+  // Group blocks into A4 pages without cutting any father block in half
+  const pagesBlocks: FatherReviewBlock[][] = [];
+  let currentPageList: FatherReviewBlock[] = [];
+  const FIRST_PAGE_START_Y = 236;
+  const NEXT_PAGE_START_Y = 132;
+  const BLOCK_GAP_Y = 22;
+
+  let testY = FIRST_PAGE_START_Y;
+
+  for (const block of fatherBlocks) {
+    const blockH = measureFatherBlockHeight(block);
+    if (currentPageList.length > 0 && testY + blockH > MAX_CONTENT_Y) {
+      pagesBlocks.push(currentPageList);
+      currentPageList = [block];
+      testY = NEXT_PAGE_START_Y + blockH + BLOCK_GAP_Y;
+    } else {
+      currentPageList.push(block);
+      testY += blockH + BLOCK_GAP_Y;
+    }
+  }
+  if (currentPageList.length > 0) {
+    pagesBlocks.push(currentPageList);
+  }
+
+  const totalPages = Math.max(1, pagesBlocks.length);
+  const dateStr = new Date().toLocaleDateString('ar-SA');
+
+  const pdfPages: {
+    jpegBytes: Uint8Array;
+    widthPx: number;
+    heightPx: number;
+    pageWidthPt: number;
+    pageHeightPt: number;
+  }[] = [];
+
+  // Render each A4 page onto an offscreen canvas
+  for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+    const blocksOnPage = pagesBlocks[pageIdx] || [];
+    const isFirstPage = pageIdx === 0;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = PAGE_W * SCALE;
+    canvas.height = PAGE_H * SCALE;
+    const ctx = canvas.getContext('2d')!;
+    ctx.scale(SCALE, SCALE);
+    ctx.direction = 'rtl';
+
+    // 1. Clean A4 Paper Background
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, PAGE_W, PAGE_H);
+
+    // Subtle Outer & Inner Page Frame for A4 Print
+    ctx.strokeStyle = '#0F4C3A';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(28, 28, PAGE_W - 56, PAGE_H - 56);
+
+    ctx.strokeStyle = '#D4AF37';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(35, 35, PAGE_W - 70, PAGE_H - 70);
+
+    let curY = 52;
+
+    // 2. Page Header
+    if (isFirstPage) {
+      // Main Document Banner on Page 1
+      const headerBoxH = 124;
+      const headerGrad = ctx.createLinearGradient(MARGIN_X, curY, PAGE_W - MARGIN_X, curY + headerBoxH);
+      headerGrad.addColorStop(0, '#093829');
+      headerGrad.addColorStop(0.5, '#0F4C3A');
+      headerGrad.addColorStop(1, '#145E48');
+
+      ctx.fillStyle = headerGrad;
+      drawRoundedRect(ctx, MARGIN_X, curY, CONTENT_W, headerBoxH, 16);
+      ctx.fill();
+
+      ctx.strokeStyle = '#D4AF37';
+      ctx.lineWidth = 2;
+      drawRoundedRect(ctx, MARGIN_X, curY, CONTENT_W, headerBoxH, 16);
+      ctx.stroke();
+
+      // Right Side Title & Root Info
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 32px Cairo, sans-serif';
+      ctx.fillText(`شجرة ${rootFirstName}`, PAGE_W - MARGIN_X - 24, curY + 46);
+
+      ctx.fillStyle = '#FDE68A';
+      ctx.font = 'bold 16px Cairo, sans-serif';
+      ctx.fillText(
+        `الآباء وفروعهم بالتسلسل (أبناؤه الذكور ثم بناته الإناث بالاسم الأول)`,
+        PAGE_W - MARGIN_X - 24,
+        curY + 88
+      );
+
+      // Left Side Summary Badges
+      const statsBoxW = 270;
+      const statsBoxX = MARGIN_X + 20;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+      drawRoundedRect(ctx, statsBoxX, curY + 16, statsBoxW, headerBoxH - 32, 12);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(212, 175, 55, 0.5)';
+      ctx.lineWidth = 1;
+      drawRoundedRect(ctx, statsBoxX, curY + 16, statsBoxW, headerBoxH - 32, 12);
+      ctx.stroke();
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#FDE68A';
+      ctx.font = 'bold 15px Cairo, sans-serif';
+      ctx.fillText(`عدد الآباء (أصحاب الفروع): ${fatherBlocks.length}`, statsBoxX + statsBoxW - 16, curY + 38);
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 15px Cairo, sans-serif';
+      ctx.fillText(`إجمالي الأفراد المسجلين: ${totalIndividualsCount}`, statsBoxX + statsBoxW - 16, curY + 64);
+
+      ctx.fillStyle = '#CBD5E1';
+      ctx.font = 'bold 13px Cairo, sans-serif';
+      ctx.fillText(`تاريخ الإصدار: ${dateStr} م`, statsBoxX + statsBoxW - 16, curY + 88);
+
+      curY += headerBoxH + 12;
+
+      // Instruction / Color Legend Strip
+      ctx.fillStyle = '#F8FAFC';
+      drawRoundedRect(ctx, MARGIN_X, curY, CONTENT_W, 36, 10);
+      ctx.fill();
+      ctx.strokeStyle = '#CBD5E1';
+      ctx.lineWidth = 1;
+      drawRoundedRect(ctx, MARGIN_X, curY, CONTENT_W, 36, 10);
+      ctx.stroke();
+
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#0F4C3A';
+      ctx.font = 'bold 14px Cairo, sans-serif';
+      ctx.fillText('● اللون الأخضر: الأب وأبناؤه الذكور', PAGE_W - MARGIN_X - 18, curY + 18);
+
+      ctx.fillStyle = '#9F1239';
+      ctx.fillText('● اللون الوردي: بناته الإناث', PAGE_W - MARGIN_X - 270, curY + 18);
+
+      ctx.fillStyle = '#92400E';
+      ctx.fillText('● علامة (فروعه #...): تشير لرقم بطاقة الابن لاستكمال مراجعة أبنائه وبناته بالترتيب', PAGE_W - MARGIN_X - 480, curY + 18);
+
+      curY = FIRST_PAGE_START_Y;
+    } else {
+      // Compact Running Header for Pages 2..N
+      const runH = 60;
+      ctx.fillStyle = '#F1F5F9';
+      drawRoundedRect(ctx, MARGIN_X, curY, CONTENT_W, runH, 12);
+      ctx.fill();
+      ctx.strokeStyle = '#0F4C3A';
+      ctx.lineWidth = 1.5;
+      drawRoundedRect(ctx, MARGIN_X, curY, CONTENT_W, runH, 12);
+      ctx.stroke();
+
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#0F4C3A';
+      ctx.font = '900 22px Cairo, sans-serif';
+      ctx.fillText(`شجرة ${rootFirstName}`, PAGE_W - MARGIN_X - 20, curY + 30);
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#475569';
+      ctx.font = 'bold 15px Cairo, sans-serif';
+      ctx.fillText(`صفحة ${pageIdx + 1} من ${totalPages}`, MARGIN_X + 20, curY + 30);
+
+      curY = NEXT_PAGE_START_Y;
+    }
+
+    // 3. Render Father Blocks Sequentially
+    for (const block of blocksOnPage) {
+      const blockH = measureFatherBlockHeight(block);
+      const isRootBlock = block.depth === 1;
+
+      const sonsRows = Math.max(1, Math.ceil(block.sons.length / COLS_PER_ROW));
+      const daughtersRows = Math.max(1, Math.ceil(block.daughters.length / COLS_PER_ROW));
+      const headerH = 58;
+      const sonsSectionH = sonsRows * PILL_H + (sonsRows - 1) * PILL_GAP_Y + 24;
+      const daughtersSectionH = daughtersRows * PILL_H + (daughtersRows - 1) * PILL_GAP_Y + 24;
+
+      // Card Base Shadow & Fill
+      ctx.save();
+      ctx.shadowColor = 'rgba(15, 23, 42, 0.06)';
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetY = 3;
+      ctx.fillStyle = '#FFFFFF';
+      drawRoundedRect(ctx, MARGIN_X, curY, CONTENT_W, blockH, 14);
+      ctx.fill();
+      ctx.restore();
+
+      // Top Header Strip for Father
+      ctx.save();
+      ctx.beginPath();
+      drawRoundedRect(ctx, MARGIN_X, curY, CONTENT_W, blockH, 14);
+      ctx.clip();
+
+      ctx.fillStyle = isRootBlock ? '#093829' : '#0F4C3A';
+      ctx.fillRect(MARGIN_X, curY, CONTENT_W, headerH);
+
+      // Gold bottom accent under father header
+      ctx.fillStyle = '#D4AF37';
+      ctx.fillRect(MARGIN_X, curY + headerH - 3, CONTENT_W, 3);
+
+      // Sequence Number Badge on far right
+      const seqBadgeW = 78;
+      const seqBadgeH = 36;
+      const seqBadgeX = PAGE_W - MARGIN_X - seqBadgeW - 16;
+      const seqBadgeY = curY + (headerH - seqBadgeH) / 2;
+
+      ctx.fillStyle = '#D4AF37';
+      drawRoundedRect(ctx, seqBadgeX, seqBadgeY, seqBadgeW, seqBadgeH, 9);
+      ctx.fill();
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#0F172A';
+      ctx.font = '900 17px Cairo, sans-serif';
+      ctx.fillText(`#${block.seq}`, seqBadgeX + seqBadgeW / 2, seqBadgeY + seqBadgeH / 2 + 1);
+
+      // Father Name (First Name prominently + short ancestor chain for review clarity)
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 23px Cairo, sans-serif';
+      const fatherTitleText = `الأب: ${block.firstName}`;
+      const fatherTitleRightX = seqBadgeX - 16;
+      ctx.fillText(fatherTitleText, fatherTitleRightX, curY + headerH / 2);
+
+      const fatherTitleW = ctx.measureText(fatherTitleText).width;
+
+      // Ancestor lineage note next to father's first name so identical first names are never confused
+      let lineageHint = '';
+      if (isRootBlock) {
+        lineageHint = '  (جذر العائلة / الأصل)';
+      } else if (block.ancestorChainFirstNames.length > 0) {
+        const chainPreview = block.ancestorChainFirstNames.slice(0, 4).join(' بن ');
+        lineageHint = `  (ابن ${chainPreview})`;
+      }
+
+      if (lineageHint) {
+        ctx.fillStyle = '#FDE68A';
+        ctx.font = 'bold 16px Cairo, sans-serif';
+        ctx.fillText(lineageHint, fatherTitleRightX - fatherTitleW - 6, curY + headerH / 2 + 1);
+      }
+
+      // Left Side Badges on Father Header: Generation + Counts
+      ctx.textAlign = 'left';
+      const statsSummary = `الجيل ${block.depth}   |   أبناؤه: ${block.sons.length}   •   بناته: ${block.daughters.length}`;
+      ctx.font = 'bold 15px Cairo, sans-serif';
+      const sumW = ctx.measureText(statsSummary).width + 28;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+      drawRoundedRect(ctx, MARGIN_X + 16, curY + 12, sumW, 34, 8);
+      ctx.fill();
+
+      ctx.fillStyle = '#F8FAFC';
+      ctx.fillText(statsSummary, MARGIN_X + 30, curY + headerH / 2 + 1);
+
+      // ======================================================================
+      // ROW 1: أبناؤه (الذكور)
+      // ======================================================================
+      const sonsTopY = curY + headerH;
+      ctx.fillStyle = '#F4FBF7';
+      ctx.fillRect(MARGIN_X, sonsTopY, CONTENT_W, sonsSectionH);
+
+      // Right Label Box for "أبناؤه"
+      const labelBoxX = PAGE_W - MARGIN_X - LABEL_COL_W - 12;
+      ctx.fillStyle = '#DCFCE7';
+      drawRoundedRect(ctx, labelBoxX, sonsTopY + 12, LABEL_COL_W, sonsSectionH - 24, 10);
+      ctx.fill();
+      ctx.strokeStyle = '#15803D';
+      ctx.lineWidth = 1.5;
+      drawRoundedRect(ctx, labelBoxX, sonsTopY + 12, LABEL_COL_W, sonsSectionH - 24, 10);
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#064E3B';
+      ctx.font = '900 18px Cairo, sans-serif';
+      ctx.fillText(`أبناؤه (${block.sons.length})`, labelBoxX + LABEL_COL_W / 2, sonsTopY + sonsSectionH / 2);
+
+      // Sons Pills Grid (RTL from right to left)
+      const pillsRightStart = labelBoxX - 14;
+      if (block.sons.length === 0) {
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#64748B';
+        ctx.font = 'bold 16px Cairo, sans-serif';
+        ctx.fillText('— لا يوجد أبناء ذكور مسجلون —', pillsRightStart - 8, sonsTopY + sonsSectionH / 2);
+      } else {
+        block.sons.forEach((son, idx) => {
+          const row = Math.floor(idx / COLS_PER_ROW);
+          const col = idx % COLS_PER_ROW;
+
+          const pillRightX = pillsRightStart - col * (PILL_W + PILL_GAP_X);
+          const pillLeftX = pillRightX - PILL_W;
+          const pillTopY = sonsTopY + 12 + row * (PILL_H + PILL_GAP_Y);
+
+          // Pill box background
+          ctx.fillStyle = son.hasBranches ? '#ECFDF5' : '#FFFFFF';
+          drawRoundedRect(ctx, pillLeftX, pillTopY, PILL_W, PILL_H, 10);
+          ctx.fill();
+
+          ctx.strokeStyle = son.hasBranches ? '#0F4C3A' : '#86EFAC';
+          ctx.lineWidth = son.hasBranches ? 2 : 1.3;
+          drawRoundedRect(ctx, pillLeftX, pillTopY, PILL_W, PILL_H, 10);
+          ctx.stroke();
+
+          // Son number + First Name on the right
+          ctx.textAlign = 'right';
+          ctx.fillStyle = '#0F172A';
+          ctx.font = '900 17px Cairo, sans-serif';
+          const maxNameW = son.branchSeq ? PILL_W - 92 : PILL_W - 24;
+          const sonLabel = truncateRtlText(ctx, `${idx + 1}. ${son.firstName}`, maxNameW);
+          ctx.fillText(sonLabel, pillRightX - 10, pillTopY + PILL_H / 2 + 1);
+
+          // If son has branches, show reference badge on the left of his pill
+          if (son.branchSeq) {
+            const refText = `فروعه #${son.branchSeq}`;
+            ctx.font = 'bold 12px Cairo, sans-serif';
+            const refW = Math.min(80, ctx.measureText(refText).width + 14);
+            const refX = pillLeftX + 6;
+            const refY = pillTopY + 7;
+            const refH = PILL_H - 14;
+
+            ctx.fillStyle = '#0F4C3A';
+            drawRoundedRect(ctx, refX, refY, refW, refH, 6);
+            ctx.fill();
+
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#FDE68A';
+            ctx.fillText(refText, refX + refW / 2, refY + refH / 2 + 1);
+          }
+        });
+      }
+
+      // Divider line between Sons and Daughters
+      const divY = sonsTopY + sonsSectionH;
+      ctx.strokeStyle = '#CBD5E1';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(MARGIN_X, divY);
+      ctx.lineTo(MARGIN_X + CONTENT_W, divY);
+      ctx.stroke();
+
+      // ======================================================================
+      // ROW 2: بناته (الإناث)
+      // ======================================================================
+      const daughtersTopY = divY + 1;
+      ctx.fillStyle = '#FFF9FA';
+      ctx.fillRect(MARGIN_X, daughtersTopY, CONTENT_W, daughtersSectionH);
+
+      // Right Label Box for "بناته"
+      ctx.fillStyle = '#FFE4E6';
+      drawRoundedRect(ctx, labelBoxX, daughtersTopY + 12, LABEL_COL_W, daughtersSectionH - 24, 10);
+      ctx.fill();
+      ctx.strokeStyle = '#BE123C';
+      ctx.lineWidth = 1.5;
+      drawRoundedRect(ctx, labelBoxX, daughtersTopY + 12, LABEL_COL_W, daughtersSectionH - 24, 10);
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#881337';
+      ctx.font = '900 18px Cairo, sans-serif';
+      ctx.fillText(`بناته (${block.daughters.length})`, labelBoxX + LABEL_COL_W / 2, daughtersTopY + daughtersSectionH / 2);
+
+      // Daughters Pills Grid (RTL from right to left)
+      if (block.daughters.length === 0) {
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#94A3B8';
+        ctx.font = 'bold 16px Cairo, sans-serif';
+        ctx.fillText('— لا توجد بنات مسجلات —', pillsRightStart - 8, daughtersTopY + daughtersSectionH / 2);
+      } else {
+        block.daughters.forEach((daughter, idx) => {
+          const row = Math.floor(idx / COLS_PER_ROW);
+          const col = idx % COLS_PER_ROW;
+
+          const pillRightX = pillsRightStart - col * (PILL_W + PILL_GAP_X);
+          const pillLeftX = pillRightX - PILL_W;
+          const pillTopY = daughtersTopY + 12 + row * (PILL_H + PILL_GAP_Y);
+
+          ctx.fillStyle = '#FFFFFF';
+          drawRoundedRect(ctx, pillLeftX, pillTopY, PILL_W, PILL_H, 10);
+          ctx.fill();
+
+          ctx.strokeStyle = '#FDA4AF';
+          ctx.lineWidth = 1.4;
+          drawRoundedRect(ctx, pillLeftX, pillTopY, PILL_W, PILL_H, 10);
+          ctx.stroke();
+
+          ctx.textAlign = 'right';
+          ctx.fillStyle = '#881337';
+          ctx.font = '900 17px Cairo, sans-serif';
+          const daughterLabel = truncateRtlText(ctx, `${idx + 1}. ${daughter.firstName}`, PILL_W - 22);
+          ctx.fillText(daughterLabel, pillRightX - 10, pillTopY + PILL_H / 2 + 1);
+        });
+      }
+
+      ctx.restore();
+
+      // Card Outer Border
+      ctx.strokeStyle = isRootBlock ? '#D4AF37' : '#0F4C3A';
+      ctx.lineWidth = isRootBlock ? 2.5 : 1.8;
+      drawRoundedRect(ctx, MARGIN_X, curY, CONTENT_W, blockH, 14);
+      ctx.stroke();
+
+      curY += blockH + BLOCK_GAP_Y;
+    }
+
+    // 4. Page Footer (Page Numbering & A4 Print Note)
+    const footerLineY = PAGE_H - 72;
+    ctx.strokeStyle = '#CBD5E1';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(MARGIN_X, footerLineY);
+    ctx.lineTo(PAGE_W - MARGIN_X, footerLineY);
+    ctx.stroke();
+
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#334155';
+    ctx.font = 'bold 14px Cairo, sans-serif';
+    ctx.fillText(
+      `شجرة ${rootFirstName}`,
+      PAGE_W - MARGIN_X,
+      footerLineY + 24
+    );
+
+    // Center Page Badge
+    const pageBadgeText = `صفحة ${pageIdx + 1} من ${totalPages}`;
+    ctx.font = '900 15px Cairo, sans-serif';
+    const pbW = ctx.measureText(pageBadgeText).width + 32;
+    ctx.fillStyle = '#0F4C3A';
+    drawRoundedRect(ctx, (PAGE_W - pbW) / 2, footerLineY + 7, pbW, 32, 8);
+    ctx.fill();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#FDE68A';
+    ctx.fillText(pageBadgeText, PAGE_W / 2, footerLineY + 24);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#64748B';
+    ctx.font = 'bold 13px Cairo, sans-serif';
+    ctx.fillText(`تاريخ الإصدار: ${dateStr} م`, MARGIN_X, footerLineY + 24);
+
+    const jpegBytes = canvasToJpegBytes(canvas, 0.94);
+    pdfPages.push({
       jpegBytes,
       widthPx: canvas.width,
       heightPx: canvas.height,
-      pageWidthPt,
-      pageHeightPt
-    }
-  ]);
+      pageWidthPt: 595.28, // Standard A4 Portrait Width in PDF Points
+      pageHeightPt: 841.89 // Standard A4 Portrait Height in PDF Points
+    });
+  }
 
-  triggerBlobDownload(pdfBlob, `شجرة_العائلة_${rootFirstName}.pdf`);
+  const pdfBlob = createPdfBlobFromJpegPages(pdfPages);
+  triggerBlobDownload(pdfBlob, `شجرة_${rootFirstName}.pdf`);
 }
 
 export async function exportTreeToPng(options: ExportTreePdfOptions) {
   const { canvas, rootFirstName } = await renderTreeToCanvas({
     ...options,
+    collapsedNodes: options.collapsedNodes ?? new Set<string>(),
     unconstrained: true,
     orientation: 'portrait'
   });
@@ -1147,231 +1730,1097 @@ export async function exportTreeToPng(options: ExportTreePdfOptions) {
 }
 
 // ============================================================================
-// 2. EXPORT PERSON LINEAGE & KINSHIP CERTIFICATE TO PDF
-//    - Uses First Name (الاسم الأول) in boxes and omits female's husband in PDF
+// 2. EXPORT PERSON FULL DETAILS, LINEAGE & KINSHIP CERTIFICATE TO PDF
+//    - Includes ALL details displayed in PersonModal (Identity, Full Lineage,
+//      Origins, Spouse & Couple Relationship, Sons & Daughters, Extended Kinship,
+//      and Notes) in a clean, organized multi-page A4 format.
 // ============================================================================
+function wrapArabicCanvasText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number
+): string[] {
+  const paragraphs = (text || '').split('\n');
+  const lines: string[] = [];
+
+  for (const para of paragraphs) {
+    const words = para.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) {
+      lines.push('');
+      continue;
+    }
+    let currentLine = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const testLine = currentLine + ' ' + words[i];
+      if (ctx.measureText(testLine).width <= maxWidth) {
+        currentLine = testLine;
+      } else {
+        lines.push(currentLine);
+        currentLine = words[i];
+      }
+    }
+    lines.push(currentLine);
+  }
+  return lines.length > 0 ? lines : [''];
+}
+
 export async function exportPersonCertificateToPdf(options: {
   person: Person;
   lineage: string;
   ancestors: Person[];
   children: Person[];
   kinship?: KinshipInfo;
+  allPersons?: Person[];
 }) {
-  const { person, ancestors, children, kinship } = options;
+  const { person, lineage, ancestors, children, allPersons = [] } = options;
+  const kinship =
+    options.kinship || (allPersons.length > 0 ? calculateKinship(person.id, allPersons) : undefined);
 
-  if (document.fonts && document.fonts.ready) {
-    await document.fonts.ready;
+  await ensureCairoFontLoaded();
+
+  const father = person.fatherId ? allPersons.find((p) => p.id === person.fatherId) || ancestors[0] : ancestors[0];
+  const grandfather = father?.fatherId
+    ? allPersons.find((p) => p.id === father.fatherId) || ancestors[1]
+    : ancestors[1];
+
+  const husbandPerson =
+    person.gender === 'female' && person.husbandId
+      ? allPersons.find((p) => p.id === person.husbandId)
+      : undefined;
+
+  const coupleRelationship =
+    person.gender === 'female' && person.husbandId && allPersons.length > 0
+      ? getCoupleRelationship(person.id, person.fatherId, person.husbandId, allPersons)
+      : null;
+
+  const sons = children.filter((c) => c.gender === 'male');
+  const daughters = children.filter((c) => c.gender === 'female');
+  const maleMotherChildren = kinship ? kinship.children.filter((c) => c.gender === 'male') : [];
+  const femaleMotherChildren = kinship ? kinship.children.filter((c) => c.gender === 'female') : [];
+
+  const PAGE_W = 1240;
+  const PAGE_H = 1754;
+  const MARGIN_X = 64;
+  const CONTENT_W = PAGE_W - MARGIN_X * 2; // 1112px
+  const BOTTOM_LIMIT_Y = PAGE_H - 96;
+
+  // Measure scratch context for text wrapping
+  const scratchCanvas = document.createElement('canvas');
+  scratchCanvas.width = 400;
+  scratchCanvas.height = 100;
+  const sCtx = scratchCanvas.getContext('2d')!;
+  sCtx.direction = 'rtl';
+
+  interface GridCardItem {
+    title: string;
+    subtitle?: string;
+    badge: string;
+    theme: 'emerald' | 'rose' | 'amber' | 'slate';
   }
 
-  const W = 1000;
-  const extraRows = Math.max(0, ancestors.length + Math.ceil(children.length / 2) - 6) * 32;
-  const H = Math.max(1414, 1300 + extraRows);
-  const scale = 2;
-
-  const canvas = document.createElement('canvas');
-  canvas.width = W * scale;
-  canvas.height = H * scale;
-  const ctx = canvas.getContext('2d')!;
-  ctx.scale(scale, scale);
-  ctx.direction = 'rtl';
-
-  // Parchment Background
-  ctx.fillStyle = '#FFFDF9';
-  ctx.fillRect(0, 0, W, H);
-
-  // Double Ornate Border
-  ctx.strokeStyle = '#0F4C3A';
-  ctx.lineWidth = 5;
-  ctx.strokeRect(28, 28, W - 56, H - 56);
-  ctx.strokeStyle = '#D4AF37';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(38, 38, W - 76, H - 76);
-
-  // Header
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#8C6D1F';
-  ctx.font = 'bold 16px Cairo, sans-serif';
-  ctx.fillText('بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ', W / 2, 86);
-
-  ctx.fillStyle = '#0F4C3A';
-  ctx.font = 'bold 30px Cairo, sans-serif';
-  ctx.fillText('وثيقة إثبات النسب وصلات القرابة', W / 2, 130);
-
-  ctx.fillStyle = '#64748B';
-  ctx.font = '600 14px Cairo, sans-serif';
-  ctx.fillText('مستخرجة من السجل الرقمي الموثق لشجرة العائلة', W / 2, 158);
-
-  const personFirstName = extractGivenName(person.fullName);
-
-  // Name Banner Box
-  ctx.fillStyle = '#F2F8F5';
-  drawRoundedRect(ctx, 70, 185, W - 140, 115, 18);
-  ctx.fill();
-  ctx.strokeStyle = '#0F4C3A';
-  ctx.lineWidth = 1.5;
-  drawRoundedRect(ctx, 70, 185, W - 140, 115, 18);
-  ctx.stroke();
-
-  ctx.fillStyle = '#0F4C3A';
-  ctx.font = 'bold 14px Cairo, sans-serif';
-  ctx.fillText('الاسم الأول للفرد (صاحب الوثيقة):', W / 2, 215);
-
-  ctx.font = 'bold 24px Cairo, sans-serif';
-  ctx.fillText(`« ${personFirstName} »`, W / 2, 255);
-
-  if (kinship?.mother) {
-    ctx.fillStyle = '#0F4C3A';
-    ctx.font = 'bold 14px Cairo, sans-serif';
-    ctx.fillText(`الأم (الوالدة): ${extractGivenName(kinship.mother.fullName)}`, W / 2, 285);
+  interface RenderSectionBlock {
+    height: number;
+    draw: (ctx: CanvasRenderingContext2D, topY: number) => void;
   }
 
-  let curY = 340;
+  const blocks: RenderSectionBlock[] = [];
 
-  // Ancestors Table (First name only in each row)
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#0F4C3A';
-  ctx.font = 'bold 18px Cairo, sans-serif';
-  ctx.fillText('سلسلة الآباء والأجداد صعوداً (الاسم الأول في كل خانة):', W - 70, curY);
-  curY += 20;
+  // Helper to build a titled 2-column grid card block
+  function createGridSectionBlock(config: {
+    headerTitle: string;
+    headerStat?: string;
+    headerSubnote?: string;
+    headerBg: string;
+    headerTextColor: string;
+    borderColor: string;
+    bodyBg: string;
+    items: GridCardItem[];
+    emptyText?: string;
+  }): RenderSectionBlock {
+    const COLS = 2;
+    const GAP_X = 16;
+    const GAP_Y = 12;
+    const PAD = 18;
+    const HEADER_H = config.headerSubnote ? 68 : 48;
+    const CARD_W = Math.floor((CONTENT_W - PAD * 2 - GAP_X) / COLS);
+    const hasSubtitles = config.items.some((it) => Boolean(it.subtitle));
+    const CARD_H = hasSubtitles ? 64 : 48;
+    const rows = Math.ceil(config.items.length / COLS);
+    const bodyH =
+      config.items.length === 0
+        ? 54
+        : PAD * 2 + rows * CARD_H + Math.max(0, rows - 1) * GAP_Y;
+    const totalH = HEADER_H + bodyH;
 
-  const chainRows = [{ label: 'الفرد (صاحب الوثيقة)', name: personFirstName }].concat(
-    ancestors.map((anc, idx) => ({
-      label: idx === 0 ? 'الأب المباشر' : idx === 1 ? 'الجد الأول' : `الجد (الجيل ${idx + 2})`,
-      name: extractGivenName(anc.fullName)
-    }))
-  );
+    return {
+      height: totalH,
+      draw: (ctx, topY) => {
+        ctx.save();
+        drawRoundedRect(ctx, MARGIN_X, topY, CONTENT_W, totalH, 14);
+        ctx.clip();
 
-  for (let i = 0; i < chainRows.length; i++) {
-    const row = chainRows[i];
-    ctx.fillStyle = i % 2 === 0 ? '#F8FAFC' : '#FFFFFF';
-    drawRoundedRect(ctx, 70, curY, W - 140, 38, 8);
-    ctx.fill();
+        // Body background
+        ctx.fillStyle = config.bodyBg;
+        ctx.fillRect(MARGIN_X, topY, CONTENT_W, totalH);
 
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#475569';
-    ctx.font = 'bold 14px Cairo, sans-serif';
-    ctx.fillText(row.label, W - 88, curY + 25);
+        // Header bar
+        ctx.fillStyle = config.headerBg;
+        ctx.fillRect(MARGIN_X, topY, CONTENT_W, HEADER_H);
 
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#0F172A';
-    ctx.font = 'bold 15px Cairo, sans-serif';
-    ctx.fillText(row.name, 90, curY + 25);
-    curY += 42;
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = config.headerTextColor;
+        ctx.font = '900 18px Cairo, sans-serif';
+        ctx.fillText(
+          config.headerTitle,
+          MARGIN_X + CONTENT_W - 20,
+          config.headerSubnote ? topY + 24 : topY + HEADER_H / 2
+        );
+
+        if (config.headerSubnote) {
+          ctx.font = 'bold 13px Cairo, sans-serif';
+          ctx.fillStyle = '#FEF3C7';
+          ctx.fillText(config.headerSubnote, MARGIN_X + CONTENT_W - 20, topY + 49);
+        }
+
+        if (config.headerStat) {
+          ctx.textAlign = 'left';
+          ctx.font = 'bold 14px Cairo, sans-serif';
+          ctx.fillStyle = '#FDE68A';
+          ctx.fillText(config.headerStat, MARGIN_X + 20, topY + HEADER_H / 2);
+        }
+
+        const contentStartY = topY + HEADER_H + PAD;
+
+        if (config.items.length === 0) {
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#64748B';
+          ctx.font = 'bold 15px Cairo, sans-serif';
+          ctx.fillText(
+            config.emptyText || '— لا توجد بيانات مسجلة —',
+            MARGIN_X + CONTENT_W / 2,
+            topY + HEADER_H + bodyH / 2
+          );
+        } else {
+          config.items.forEach((item, idx) => {
+            const r = Math.floor(idx / COLS);
+            const c = idx % COLS;
+            const cardRightX = MARGIN_X + CONTENT_W - PAD - c * (CARD_W + GAP_X);
+            const cardLeftX = cardRightX - CARD_W;
+            const cardTopY = contentStartY + r * (CARD_H + GAP_Y);
+
+            let cardBg = '#FFFFFF';
+            let cardBorder = '#CBD5E1';
+            let badgeBg = '#F1F5F9';
+            let badgeText = '#334155';
+
+            if (item.theme === 'emerald') {
+              cardBg = '#FFFFFF';
+              cardBorder = '#86EFAC';
+              badgeBg = '#ECFDF5';
+              badgeText = '#0F4C3A';
+            } else if (item.theme === 'rose') {
+              cardBg = '#FFFFFF';
+              cardBorder = '#FDA4AF';
+              badgeBg = '#FFF1F2';
+              badgeText = '#9F1239';
+            } else if (item.theme === 'amber') {
+              cardBg = '#FFFFFF';
+              cardBorder = '#FCD34D';
+              badgeBg = '#FFFBEB';
+              badgeText = '#92400E';
+            }
+
+            ctx.fillStyle = cardBg;
+            drawRoundedRect(ctx, cardLeftX, cardTopY, CARD_W, CARD_H, 10);
+            ctx.fill();
+
+            ctx.strokeStyle = cardBorder;
+            ctx.lineWidth = 1.4;
+            drawRoundedRect(ctx, cardLeftX, cardTopY, CARD_W, CARD_H, 10);
+            ctx.stroke();
+
+            // Badge on left
+            ctx.font = 'bold 12px Cairo, sans-serif';
+            const badgeW = Math.min(115, ctx.measureText(item.badge).width + 20);
+            const badgeH = 26;
+            const badgeX = cardLeftX + 10;
+            const badgeY = cardTopY + (CARD_H - badgeH) / 2;
+
+            ctx.fillStyle = badgeBg;
+            drawRoundedRect(ctx, badgeX, badgeY, badgeW, badgeH, 6);
+            ctx.fill();
+
+            ctx.textAlign = 'center';
+            ctx.fillStyle = badgeText;
+            ctx.fillText(item.badge, badgeX + badgeW / 2, badgeY + badgeH / 2 + 1);
+
+            // Title & optional subtitle on right
+            const maxTextW = CARD_W - badgeW - 34;
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#0F172A';
+            ctx.font = '900 16px Cairo, sans-serif';
+            const clippedTitle = truncateRtlText(ctx, item.title, maxTextW);
+
+            if (item.subtitle) {
+              ctx.fillText(clippedTitle, cardRightX - 12, cardTopY + 21);
+              ctx.fillStyle = item.theme === 'rose' ? '#9F1239' : '#64748B';
+              ctx.font = 'bold 12.5px Cairo, sans-serif';
+              const clippedSub = truncateRtlText(ctx, item.subtitle, maxTextW);
+              ctx.fillText(clippedSub, cardRightX - 12, cardTopY + 45);
+            } else {
+              ctx.fillText(clippedTitle, cardRightX - 12, cardTopY + CARD_H / 2 + 1);
+            }
+          });
+        }
+
+        ctx.restore();
+
+        ctx.strokeStyle = config.borderColor;
+        ctx.lineWidth = 1.8;
+        drawRoundedRect(ctx, MARGIN_X, topY, CONTENT_W, totalH, 14);
+        ctx.stroke();
+      }
+    };
   }
 
-  // Kinship Summary if provided (First names only)
-  if (kinship) {
-    curY += 24;
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#0F4C3A';
-    ctx.font = 'bold 18px Cairo, sans-serif';
-    ctx.fillText('ملخص صلات القرابة المباشرة:', W - 70, curY);
-    curY += 20;
+  // ==========================================================================
+  // BLOCK 1: PRIMARY IDENTITY BANNER (الاسم الكامل، الجنس، الزوج، وسلسلة النسب)
+  // ==========================================================================
+  sCtx.font = 'bold 16px Cairo, sans-serif';
+  const lineageLines = wrapArabicCanvasText(sCtx, lineage, CONTENT_W - 80);
+  const identityH = 165 + lineageLines.length * 28;
 
-    const kRows: { title: string; val: string }[] = [];
-    if (kinship.mother) kRows.push({ title: 'الأم (الوالدة):', val: extractGivenName(kinship.mother.fullName) });
-    if (kinship.brothers.length > 0)
-      kRows.push({ title: `الإخوة الذكور (${kinship.brothers.length}):`, val: kinship.brothers.map(b => extractGivenName(b.fullName)).join('، ') });
-    if (kinship.sisters.length > 0)
-      kRows.push({ title: `الأخوات (${kinship.sisters.length}):`, val: kinship.sisters.map(s => extractGivenName(s.fullName)).join('، ') });
-    if (kinship.paternalUncles.length > 0)
-      kRows.push({ title: `الأعمام (${kinship.paternalUncles.length}):`, val: kinship.paternalUncles.map(u => extractGivenName(u.fullName)).join('، ') });
-    if (kinship.paternalAunts.length > 0)
-      kRows.push({ title: `العمات (${kinship.paternalAunts.length}):`, val: kinship.paternalAunts.map(a => extractGivenName(a.fullName)).join('، ') });
-    if (kinship.maternalUncles.length > 0)
-      kRows.push({ title: `الأخوال (${kinship.maternalUncles.length}):`, val: kinship.maternalUncles.map(u => extractGivenName(u.fullName)).join('، ') });
-    if (kinship.maternalAunts.length > 0)
-      kRows.push({ title: `الخالات (${kinship.maternalAunts.length}):`, val: kinship.maternalAunts.map(a => extractGivenName(a.fullName)).join('، ') });
-
-    for (const kr of kRows) {
-      ctx.fillStyle = '#F8FAFC';
-      drawRoundedRect(ctx, 70, curY, W - 140, 36, 8);
+  blocks.push({
+    height: identityH,
+    draw: (ctx, topY) => {
+      const isMale = person.gender === 'male';
+      ctx.fillStyle = isMale ? '#F2F8F5' : '#FFF5F7';
+      drawRoundedRect(ctx, MARGIN_X, topY, CONTENT_W, identityH, 16);
       ctx.fill();
 
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#0F4C3A';
-      ctx.font = 'bold 13px Cairo, sans-serif';
-      ctx.fillText(kr.title, W - 88, curY + 23);
+      ctx.strokeStyle = isMale ? '#0F4C3A' : '#BE123C';
+      ctx.lineWidth = 2.2;
+      drawRoundedRect(ctx, MARGIN_X, topY, CONTENT_W, identityH, 16);
+      ctx.stroke();
 
+      // Top metadata badges inside identity banner
+      ctx.textBaseline = 'middle';
+      const genderBadgeText = isMale ? 'الجنس: ذكر' : 'الجنس: أنثى';
+      ctx.font = '900 14px Cairo, sans-serif';
+      const gbW = ctx.measureText(genderBadgeText).width + 28;
+      ctx.fillStyle = isMale ? '#0F4C3A' : '#9F1239';
+      drawRoundedRect(ctx, MARGIN_X + CONTENT_W - gbW - 20, topY + 16, gbW, 32, 10);
+      ctx.fill();
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#FDE68A';
+      ctx.fillText(genderBadgeText, MARGIN_X + CONTENT_W - gbW / 2 - 20, topY + 32);
+
+      // Wife badge if female and married
+      if (!isMale && (husbandPerson || person.husbandName)) {
+        const hName = formatAppName(husbandPerson ? husbandPerson.fullName : person.husbandName);
+        const wifeBadge = `زوجة: ${hName}`;
+        ctx.font = 'bold 14px Cairo, sans-serif';
+        const wbW = Math.min(480, ctx.measureText(wifeBadge).width + 28);
+        const wbRight = MARGIN_X + CONTENT_W - gbW - 32;
+        ctx.fillStyle = '#FFE4E6';
+        drawRoundedRect(ctx, wbRight - wbW, topY + 16, wbW, 32, 10);
+        ctx.fill();
+        ctx.strokeStyle = '#FDA4AF';
+        ctx.lineWidth = 1.2;
+        drawRoundedRect(ctx, wbRight - wbW, topY + 16, wbW, 32, 10);
+        ctx.stroke();
+
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#881337';
+        ctx.fillText(truncateRtlText(ctx, wifeBadge, wbW - 20), wbRight - wbW / 2, topY + 32);
+      }
+
+      // First name badge on the left
       ctx.textAlign = 'left';
-      ctx.fillStyle = '#1E293B';
-      ctx.font = '600 13px Cairo, sans-serif';
-      ctx.fillText(truncateRtlText(ctx, kr.val, W - 360), 90, curY + 23);
-      curY += 42;
-    }
-  }
-
-  // Children List (First name only in each box, no husband mentioned for daughters)
-  if (children.length > 0) {
-    curY += 24;
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#0F4C3A';
-    ctx.font = 'bold 18px Cairo, sans-serif';
-    ctx.fillText(`الفروع (الأبناء والبنات) (${children.length}):`, W - 70, curY);
-    curY += 20;
-
-    for (let i = 0; i < children.length; i += 2) {
-      const c1 = children[i];
-      const c2 = children[i + 1];
-
-      ctx.fillStyle = '#F2F8F5';
-      drawRoundedRect(ctx, W / 2 + 10, curY, W / 2 - 80, 36, 8);
-      ctx.fill();
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#0F172A';
+      ctx.fillStyle = '#475569';
       ctx.font = 'bold 14px Cairo, sans-serif';
       ctx.fillText(
-        `${i + 1}. ${extractGivenName(c1.fullName)} (${c1.gender === 'male' ? 'ابن' : 'ابنة'})`,
-        W - 85,
-        curY + 23
+        `الاسم الشخصي: ${extractGivenName(person.fullName)}`,
+        MARGIN_X + 22,
+        topY + 32
       );
 
-      if (c2) {
-        ctx.fillStyle = '#F2F8F5';
-        drawRoundedRect(ctx, 70, curY, W / 2 - 80, 36, 8);
+      // Center Full Name
+      ctx.textAlign = 'center';
+      ctx.fillStyle = isMale ? '#0F4C3A' : '#881337';
+      ctx.font = '900 28px Cairo, sans-serif';
+      ctx.fillText(
+        `« ${formatAppName(person.fullName)} »`,
+        MARGIN_X + CONTENT_W / 2,
+        topY + 80
+      );
+
+      // Lineage Box
+      const lBoxY = topY + 114;
+      const lBoxH = identityH - 130;
+      ctx.fillStyle = '#FFFFFF';
+      drawRoundedRect(ctx, MARGIN_X + 24, lBoxY, CONTENT_W - 48, lBoxH, 12);
+      ctx.fill();
+      ctx.strokeStyle = '#CBD5E1';
+      ctx.lineWidth = 1.2;
+      drawRoundedRect(ctx, MARGIN_X + 24, lBoxY, CONTENT_W - 48, lBoxH, 12);
+      ctx.stroke();
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#64748B';
+      ctx.font = 'bold 13px Cairo, sans-serif';
+      ctx.fillText('سلسلة النسب الكاملة:', MARGIN_X + CONTENT_W / 2, lBoxY + 18);
+
+      ctx.fillStyle = '#1E293B';
+      ctx.font = 'bold 16px Cairo, sans-serif';
+      lineageLines.forEach((line, idx) => {
+        ctx.fillText(line, MARGIN_X + CONTENT_W / 2, lBoxY + 44 + idx * 26);
+      });
+    }
+  });
+
+  // ==========================================================================
+  // BLOCK 2: DIRECT ORIGINS (الأب، الجد، الأم)
+  // ==========================================================================
+  blocks.push({
+    height: 142,
+    draw: (ctx, topY) => {
+      ctx.save();
+      drawRoundedRect(ctx, MARGIN_X, topY, CONTENT_W, 142, 14);
+      ctx.clip();
+
+      ctx.fillStyle = '#F8FAFC';
+      ctx.fillRect(MARGIN_X, topY, CONTENT_W, 142);
+
+      // Header
+      ctx.fillStyle = '#0F4C3A';
+      ctx.fillRect(MARGIN_X, topY, CONTENT_W, 46);
+
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 18px Cairo, sans-serif';
+      ctx.fillText(
+        'أولاً: نسب الفرد والأصول المباشرة (الأب، الجد، الأم)',
+        MARGIN_X + CONTENT_W - 20,
+        topY + 23
+      );
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#FDE68A';
+      ctx.font = 'bold 14px Cairo, sans-serif';
+      ctx.fillText(`عدد الأجيال الصاعدة: ${ancestors.length + 1}`, MARGIN_X + 20, topY + 23);
+
+      const boxGap = 14;
+      const boxW = Math.floor((CONTENT_W - 36 - boxGap * 2) / 3);
+      const boxH = 68;
+      const boxY = topY + 60;
+
+      const origins = [
+        {
+          label: 'الأب المباشر:',
+          value: father ? formatAppName(father.fullName) : 'غير مسجل (بداية شجرة مستقلة)',
+          color: '#0F172A'
+        },
+        {
+          label: 'الجد المباشر:',
+          value: grandfather ? formatAppName(grandfather.fullName) : 'غير مسجل',
+          color: '#0F172A'
+        },
+        {
+          label: 'الأم (الوالدة):',
+          value: kinship?.mother ? formatAppName(kinship.mother.fullName) : 'غير مسجلة في الشجرة',
+          color: kinship?.mother ? '#881337' : '#64748B'
+        }
+      ];
+
+      origins.forEach((orig, idx) => {
+        const rightX = MARGIN_X + CONTENT_W - 18 - idx * (boxW + boxGap);
+        const leftX = rightX - boxW;
+
+        ctx.fillStyle = '#FFFFFF';
+        drawRoundedRect(ctx, leftX, boxY, boxW, boxH, 10);
         ctx.fill();
+        ctx.strokeStyle = '#CBD5E1';
+        ctx.lineWidth = 1.2;
+        drawRoundedRect(ctx, leftX, boxY, boxW, boxH, 10);
+        ctx.stroke();
+
         ctx.textAlign = 'right';
-        ctx.fillStyle = '#0F172A';
+        ctx.fillStyle = '#64748B';
+        ctx.font = 'bold 12.5px Cairo, sans-serif';
+        ctx.fillText(orig.label, rightX - 12, boxY + 21);
+
+        ctx.fillStyle = orig.color;
+        ctx.font = '900 15px Cairo, sans-serif';
+        ctx.fillText(truncateRtlText(ctx, orig.value, boxW - 24), rightX - 12, boxY + 46);
+      });
+
+      ctx.restore();
+      ctx.strokeStyle = '#0F4C3A';
+      ctx.lineWidth = 1.8;
+      drawRoundedRect(ctx, MARGIN_X, topY, CONTENT_W, 142, 14);
+      ctx.stroke();
+    }
+  });
+
+  // ==========================================================================
+  // BLOCK 2B: ANCESTORS STEPPER CHAIN (تسلسل الآباء والأجداد صعوداً)
+  // ==========================================================================
+  if (ancestors.length > 0) {
+    const chainItems: GridCardItem[] = [
+      {
+        title: `1. ${extractGivenName(person.fullName)}`,
+        subtitle: formatAppName(person.fullName),
+        badge: 'صاحب البطاقة',
+        theme: 'emerald'
+      },
+      ...ancestors.map((anc, idx) => ({
+        title: `${idx + 2}. ${extractGivenName(anc.fullName)}`,
+        subtitle: formatAppName(anc.fullName),
+        badge: idx === 0 ? 'الأب المباشر' : idx === 1 ? 'الجد الأول' : `الجد (${idx + 1})`,
+        theme: 'slate' as const
+      }))
+    ];
+
+    blocks.push(
+      createGridSectionBlock({
+        headerTitle: 'تسلسل الآباء والأجداد صعوداً',
+        headerStat: `${ancestors.length + 1} أجيال`,
+        headerBg: '#1E293B',
+        headerTextColor: '#FFFFFF',
+        borderColor: '#475569',
+        bodyBg: '#F8FAFC',
+        items: chainItems
+      })
+    );
+  }
+
+  // ==========================================================================
+  // BLOCK 3: HUSBAND & COUPLE RELATIONSHIP (للأنثى المتزوجة)
+  // ==========================================================================
+  if (person.gender === 'female' && (husbandPerson || person.husbandName)) {
+    const husbandFullName = formatAppName(
+      husbandPerson ? husbandPerson.fullName : person.husbandName
+    );
+    sCtx.font = 'bold 14px Cairo, sans-serif';
+    const relDescLines = coupleRelationship
+      ? wrapArabicCanvasText(sCtx, coupleRelationship.description, CONTENT_W - 60)
+      : [];
+    const spouseBlockH = coupleRelationship ? 145 + relDescLines.length * 24 : 108;
+
+    blocks.push({
+      height: spouseBlockH,
+      draw: (ctx, topY) => {
+        ctx.save();
+        drawRoundedRect(ctx, MARGIN_X, topY, CONTENT_W, spouseBlockH, 14);
+        ctx.clip();
+
+        ctx.fillStyle = '#FFF5F7';
+        ctx.fillRect(MARGIN_X, topY, CONTENT_W, spouseBlockH);
+
+        ctx.fillStyle = '#881337';
+        ctx.fillRect(MARGIN_X, topY, CONTENT_W, 46);
+
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '900 18px Cairo, sans-serif';
         ctx.fillText(
-          `${i + 2}. ${extractGivenName(c2.fullName)} (${c2.gender === 'male' ? 'ابن' : 'ابنة'})`,
-          W / 2 - 25,
-          curY + 23
+          'بيانات الزوج وصلة القرابة بين الزوجين',
+          MARGIN_X + CONTENT_W - 20,
+          topY + 23
         );
+
+        // Husband row
+        ctx.fillStyle = '#FFFFFF';
+        drawRoundedRect(ctx, MARGIN_X + 18, topY + 58, CONTENT_W - 36, 38, 8);
+        ctx.fill();
+        ctx.strokeStyle = '#FDA4AF';
+        ctx.lineWidth = 1.2;
+        drawRoundedRect(ctx, MARGIN_X + 18, topY + 58, CONTENT_W - 36, 38, 8);
+        ctx.stroke();
+
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#9F1239';
+        ctx.font = 'bold 14px Cairo, sans-serif';
+        ctx.fillText('الزوج المسجل:', MARGIN_X + CONTENT_W - 32, topY + 77);
+
+        ctx.fillStyle = '#0F172A';
+        ctx.font = '900 16px Cairo, sans-serif';
+        ctx.fillText(husbandFullName, MARGIN_X + CONTENT_W - 145, topY + 77);
+
+        if (coupleRelationship) {
+          const relBoxY = topY + 104;
+          const relBoxH = spouseBlockH - 116;
+          ctx.fillStyle = '#FFFFFF';
+          drawRoundedRect(ctx, MARGIN_X + 18, relBoxY, CONTENT_W - 36, relBoxH, 8);
+          ctx.fill();
+          ctx.strokeStyle = '#86EFAC';
+          ctx.lineWidth = 1.2;
+          drawRoundedRect(ctx, MARGIN_X + 18, relBoxY, CONTENT_W - 36, relBoxH, 8);
+          ctx.stroke();
+
+          ctx.textAlign = 'right';
+          ctx.fillStyle = '#0F4C3A';
+          ctx.font = '900 15px Cairo, sans-serif';
+          ctx.fillText(
+            `صلة القرابة بينهما: ${coupleRelationship.relationToHusband}`,
+            MARGIN_X + CONTENT_W - 32,
+            relBoxY + 20
+          );
+
+          ctx.fillStyle = '#334155';
+          ctx.font = 'bold 13.5px Cairo, sans-serif';
+          relDescLines.forEach((line, i) => {
+            ctx.fillText(line, MARGIN_X + CONTENT_W - 32, relBoxY + 46 + i * 22);
+          });
+        }
+
+        ctx.restore();
+        ctx.strokeStyle = '#BE123C';
+        ctx.lineWidth = 1.8;
+        drawRoundedRect(ctx, MARGIN_X, topY, CONTENT_W, spouseBlockH, 14);
+        ctx.stroke();
       }
-      curY += 42;
+    });
+  }
+
+  // ==========================================================================
+  // BLOCK 4: DESCENDANTS / CHILDREN (ثانياً: الفروع والأبناء)
+  // ==========================================================================
+  if (person.gender === 'male') {
+    const sonItems: GridCardItem[] = sons.map((s, idx) => ({
+      title: `${idx + 1}. ${formatBranchName(s.fullName)}`,
+      subtitle: formatAppName(s.fullName),
+      badge: 'ذكر (ابن)',
+      theme: 'emerald'
+    }));
+
+    blocks.push(
+      createGridSectionBlock({
+        headerTitle: `ثانياً: الفروع — الأبناء الذكور (${sons.length})`,
+        headerStat: `إجمالي الفروع: ${children.length} (${sons.length} ذكور · ${daughters.length} إناث)`,
+        headerBg: '#0F4C3A',
+        headerTextColor: '#FFFFFF',
+        borderColor: '#0F4C3A',
+        bodyBg: '#F4FBF7',
+        items: sonItems,
+        emptyText: '— لا يوجد أبناء ذكور مسجلون لهذا الاسم —'
+      })
+    );
+
+    const daughterItems: GridCardItem[] = daughters.map((d, idx) => {
+      const dHusb = d.husbandId ? allPersons.find((p) => p.id === d.husbandId) : undefined;
+      const husbLabel =
+        dHusb || d.husbandName
+          ? `زوجة: ${formatAppName(dHusb ? dHusb.fullName : d.husbandName)}`
+          : undefined;
+      return {
+        title: `${idx + 1}. ${formatBranchName(d.fullName)}`,
+        subtitle: husbLabel,
+        badge: 'أنثى (ابنة)',
+        theme: 'rose'
+      };
+    });
+
+    blocks.push(
+      createGridSectionBlock({
+        headerTitle: `ثانياً (تابع): الفروع — البنات الإناث (${daughters.length})`,
+        headerStat: `${daughters.length} إناث`,
+        headerBg: '#881337',
+        headerTextColor: '#FFFFFF',
+        borderColor: '#BE123C',
+        bodyBg: '#FFF9FA',
+        items: daughterItems,
+        emptyText: '— لا توجد بنات مسجلات لهذا الاسم —'
+      })
+    );
+  } else {
+    const motherChildrenItems: GridCardItem[] = (kinship?.children || []).map((ch, idx) => ({
+      title: `${idx + 1}. ${formatAppName(ch.fullName)}`,
+      badge: ch.gender === 'male' ? 'ابنها' : 'ابنتها',
+      theme: ch.gender === 'male' ? 'emerald' : 'rose'
+    }));
+
+    blocks.push(
+      createGridSectionBlock({
+        headerTitle: `ثانياً: الفروع — أبناؤها وبناتها من زوجها (${motherChildrenItems.length})`,
+        headerStat: `${maleMotherChildren.length} ذكور · ${femaleMotherChildren.length} إناث`,
+        headerSubnote:
+          'يُنسب الأبناء لآبائهم في عمود النسب وتُحفظ صلتهم بأمهم وأخوالهم وخالاتهم في سجل القرابة',
+        headerBg: '#881337',
+        headerTextColor: '#FFFFFF',
+        borderColor: '#BE123C',
+        bodyBg: '#FFF9FA',
+        items: motherChildrenItems,
+        emptyText: '— لا يوجد أبناء مسجلون لها في الشجرة حالياً —'
+      })
+    );
+  }
+
+  // ==========================================================================
+  // BLOCK 5: EXTENDED KINSHIP & RELATED DATA (ثالثاً: صلات القرابة والبيانات المتعلقة بالاسم)
+  // ==========================================================================
+  if (kinship) {
+    // 5.1 Wives (for male)
+    if (person.gender === 'male' && kinship.wives.length > 0) {
+      const wifeItems: GridCardItem[] = kinship.wives.map((w, idx) => {
+        const rel =
+          allPersons.length > 0
+            ? getCoupleRelationship(w.id, w.fatherId, person.id, allPersons)
+            : null;
+        return {
+          title: `${idx + 1}. ${formatAppName(w.fullName)}`,
+          subtitle: rel ? `صلة القرابة: ${rel.relationToHusband}` : undefined,
+          badge: 'زوجة مسجلة',
+          theme: 'rose'
+        };
+      });
+
+      blocks.push(
+        createGridSectionBlock({
+          headerTitle: `الزوجات المسجلات في الشجرة (${kinship.wives.length})`,
+          headerBg: '#881337',
+          headerTextColor: '#FFFFFF',
+          borderColor: '#BE123C',
+          bodyBg: '#FFF9FA',
+          items: wifeItems
+        })
+      );
+    }
+
+    // 5.2 Siblings (الإخوة والأخوات)
+    if (kinship.siblings.length > 0) {
+      const sibItems: GridCardItem[] = kinship.siblings.map((sib, idx) => ({
+        title: `${idx + 1}. ${formatAppName(sib.fullName)}`,
+        badge: sib.gender === 'male' ? 'أخ' : 'أخت',
+        theme: sib.gender === 'male' ? 'emerald' : 'rose'
+      }));
+
+      blocks.push(
+        createGridSectionBlock({
+          headerTitle: `الإخوة والأخوات (${kinship.siblings.length})`,
+          headerStat: `${kinship.brothers.length} ذكور · ${kinship.sisters.length} إناث`,
+          headerBg: '#0F4C3A',
+          headerTextColor: '#FFFFFF',
+          borderColor: '#0F4C3A',
+          bodyBg: '#F8FAFC',
+          items: sibItems
+        })
+      );
+    }
+
+    // 5.3 Paternal Uncles & Aunts (الأعمام والعمات)
+    if (kinship.paternalUncles.length > 0 || kinship.paternalAunts.length > 0) {
+      const patItems: GridCardItem[] = [
+        ...kinship.paternalUncles.map((u, idx) => ({
+          title: `${idx + 1}. ${formatAppName(u.fullName)}`,
+          badge: 'عم',
+          theme: 'emerald' as const
+        })),
+        ...kinship.paternalAunts.map((a, idx) => ({
+          title: `${kinship.paternalUncles.length + idx + 1}. ${formatAppName(a.fullName)}`,
+          badge: 'عمة',
+          theme: 'rose' as const
+        }))
+      ];
+
+      blocks.push(
+        createGridSectionBlock({
+          headerTitle: `الأعمام والعمات — إخوة وأخوات الأب (${patItems.length})`,
+          headerStat: `${kinship.paternalUncles.length} أعمام · ${kinship.paternalAunts.length} عمات`,
+          headerBg: '#0F4C3A',
+          headerTextColor: '#FFFFFF',
+          borderColor: '#0F4C3A',
+          bodyBg: '#F4FBF7',
+          items: patItems
+        })
+      );
+    }
+
+    // 5.4 Maternal Uncles & Aunts (الأخوال والخالات)
+    if (kinship.maternalUncles.length > 0 || kinship.maternalAunts.length > 0) {
+      const matItems: GridCardItem[] = [
+        ...kinship.maternalUncles.map((u, idx) => ({
+          title: `${idx + 1}. ${formatAppName(u.fullName)}`,
+          badge: 'خال',
+          theme: 'amber' as const
+        })),
+        ...kinship.maternalAunts.map((a, idx) => ({
+          title: `${kinship.maternalUncles.length + idx + 1}. ${formatAppName(a.fullName)}`,
+          badge: 'خالة',
+          theme: 'amber' as const
+        }))
+      ];
+
+      blocks.push(
+        createGridSectionBlock({
+          headerTitle: `الأخوال والخالات — إخوة وأخوات الأم (${matItems.length})`,
+          headerStat: `${kinship.maternalUncles.length} أخوال · ${kinship.maternalAunts.length} خالات`,
+          headerSubnote: kinship.mother
+            ? `الأم (الوالدة): ${formatAppName(kinship.mother.fullName)}`
+            : undefined,
+          headerBg: '#78350F',
+          headerTextColor: '#FFFFFF',
+          borderColor: '#D97706',
+          bodyBg: '#FFFBEB',
+          items: matItems
+        })
+      );
+    }
+
+    // 5.5 Paternal Uncle To (عم لـ)
+    if (person.gender === 'male' && kinship.isPaternalUncleTo.length > 0) {
+      const items: GridCardItem[] = kinship.isPaternalUncleTo.map((n, idx) => ({
+        title: `${idx + 1}. ${formatAppName(n.fullName)}`,
+        badge: n.gender === 'male' ? 'ابن أخ' : 'ابنة أخ',
+        theme: 'emerald'
+      }));
+
+      blocks.push(
+        createGridSectionBlock({
+          headerTitle: `عم لـ — أبناء وبنات إخوته الذكور (${items.length})`,
+          headerBg: '#0F4C3A',
+          headerTextColor: '#FFFFFF',
+          borderColor: '#0F4C3A',
+          bodyBg: '#F4FBF7',
+          items
+        })
+      );
+    }
+
+    // 5.6 Paternal Aunt To (عمة لـ)
+    if (person.gender === 'female' && kinship.isPaternalAuntTo.length > 0) {
+      const items: GridCardItem[] = kinship.isPaternalAuntTo.map((n, idx) => ({
+        title: `${idx + 1}. ${formatAppName(n.fullName)}`,
+        badge: n.gender === 'male' ? 'ابن أخ' : 'ابنة أخ',
+        theme: 'emerald'
+      }));
+
+      blocks.push(
+        createGridSectionBlock({
+          headerTitle: `عمة لـ — أبناء وبنات إخوتها الذكور (${items.length})`,
+          headerBg: '#0F4C3A',
+          headerTextColor: '#FFFFFF',
+          borderColor: '#0F4C3A',
+          bodyBg: '#F4FBF7',
+          items
+        })
+      );
+    }
+
+    // 5.7 Maternal Uncle To (خال لـ)
+    if (person.gender === 'male' && kinship.isMaternalUncleTo.length > 0) {
+      const items: GridCardItem[] = kinship.isMaternalUncleTo.map((n, idx) => ({
+        title: `${idx + 1}. ${formatAppName(n.fullName)}`,
+        badge: n.gender === 'male' ? 'ابن أخت' : 'ابنة أخت',
+        theme: 'amber'
+      }));
+
+      blocks.push(
+        createGridSectionBlock({
+          headerTitle: `خال لـ — أبناء وبنات أخواته (${items.length})`,
+          headerBg: '#78350F',
+          headerTextColor: '#FFFFFF',
+          borderColor: '#D97706',
+          bodyBg: '#FFFBEB',
+          items
+        })
+      );
+    }
+
+    // 5.8 Maternal Aunt To (خالة لـ)
+    if (person.gender === 'female' && kinship.isMaternalAuntTo.length > 0) {
+      const items: GridCardItem[] = kinship.isMaternalAuntTo.map((n, idx) => ({
+        title: `${idx + 1}. ${formatAppName(n.fullName)}`,
+        badge: n.gender === 'male' ? 'ابن أخت' : 'ابنة أخت',
+        theme: 'amber'
+      }));
+
+      blocks.push(
+        createGridSectionBlock({
+          headerTitle: `خالة لـ — أبناء وبنات أخواتها (${items.length})`,
+          headerBg: '#78350F',
+          headerTextColor: '#FFFFFF',
+          borderColor: '#D97706',
+          bodyBg: '#FFFBEB',
+          items
+        })
+      );
+    }
+
+    // 5.9 Maternal Uncles/Aunts of her children (if female with children)
+    if (
+      person.gender === 'female' &&
+      kinship.children.length > 0 &&
+      (kinship.brothers.length > 0 || kinship.sisters.length > 0)
+    ) {
+      const items: GridCardItem[] = [
+        ...kinship.brothers.map((b, idx) => ({
+          title: `${idx + 1}. ${formatAppName(b.fullName)}`,
+          badge: 'خال الأبناء',
+          theme: 'rose' as const
+        })),
+        ...kinship.sisters.map((s, idx) => ({
+          title: `${kinship.brothers.length + idx + 1}. ${formatAppName(s.fullName)}`,
+          badge: 'خالة الأبناء',
+          theme: 'rose' as const
+        }))
+      ];
+
+      blocks.push(
+        createGridSectionBlock({
+          headerTitle: `أخوال وخالات أبنائها — إخوة وأخوات أمهم هذه (${items.length})`,
+          headerBg: '#881337',
+          headerTextColor: '#FFFFFF',
+          borderColor: '#BE123C',
+          bodyBg: '#FFF9FA',
+          items
+        })
+      );
+    }
+
+    // 5.10 Excluded Husband Children (if any)
+    if (person.gender === 'female' && kinship.excludedHusbandChildren.length > 0) {
+      const items: GridCardItem[] = kinship.excludedHusbandChildren.map(
+        ({ child, otherMother }, idx) => ({
+          title: `${idx + 1}. ${formatAppName(child.fullName)}`,
+          subtitle: otherMother ? `الأم: ${formatAppName(otherMother.fullName)}` : undefined,
+          badge: 'من أم أخرى',
+          theme: 'slate'
+        })
+      );
+
+      blocks.push(
+        createGridSectionBlock({
+          headerTitle: `أبناء الزوج المستثنون من أمومتها (${items.length})`,
+          headerBg: '#334155',
+          headerTextColor: '#FFFFFF',
+          borderColor: '#64748B',
+          bodyBg: '#F8FAFC',
+          items
+        })
+      );
     }
   }
 
-  // Footer Seal
-  const footerY = H - 85;
-  ctx.strokeStyle = '#D4AF37';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(70, footerY - 25);
-  ctx.lineTo(W - 70, footerY - 25);
-  ctx.stroke();
+  // ==========================================================================
+  // BLOCK 6: NOTES / BIOGRAPHY (رابعاً: نبذة وملاحظات مسجلة)
+  // ==========================================================================
+  if (person.notes && person.notes.trim()) {
+    sCtx.font = 'bold 15px Cairo, sans-serif';
+    const noteLines = wrapArabicCanvasText(sCtx, person.notes.trim(), CONTENT_W - 48);
+    const notesBlockH = 72 + noteLines.length * 26;
 
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#64748B';
-  ctx.font = 'bold 13px Cairo, sans-serif';
-  ctx.fillText(`تاريخ التوثيق والاستخراج: ${new Date().toLocaleDateString('ar-SA')} م`, W - 70, footerY + 5);
+    blocks.push({
+      height: notesBlockH,
+      draw: (ctx, topY) => {
+        ctx.save();
+        drawRoundedRect(ctx, MARGIN_X, topY, CONTENT_W, notesBlockH, 14);
+        ctx.clip();
 
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#0F4C3A';
-  ctx.fillText('ختم سجل شجرة العائلة الرقمي الموثق', 70, footerY + 5);
+        ctx.fillStyle = '#FBF9F5';
+        ctx.fillRect(MARGIN_X, topY, CONTENT_W, notesBlockH);
 
-  const jpegBytes = canvasToJpegBytes(canvas, 0.94);
-  const pdfBlob = createPdfBlobFromJpegPages([
-    {
+        ctx.fillStyle = '#0F4C3A';
+        ctx.fillRect(MARGIN_X, topY, CONTENT_W, 44);
+
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '900 17px Cairo, sans-serif';
+        ctx.fillText('نبذة وملاحظات مسجلة', MARGIN_X + CONTENT_W - 20, topY + 22);
+
+        ctx.fillStyle = '#1E293B';
+        ctx.font = 'bold 15px Cairo, sans-serif';
+        noteLines.forEach((line, idx) => {
+          ctx.fillText(line, MARGIN_X + CONTENT_W - 24, topY + 68 + idx * 26);
+        });
+
+        ctx.restore();
+        ctx.strokeStyle = '#D4AF37';
+        ctx.lineWidth = 1.8;
+        drawRoundedRect(ctx, MARGIN_X, topY, CONTENT_W, notesBlockH, 14);
+        ctx.stroke();
+      }
+    });
+  }
+
+  // ==========================================================================
+  // PAGINATE BLOCKS INTO A4 PAGES
+  // ==========================================================================
+  const BLOCK_GAP = 20;
+  const pagesBlocks: RenderSectionBlock[][] = [];
+  let currentList: RenderSectionBlock[] = [];
+  let curY = 210; // first page top start after header
+
+  for (const blk of blocks) {
+    const startYForNewPage = 135;
+    if (curY + blk.height > BOTTOM_LIMIT_Y && currentList.length > 0) {
+      pagesBlocks.push(currentList);
+      currentList = [blk];
+      curY = startYForNewPage + blk.height + BLOCK_GAP;
+    } else {
+      currentList.push(blk);
+      curY += blk.height + BLOCK_GAP;
+    }
+  }
+  if (currentList.length > 0) {
+    pagesBlocks.push(currentList);
+  }
+
+  const totalPages = Math.max(1, pagesBlocks.length);
+  const dateStr = new Date().toLocaleDateString('ar-SA');
+  const personFirstName = extractGivenName(person.fullName);
+
+  const pdfPages: {
+    jpegBytes: Uint8Array;
+    widthPx: number;
+    heightPx: number;
+    pageWidthPt: number;
+    pageHeightPt: number;
+  }[] = [];
+
+  for (let pIdx = 0; pIdx < totalPages; pIdx++) {
+    const pageList = pagesBlocks[pIdx] || [];
+    const lastBlockBottom =
+      (pIdx === 0 ? 210 : 135) +
+      pageList.reduce((acc, b) => acc + b.height + BLOCK_GAP, 0);
+    const dynamicPageH = Math.max(PAGE_H, lastBlockBottom + 110);
+
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = PAGE_W * scale;
+    canvas.height = dynamicPageH * scale;
+    const ctx = canvas.getContext('2d')!;
+    ctx.scale(scale, scale);
+    ctx.direction = 'rtl';
+
+    // Page Background
+    ctx.fillStyle = '#FFFDF9';
+    ctx.fillRect(0, 0, PAGE_W, dynamicPageH);
+
+    // Ornate Double Page Frame
+    ctx.strokeStyle = '#0F4C3A';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(24, 24, PAGE_W - 48, dynamicPageH - 48);
+    ctx.strokeStyle = '#D4AF37';
+    ctx.lineWidth = 1.6;
+    ctx.strokeRect(32, 32, PAGE_W - 64, dynamicPageH - 64);
+
+    let drawY = 135;
+    if (pIdx === 0) {
+      // Main Header Banner on Page 1
+      ctx.fillStyle = '#0F4C3A';
+      drawRoundedRect(ctx, MARGIN_X, 52, CONTENT_W, 134, 18);
+      ctx.fill();
+      ctx.strokeStyle = '#D4AF37';
+      ctx.lineWidth = 2.5;
+      drawRoundedRect(ctx, MARGIN_X, 52, CONTENT_W, 134, 18);
+      ctx.stroke();
+
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 30px Cairo, sans-serif';
+      ctx.fillText(
+        'بطاقة التفصيل الكامل للنسب والفروع وصلات القرابة',
+        PAGE_W / 2,
+        100
+      );
+
+      ctx.fillStyle = '#FDE68A';
+      ctx.font = 'bold 17px Cairo, sans-serif';
+      ctx.fillText(
+        `صاحب البطاقة: ${formatAppName(person.fullName)}`,
+        PAGE_W / 2,
+        148
+      );
+
+      drawY = 210;
+    } else {
+      // Compact Header on Continuation Pages
+      ctx.fillStyle = '#0F4C3A';
+      drawRoundedRect(ctx, MARGIN_X, 50, CONTENT_W, 64, 14);
+      ctx.fill();
+      ctx.strokeStyle = '#D4AF37';
+      ctx.lineWidth = 1.8;
+      drawRoundedRect(ctx, MARGIN_X, 50, CONTENT_W, 64, 14);
+      ctx.stroke();
+
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 20px Cairo, sans-serif';
+      ctx.fillText(
+        `تابع بطاقة تفاصيل: ${formatAppName(person.fullName)}`,
+        PAGE_W - MARGIN_X - 22,
+        82
+      );
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#FDE68A';
+      ctx.font = 'bold 15px Cairo, sans-serif';
+      ctx.fillText(`صفحة ${pIdx + 1} من ${totalPages}`, MARGIN_X + 22, 82);
+
+      drawY = 135;
+    }
+
+    for (const blk of pageList) {
+      blk.draw(ctx, drawY);
+      drawY += blk.height + BLOCK_GAP;
+    }
+
+    // Page Footer
+    const footerLineY = dynamicPageH - 72;
+    ctx.strokeStyle = '#CBD5E1';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(MARGIN_X, footerLineY);
+    ctx.lineTo(PAGE_W - MARGIN_X, footerLineY);
+    ctx.stroke();
+
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#334155';
+    ctx.font = 'bold 14px Cairo, sans-serif';
+    ctx.fillText(
+      `بطاقة تفاصيل: ${formatAppName(person.fullName)}`,
+      PAGE_W - MARGIN_X,
+      footerLineY + 24
+    );
+
+    const pageBadgeText = `صفحة ${pIdx + 1} من ${totalPages}`;
+    ctx.font = '900 14px Cairo, sans-serif';
+    const pbW = ctx.measureText(pageBadgeText).width + 30;
+    ctx.fillStyle = '#0F4C3A';
+    drawRoundedRect(ctx, (PAGE_W - pbW) / 2, footerLineY + 8, pbW, 30, 8);
+    ctx.fill();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#FDE68A';
+    ctx.fillText(pageBadgeText, PAGE_W / 2, footerLineY + 23);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#64748B';
+    ctx.font = 'bold 13px Cairo, sans-serif';
+    ctx.fillText(`تاريخ الاستخراج: ${dateStr} م`, MARGIN_X, footerLineY + 24);
+
+    const jpegBytes = canvasToJpegBytes(canvas, 0.94);
+    pdfPages.push({
       jpegBytes,
       widthPx: canvas.width,
       heightPx: canvas.height,
       pageWidthPt: 595.28,
-      pageHeightPt: Math.round((H / W) * 595.28)
-    }
-  ]);
+      pageHeightPt: Math.round((dynamicPageH / PAGE_W) * 595.28)
+    });
+  }
 
-  triggerBlobDownload(pdfBlob, `وثيقة_نسب_${personFirstName}.pdf`);
+  const pdfBlob = createPdfBlobFromJpegPages(pdfPages);
+  triggerBlobDownload(pdfBlob, `تفاصيل_${personFirstName}.pdf`);
 }
 
 // ============================================================================

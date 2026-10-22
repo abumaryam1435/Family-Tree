@@ -14,11 +14,12 @@ export const PWAInstallButton: React.FC = () => {
     return (
       <button
         onClick={install}
-        className="flex items-center gap-1.5 rounded-lg bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-[#94741E] border border-[#D4AF37]/30 px-3 py-1.5 text-xs font-semibold transition shadow-xs whitespace-nowrap shrink-0"
+        className="min-h-[38px] flex items-center gap-1 sm:gap-1.5 rounded-xl bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-[#94741E] border border-[#D4AF37]/30 px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition shadow-2xs whitespace-nowrap shrink-0 cursor-pointer"
         title="تثبيت تطبيق «العائلة» على هاتفك"
       >
-        <Download className="w-3.5 h-3.5" />
-        <span>تثبيت التطبيق</span>
+        <Download className="w-3.5 h-3.5 shrink-0" />
+        <span className="sm:hidden">تثبيت</span>
+        <span className="hidden sm:inline">تثبيت التطبيق</span>
       </button>
     );
   }
@@ -28,11 +29,12 @@ export const PWAInstallButton: React.FC = () => {
       <>
         <button
           onClick={() => setShowIOSGuide(true)}
-          className="flex items-center gap-1.5 rounded-lg bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-[#94741E] border border-[#D4AF37]/30 px-3 py-1.5 text-xs font-semibold transition shadow-xs whitespace-nowrap shrink-0"
+          className="min-h-[38px] flex items-center gap-1 sm:gap-1.5 rounded-xl bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 text-[#94741E] border border-[#D4AF37]/30 px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-bold transition shadow-2xs whitespace-nowrap shrink-0 cursor-pointer"
           title="تثبيت تطبيق «العائلة» في الآيفون"
         >
-          <Download className="w-3.5 h-3.5" />
-          <span>تثبيت في الآيفون</span>
+          <Download className="w-3.5 h-3.5 shrink-0" />
+          <span className="sm:hidden">تثبيت</span>
+          <span className="hidden sm:inline">تثبيت في الآيفون</span>
         </button>
 
         {showIOSGuide && (
