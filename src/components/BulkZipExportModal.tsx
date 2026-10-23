@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   FolderArchive,
   X,
@@ -83,6 +83,7 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
   const [readyToSharePrompt, setReadyToSharePrompt] = useState(false);
   const [shareUnsupportedMsg, setShareUnsupportedMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const readyCardRef = useRef<HTMLDivElement | null>(null);
 
   // Initialize defaults when modal opens
   useEffect(() => {
@@ -106,6 +107,15 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
     setShareUnsupportedMsg(null);
     setErrorMsg(null);
   }, [selectedRootIds, modeChoice, femalesChoice, selectedFormats]);
+
+  // Scroll the prepared ZIP card into view when generation completes
+  useEffect(() => {
+    if (generatedResult && readyCardRef.current) {
+      setTimeout(() => {
+        readyCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 60);
+    }
+  }, [generatedResult, readyToSharePrompt, shareUnsupportedMsg]);
 
   // Calculate member counts per tree
   const treeMemberCounts = useMemo(() => {
@@ -174,18 +184,22 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
 
   // Synchronous handler for when files are already generated in memory (0ms user gesture -> navigator.share)
   const handleImmediateShare = async (cached: BulkZipResult) => {
-    // MUST invoke shareBulkResultToWhatsApp synchronously on the first line before any state updates or awaits
-    const sharePromise = shareBulkResultToWhatsApp(cached);
+    // MUST invoke shareBulkResultToWhatsApp(cached, true) synchronously on the first line before any state updates or awaits
+    const sharePromise = shareBulkResultToWhatsApp(cached, true);
     setErrorMsg(null);
     setShareUnsupportedMsg(null);
 
     const outcome = await sharePromise;
     if (outcome === 'shared_zip' || outcome === 'shared_files') {
       setReadyToSharePrompt(false);
-    } else if (outcome === 'unsupported') {
+    } else if (
+      outcome === 'downloaded_fallback' ||
+      outcome === 'unsupported' ||
+      outcome === 'need_user_gesture'
+    ) {
       setReadyToSharePrompt(false);
       setShareUnsupportedMsg(
-        'متصفحك الحالي لا يدعم فتح نافذة مشاركة الملفات المباشرة؛ يمكنك الضغط على زر "تصدير وتحميل الملف المضغوط (ZIP)" بالأسفل ثم إرساله كمستند في الواتساب.'
+        `تم حفظ الملف المضغوط (${cached.zipFilename}) على جهازك؛ يمكنك إرساله مباشرة عبر الواتساب أو أي تطبيق آخر بكامل دقته الأصلية.`
       );
     }
   };
@@ -228,16 +242,13 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
       setGeneratedResult(result);
 
       if (action === 'share') {
-        const outcome = await shareBulkResultToWhatsApp(result);
-        if (outcome === 'need_user_gesture') {
+        const outcome = await shareBulkResultToWhatsApp(result, false);
+        if (outcome === 'need_user_gesture' || outcome === 'unsupported') {
           // Browser expired the click activation while rendering canvases — show 1-tap synchronous WhatsApp share button
           setReadyToSharePrompt(true);
-        } else if (outcome === 'unsupported') {
-          setShareUnsupportedMsg(
-            'متصفحك الحالي لا يدعم فتح نافذة مشاركة الملفات المباشرة؛ يمكنك الضغط على زر "تصدير وتحميل الملف المضغوط (ZIP)" بالأسفل ثم إرساله كمستند في الواتساب.'
-          );
         }
       } else {
+        setReadyToSharePrompt(true);
         downloadZipBlob(result.zipBlob, result.zipFilename);
       }
     } catch (err: any) {
@@ -650,25 +661,52 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
             </div>
           )}
 
-          {readyToSharePrompt && generatedResult && (
-            <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-600 shadow-md space-y-2.5 animate-in fade-in zoom-in-95 duration-150">
+          {generatedResult && (
+            <div
+              ref={readyCardRef}
+              className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-600 shadow-md space-y-2.5 animate-in fade-in zoom-in-95 duration-150"
+            >
               <div className="text-xs font-black text-emerald-950 text-center">
                 ✅ تم تجهيز وضغط الملفات بنجاح ({generatedResult.filesCount} ملف بكامل الدقة الأصلية)!
               </div>
-              <button
-                type="button"
-                onClick={() => handleImmediateShare(generatedResult)}
-                className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Share2 className="w-4 h-4 shrink-0" />
-                <span>اضغط هنا الآن لفتح شاشة المشاركة وإرسالها عبر الواتساب</span>
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleImmediateShare(generatedResult)}
+                  className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Share2 className="w-4 h-4 shrink-0" />
+                  <span>مشاركة الملف المضغوط (واتساب أو غيره)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadZipBlob(generatedResult.zipBlob, generatedResult.zipFilename)
+                  }
+                  className="w-full py-3 px-4 rounded-xl bg-[#0F4C3A] hover:bg-[#093829] text-white font-black text-xs sm:text-sm transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Download className="w-4 h-4 text-[#FDE68A] shrink-0" />
+                  <span>حفظ الملف المضغوط (ZIP)</span>
+                </button>
+              </div>
             </div>
           )}
 
-          {shareUnsupportedMsg && (
-            <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs font-bold text-center leading-relaxed">
-              {shareUnsupportedMsg}
+          {shareUnsupportedMsg && generatedResult && (
+            <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs font-bold text-center leading-relaxed space-y-2">
+              <p>{shareUnsupportedMsg}</p>
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadZipBlob(generatedResult.zipBlob, generatedResult.zipFilename)
+                  }
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-black text-xs transition cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#0F4C3A]" />
+                  <span>تحميل ملف الـ ZIP</span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -691,7 +729,7 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
           </button>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-            {/* Share directly to WhatsApp / Mobile Share Sheet */}
+            {/* Share directly via Mobile Share Sheet (WhatsApp or any other app) */}
             <button
               type="button"
               disabled={isGenerating || totalFilesToGenerate === 0}
@@ -701,8 +739,8 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
               <Share2 className="w-4 h-4 shrink-0" />
               <span>
                 {generatedResult
-                  ? 'فتح شاشة المشاركة الآن (واتساب / الهاتف)'
-                  : 'مشاركة الملف المضغوط (واتساب / الهاتف)'}
+                  ? 'فتح نافذة المشاركة الآن (واتساب أو غيره)'
+                  : 'مشاركة الملف المضغوط (واتساب أو غيره)'}
               </span>
             </button>
 

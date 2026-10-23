@@ -848,15 +848,13 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
 }
 
 export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
-  const { blob, filename, rootFirstName } = generateTreeInteractiveHtmlBlob(options);
+  const { blob, filename } = generateTreeInteractiveHtmlBlob(options);
   const file = new File([blob], filename, { type: 'text/html' });
 
-  // 1. Try Native Web Share API first
+  // 1. Try Native Web Share API first (send file only without text)
   if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({
-        title: `شجرة العائلة التفاعلية — ${rootFirstName}`,
-        text: `إليك ملف شجرة العائلة التفاعلي لأصل الشجرة: ${rootFirstName}. يمكنك فتحه في أي متصفح بالهاتف/الحاسوب وتوسيع الأفرع بنقرة واحدة.`,
         files: [file]
       });
       return;

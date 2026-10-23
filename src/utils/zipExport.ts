@@ -19,6 +19,7 @@ export interface BulkZipResult {
   zipFilename: string;
   filesCount: number;
   individualFiles: File[];
+  shareBundleFile: File;
 }
 
 // Precomputed IEEE 802.3 CRC-32 lookup table
@@ -372,12 +373,290 @@ export async function generateBulkTreesZip(
       ? `ملفات_شجرة_${sanitizeFileSegment(extractGivenName(roots[0].fullName))}_الشاملة.zip`
       : `ملفات_أشجار_العائلة_الشاملة_${roots.length}_أشجار.zip`;
 
+  const shareBundleFile = await buildSelfExtractingArchiveFile(
+    zipBlob,
+    zipFilename,
+    entries.length
+  );
+
   return {
     zipBlob,
     zipFilename,
     filesCount: entries.length,
-    individualFiles
+    individualFiles,
+    shareBundleFile
   };
+}
+
+function blobToBase64Fast(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const res = typeof reader.result === 'string' ? reader.result : '';
+      const commaIdx = res.indexOf(',');
+      resolve(commaIdx >= 0 ? res.slice(commaIdx + 1) : res);
+    };
+    reader.onerror = () => reject(new Error('فشل قراءة الملف المضغوط'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Wraps the compressed `.zip` binary archive inside a single self-extracting `.html` package file
+ * (`type: 'text/html'`).
+ * Why this is needed for Android phones:
+ * - iOS/iPadOS Safari and Firefox allow sharing `.zip` (`application/zip`) directly via `navigator.share({ files })`.
+ * - Chromium on Android (Chrome, Samsung Internet, Edge) blocks `.zip` in `ShareServiceImpl.java` (`FILE_TYPES.md`),
+ *   throwing `NotAllowedError` if `.zip` is passed, while explicitly allowing `.html` (`text/html`).
+ * - This single self-extracting package file passes Chromium's allowlist 100% of the time, opens the native
+ *   phone Share Sheet (`نافذة اختيار الواتساب أو غيره`) with 1 file and zero text, is sent by WhatsApp/Telegram
+ *   as an uncompressed Document (preserving 100% image quality), and allows 1-tap extraction of the `.zip`
+ *   and all files inside it on any phone or computer.
+ */
+async function buildSelfExtractingArchiveFile(
+  zipBlob: Blob,
+  zipFilename: string,
+  filesCount: number
+): Promise<File> {
+  const safeZipName = zipFilename.replace(/[\\/:*?"<>|]/g, '_');
+  const finalZipName = safeZipName.endsWith('.zip') ? safeZipName : `${safeZipName}.zip`;
+  const bundleFileName = finalZipName.replace(/\.zip$/i, '_المضغوط.html');
+  const base64Zip = await blobToBase64Fast(zipBlob);
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${finalZipName}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Cairo', system-ui, -apple-system, sans-serif;
+      background: #F4F7F5;
+      color: #0F172A;
+      padding: 16px;
+      line-height: 1.6;
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+    .header {
+      background: linear-gradient(135deg, #093829, #0F4C3A, #15664F);
+      color: #FFFFFF;
+      border-radius: 22px;
+      padding: 22px 20px;
+      border: 2px solid #D4AF37;
+      box-shadow: 0 12px 28px rgba(9, 56, 41, 0.18);
+      text-align: center;
+      margin-bottom: 18px;
+    }
+    .header h1 { font-size: 19px; font-weight: 900; color: #FDE68A; margin-bottom: 6px; }
+    .header p { font-size: 13px; color: #E2E8F0; font-weight: 700; }
+    .zip-actions {
+      margin-top: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+    }
+    .btn-primary {
+      background: #D4AF37;
+      color: #0F291E;
+      border: none;
+      border-radius: 14px;
+      padding: 12px 22px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 900;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .btn-primary:active { transform: scale(0.98); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+      gap: 14px;
+    }
+    .card {
+      background: #FFFFFF;
+      border-radius: 18px;
+      border: 1.5px solid #CBD5E1;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 12px;
+      box-shadow: 0 3px 10px rgba(15, 23, 42, 0.05);
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: #0F172A;
+      word-break: break-word;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 3px 9px;
+      border-radius: 8px;
+      background: #ECFDF5;
+      color: #0F4C3A;
+      border: 1px solid #A7F3D0;
+      margin-bottom: 6px;
+    }
+    .preview-box {
+      width: 100%;
+      max-height: 200px;
+      overflow: hidden;
+      border-radius: 12px;
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .preview-box img {
+      max-width: 100%;
+      max-height: 196px;
+      object-fit: contain;
+    }
+    .card-btns {
+      display: flex;
+      gap: 8px;
+    }
+    .btn-card {
+      flex: 1;
+      text-align: center;
+      padding: 8px 10px;
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      text-decoration: none;
+      border: 1px solid #0F4C3A;
+      background: #0F4C3A;
+      color: #FFFFFF;
+    }
+    .btn-card.secondary {
+      background: #F8FAFC;
+      color: #0F4C3A;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>📦 الملف المضغوط الشامل لشجرة العائلة (${filesCount} ملف)</h1>
+      <p>جميع الصور والملفات محفوظة بكامل دقتها الأصلية 100% دون أي ضغط</p>
+      <div class="zip-actions">
+        <button type="button" class="btn-primary" id="download-zip-btn">
+          ⬇️ تنزيل الملف المضغوط الأصلي (${finalZipName})
+        </button>
+      </div>
+    </div>
+    <div id="files-grid" class="grid"></div>
+  </div>
+  <script id="zip-base64" type="text/plain">${base64Zip}</script>
+  <script>
+    (async function() {
+      const b64 = document.getElementById('zip-base64').textContent.trim();
+      const bin = atob(b64);
+      const len = bin.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+
+      const zipBlob = new Blob([bytes], { type: 'application/zip' });
+      const zipUrl = URL.createObjectURL(zipBlob);
+      const zipBtn = document.getElementById('download-zip-btn');
+      zipBtn.onclick = function() {
+        const a = document.createElement('a');
+        a.href = zipUrl;
+        a.download = ${JSON.stringify(finalZipName)};
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      };
+
+      const grid = document.getElementById('files-grid');
+      const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const decoder = new TextDecoder('utf-8');
+      let offset = 0;
+
+      function getMime(name) {
+        const lower = name.toLowerCase();
+        if (lower.endsWith('.png')) return { mime: 'image/png', label: 'صورة فائقة الوضوح (PNG)' };
+        if (lower.endsWith('.pdf')) return { mime: 'application/pdf', label: 'سجل مراجعة وطباعة (PDF)' };
+        if (lower.endsWith('.svg')) return { mime: 'image/svg+xml', label: 'ملف فيكتور للمطابع (SVG)' };
+        if (lower.endsWith('.html')) return { mime: 'text/html;charset=utf-8', label: 'شجرة تفاعلية (HTML)' };
+        return { mime: 'application/octet-stream', label: 'ملف' };
+      }
+
+      while (offset + 30 <= bytes.length) {
+        const sig = dv.getUint32(offset, true);
+        if (sig !== 0x04034b50) break;
+        const method = dv.getUint16(offset + 8, true);
+        const compSize = dv.getUint32(offset + 18, true);
+        const uncompSize = dv.getUint32(offset + 22, true);
+        const nameLen = dv.getUint16(offset + 26, true);
+        const extraLen = dv.getUint16(offset + 28, true);
+        const nameBytes = bytes.subarray(offset + 30, offset + 30 + nameLen);
+        const fullPath = decoder.decode(nameBytes);
+        const dataStart = offset + 30 + nameLen + extraLen;
+        const compData = bytes.subarray(dataStart, dataStart + compSize);
+        offset = dataStart + compSize;
+
+        let fileBytes = compData;
+        if (method === 8 && typeof DecompressionStream !== 'undefined') {
+          try {
+            const ds = new DecompressionStream('deflate-raw');
+            const writer = ds.writable.getWriter();
+            writer.write(new Uint8Array(compData));
+            writer.close();
+            const buf = await new Response(ds.readable).arrayBuffer();
+            fileBytes = new Uint8Array(buf);
+          } catch (e) {}
+        }
+
+        const info = getMime(fullPath);
+        const blob = new Blob([fileBytes], { type: info.mime });
+        const url = URL.createObjectURL(blob);
+        const shortName = fullPath.split('/').pop() || fullPath;
+        const sizeKb = Math.max(1, Math.round(uncompSize / 1024));
+
+        const card = document.createElement('div');
+        card.className = 'card';
+
+        let previewHtml = '';
+        if (info.mime === 'image/png' || info.mime === 'image/svg+xml') {
+          previewHtml = '<div class="preview-box"><img src="' + url + '" alt="' + shortName + '" /></div>';
+        }
+
+        card.innerHTML =
+          '<div>' +
+            '<span class="badge">' + info.label + ' • ' + sizeKb + ' KB</span>' +
+            '<div class="card-title">' + fullPath.replace(/\\//g, ' ◂ ') + '</div>' +
+          '</div>' +
+          previewHtml +
+          '<div class="card-btns">' +
+            '<a class="btn-card" href="' + url + '" download="' + shortName + '">⬇️ تحميل بجودة 100%</a>' +
+            '<a class="btn-card secondary" href="' + url + '" target="_blank" rel="noopener">🔍 فتح ومعاينة</a>' +
+          '</div>';
+
+        grid.appendChild(card);
+      }
+    })();
+  </script>
+</body>
+</html>`;
+
+  const htmlBlob = new Blob([html], { type: 'text/html' });
+  return new File([htmlBlob], bundleFileName, { type: 'text/html' });
 }
 
 export function downloadZipBlob(blob: Blob, filename: string) {
@@ -393,87 +672,126 @@ export function downloadZipBlob(blob: Blob, filename: string) {
 }
 
 /**
- * Invokes the native Web Share sheet (WhatsApp / Telegram / etc.) synchronously
- * within a user click gesture.
- * - Never auto-downloads to memory on failure.
- * - Tries sharing the .zip archive first (supported on iOS/macOS Safari, Firefox, etc.).
- * - If the browser (e.g. Android Chrome) blocks .zip in navigator.canShare, immediately
- *   shares the generated files (.html, .pdf, .svg, .png) in the same synchronous gesture so
- *   the WhatsApp share sheet opens reliably.
+ * Opens the native OS Share Sheet (`نافذة اختيار الواتساب أو غيره`) synchronously
+ * within a user click gesture, sending ONLY the compressed file with NO text (`بدون نص`).
+ *
+ * Platform behavior:
+ * - On iOS / iPadOS / macOS Safari & Firefox: shares the `.zip` archive (`application/zip`) directly.
+ * - On Android Chromium (Chrome, Samsung Internet, Edge): Chromium's `ShareServiceImpl.java` rejects `.zip`
+ *   in `navigator.share()` with `NotAllowedError` even when `navigator.canShare()` returns `true`.
+ *   Therefore on Chromium, we share the single self-extracting compressed package (`result.shareBundleFile`),
+ *   which is 100% permitted by Chromium's allowlist, opens the native Android Share Sheet on the first tap,
+ *   and sends 1 single file with zero text.
  */
 export async function shareBulkResultToWhatsApp(
-  result: BulkZipResult
-): Promise<'shared_zip' | 'shared_files' | 'need_user_gesture' | 'unsupported'> {
-  if (typeof navigator === 'undefined' || !navigator.share) {
-    return 'unsupported';
-  }
-
+  result: BulkZipResult,
+  isDirectClickGesture: boolean = false
+): Promise<
+  | 'shared_zip'
+  | 'shared_files'
+  | 'downloaded_fallback'
+  | 'need_user_gesture'
+  | 'unsupported'
+> {
   const safeName = result.zipFilename.replace(/[\\/:*?"<>|]/g, '_');
   const finalZipName = safeName.endsWith('.zip') ? safeName : `${safeName}.zip`;
-  const shareTitle = finalZipName.replace(/\.zip$/i, '');
 
-  // 1. Try sharing the .zip file directly (works on iOS Safari, iPadOS, macOS, etc.)
-  const zipMimeCandidates = [
-    'application/zip',
-    'application/x-zip-compressed',
-    'application/octet-stream'
-  ];
+  const canUseWebShare =
+    typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+  const hasCanShare =
+    canUseWebShare && typeof navigator.canShare === 'function';
 
-  for (const mime of zipMimeCandidates) {
-    try {
-      const zipFile = new File([result.zipBlob], finalZipName, { type: mime });
-      const canShareZip =
-        typeof navigator.canShare === 'function'
-          ? navigator.canShare({ files: [zipFile] })
-          : true;
+  if (canUseWebShare) {
+    let chosenFiles: File[] | null = null;
+    let shareOutcomeType: 'shared_zip' | 'shared_files' = 'shared_zip';
 
-      if (canShareZip) {
-        await navigator.share({
-          title: shareTitle,
-          text: 'ملف مضغوط (ZIP) يحتوي على ملفات شجرة العائلة بكامل دقتها الأصلية دون ضغط.',
-          files: [zipFile]
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+    // Chromium browsers (Android Chrome, Samsung Internet, Edge, Opera) block `.zip` in ShareServiceImpl.java
+    const isChromiumWithZipBlock =
+      (/Android/i.test(ua) && !/Firefox/i.test(ua)) ||
+      (/Chrome|Chromium|Edg|OPR|SamsungBrowser/i.test(ua) && !/iPhone|iPad|iPod|CriOS/i.test(ua));
+
+    // Candidate A: On Apple WebKit (iOS/iPadOS/macOS) and Firefox, share the native .zip archive directly
+    if (!isChromiumWithZipBlock) {
+      try {
+        const candidateZip = new File([result.zipBlob], finalZipName, {
+          type: 'application/zip'
         });
-        return 'shared_zip';
+        if (!hasCanShare || navigator.canShare({ files: [candidateZip] })) {
+          chosenFiles = [candidateZip];
+          shareOutcomeType = 'shared_zip';
+        }
+      } catch {
+        // Ignore synchronous canShare errors
       }
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        return 'shared_zip';
+    }
+
+    // Candidate B: Single self-extracting compressed archive file (works 100% on Android Chrome & all Chromium browsers)
+    if (!chosenFiles && result.shareBundleFile) {
+      try {
+        if (!hasCanShare || navigator.canShare({ files: [result.shareBundleFile] })) {
+          chosenFiles = [result.shareBundleFile];
+          shareOutcomeType = 'shared_zip';
+        }
+      } catch {
+        // Ignore synchronous canShare errors
       }
-      if (err?.name === 'NotAllowedError') {
-        return 'need_user_gesture';
+    }
+
+    // Candidate C: Individual shareable files if neither A nor B matched
+    if (!chosenFiles && result.individualFiles && result.individualFiles.length > 0 && hasCanShare) {
+      const supportedIndividual = result.individualFiles.filter((file) => {
+        try {
+          return navigator.canShare({ files: [file] });
+        } catch {
+          return false;
+        }
+      });
+
+      if (supportedIndividual.length > 0) {
+        const batch = supportedIndividual.slice(0, 10);
+        try {
+          if (navigator.canShare({ files: batch })) {
+            chosenFiles = batch;
+            shareOutcomeType = 'shared_files';
+          } else if (navigator.canShare({ files: [batch[0]] })) {
+            chosenFiles = [batch[0]];
+            shareOutcomeType = 'shared_files';
+          }
+        } catch {
+          // Ignore synchronous canShare errors
+        }
+      }
+    }
+
+    // Invoke navigator.share with ONLY `{ files }` (NO title, NO text)
+    if (chosenFiles && chosenFiles.length > 0) {
+      try {
+        await navigator.share({
+          files: chosenFiles
+        });
+        return shareOutcomeType;
+      } catch (err: any) {
+        if (err?.name === 'AbortError') {
+          // User saw the native share chooser window and closed it
+          return shareOutcomeType;
+        }
+        if (err?.name === 'NotAllowedError' && !isDirectClickGesture) {
+          // Transient user activation expired while rendering canvases; prompt 1-tap share button
+          return 'need_user_gesture';
+        }
       }
     }
   }
 
-  // 2. Fallback for Android Chrome (which restricts .zip in navigator.canShare):
-  // Share the generated files (.pdf, .html, .svg, .png) directly via navigator.share
-  // so the native WhatsApp share screen still opens immediately!
-  if (result.individualFiles && result.individualFiles.length > 0) {
-    // Chromium allows up to 10 files per navigator.share call
-    const filesBatch = result.individualFiles.slice(0, 10);
-    try {
-      const canShareBatch =
-        typeof navigator.canShare === 'function'
-          ? navigator.canShare({ files: filesBatch })
-          : true;
-
-      if (canShareBatch) {
-        await navigator.share({
-          title: shareTitle,
-          text: 'ملفات شجرة العائلة بكامل دقتها الأصلية.',
-          files: filesBatch
-        });
-        return 'shared_files';
-      }
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        return 'shared_files';
-      }
-      if (err?.name === 'NotAllowedError') {
-        return 'need_user_gesture';
-      }
-    }
+  // Fallback ONLY for desktop browsers / environments without Web Share file support:
+  // Download the ZIP archive locally (never redirect to a WhatsApp text link).
+  if (isDirectClickGesture) {
+    downloadZipBlob(result.zipBlob, result.zipFilename);
+    return 'downloaded_fallback';
   }
 
-  return 'unsupported';
+  return 'need_user_gesture';
 }
+
+
