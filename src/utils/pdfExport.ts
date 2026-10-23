@@ -175,6 +175,7 @@ export interface ExportTreePdfOptions {
   paperSize?: 'a4' | 'a3' | 'panoramic' | 'auto';
   maximizeSpace?: boolean;
   unconstrained?: boolean;
+  includeFemales?: boolean;
 }
 
 export async function ensureCairoFontLoaded() {
@@ -693,7 +694,11 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
 /**
  * Export Vector SVG Image (.svg) with Infinite Zoom and 100% Vector Crispness
  */
-export async function exportTreeToSvg(options: ExportTreePdfOptions) {
+export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promise<{
+  blob: Blob;
+  filename: string;
+  rootFirstName: string;
+}> {
   const {
     rootPerson,
     getChildren,
@@ -942,12 +947,17 @@ export async function exportTreeToSvg(options: ExportTreePdfOptions) {
   svgStr += `</svg>`;
 
   const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
-  const filename = `شجرة_العائلة_للمطابع_${rootFirstName}.svg`;
+  const filename = `شجرة_العائلة_للمطابع_${rootFirstName}.svg`.replace(/[\\/:*?"<>|]/g, '_');
+  return { blob, filename, rootFirstName };
+}
+
+export async function exportTreeToSvg(options: ExportTreePdfOptions) {
+  const { blob, filename } = await generateTreeSvgBlob(options);
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename.replace(/[\\/:*?"<>|]/g, '_');
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -1084,8 +1094,12 @@ export async function exportTiledTreePdf(
   triggerBlobDownload(pdfBlob, `شجرة_العائلة_مقسمة_${gridCols}x${gridRows}_${rootFirstName}.pdf`);
 }
 
-export async function exportTreeToPdf(options: ExportTreePdfOptions) {
-  const { rootPerson, getChildren } = options;
+export async function generateTreePdfBlob(options: ExportTreePdfOptions): Promise<{
+  blob: Blob;
+  filename: string;
+  rootFirstName: string;
+}> {
+  const { rootPerson, getChildren, includeFemales = true } = options;
 
   await ensureCairoFontLoaded();
 
@@ -1125,9 +1139,10 @@ export async function exportTreeToPdf(options: ExportTreePdfOptions) {
     visitedIds.add(person.id);
     totalIndividualsCount++;
 
-    const allChildren = getChildren(person.id).filter((c) => !visitedIds.has(c.id));
+    const rawChildren = getChildren(person.id).filter((c) => !visitedIds.has(c.id));
+    const allChildren = includeFemales ? rawChildren : rawChildren.filter((c) => c.gender === 'male');
     const maleChildren = allChildren.filter((c) => c.gender === 'male');
-    const femaleChildren = allChildren.filter((c) => c.gender === 'female');
+    const femaleChildren = includeFemales ? allChildren.filter((c) => c.gender === 'female') : [];
 
     // Count leaf children towards total individuals
     const hasChildren = allChildren.length > 0;
@@ -1141,11 +1156,12 @@ export async function exportTreeToPdf(options: ExportTreePdfOptions) {
 
     const sons: ReviewChildItem[] = maleChildren.map((son) => {
       const sonChildren = getChildren(son.id);
+      const filteredSonChildren = includeFemales ? sonChildren : sonChildren.filter((c) => c.gender === 'male');
       return {
         person: son,
         firstName: extractGivenName(son.fullName),
-        hasBranches: sonChildren.length > 0,
-        childrenCount: sonChildren.length
+        hasBranches: filteredSonChildren.length > 0,
+        childrenCount: filteredSonChildren.length
       };
     });
 
@@ -1222,9 +1238,13 @@ export async function exportTreeToPdf(options: ExportTreePdfOptions) {
   function measureFatherBlockHeight(block: FatherReviewBlock): number {
     const headerH = 58;
     const sonsRows = Math.max(1, Math.ceil(block.sons.length / COLS_PER_ROW));
-    const daughtersRows = Math.max(1, Math.ceil(block.daughters.length / COLS_PER_ROW));
-
     const sonsSectionH = sonsRows * PILL_H + (sonsRows - 1) * PILL_GAP_Y + 24;
+
+    if (!includeFemales) {
+      return headerH + sonsSectionH;
+    }
+
+    const daughtersRows = Math.max(1, Math.ceil(block.daughters.length / COLS_PER_ROW));
     const dividerH = 1;
     const daughtersSectionH = daughtersRows * PILL_H + (daughtersRows - 1) * PILL_GAP_Y + 24;
 
@@ -1476,7 +1496,9 @@ export async function exportTreeToPdf(options: ExportTreePdfOptions) {
 
       // Left Side Badges on Father Header: Generation + Counts
       ctx.textAlign = 'left';
-      const statsSummary = `الجيل ${block.depth}   |   أبناؤه: ${block.sons.length}   •   بناته: ${block.daughters.length}`;
+      const statsSummary = includeFemales
+        ? `الجيل ${block.depth}   |   أبناؤه: ${block.sons.length}   •   بناته: ${block.daughters.length}`
+        : `الجيل ${block.depth}   |   أبناؤه الذكور: ${block.sons.length}`;
       ctx.font = 'bold 15px Cairo, sans-serif';
       const sumW = ctx.measureText(statsSummary).width + 28;
       ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
@@ -1562,66 +1584,68 @@ export async function exportTreeToPdf(options: ExportTreePdfOptions) {
         });
       }
 
-      // Divider line between Sons and Daughters
-      const divY = sonsTopY + sonsSectionH;
-      ctx.strokeStyle = '#CBD5E1';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(MARGIN_X, divY);
-      ctx.lineTo(MARGIN_X + CONTENT_W, divY);
-      ctx.stroke();
+      if (includeFemales) {
+        // Divider line between Sons and Daughters
+        const divY = sonsTopY + sonsSectionH;
+        ctx.strokeStyle = '#CBD5E1';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(MARGIN_X, divY);
+        ctx.lineTo(MARGIN_X + CONTENT_W, divY);
+        ctx.stroke();
 
-      // ======================================================================
-      // ROW 2: بناته (الإناث)
-      // ======================================================================
-      const daughtersTopY = divY + 1;
-      ctx.fillStyle = '#FFF9FA';
-      ctx.fillRect(MARGIN_X, daughtersTopY, CONTENT_W, daughtersSectionH);
+        // ======================================================================
+        // ROW 2: بناته (الإناث)
+        // ======================================================================
+        const daughtersTopY = divY + 1;
+        ctx.fillStyle = '#FFF9FA';
+        ctx.fillRect(MARGIN_X, daughtersTopY, CONTENT_W, daughtersSectionH);
 
-      // Right Label Box for "بناته"
-      ctx.fillStyle = '#FFE4E6';
-      drawRoundedRect(ctx, labelBoxX, daughtersTopY + 12, LABEL_COL_W, daughtersSectionH - 24, 10);
-      ctx.fill();
-      ctx.strokeStyle = '#BE123C';
-      ctx.lineWidth = 1.5;
-      drawRoundedRect(ctx, labelBoxX, daughtersTopY + 12, LABEL_COL_W, daughtersSectionH - 24, 10);
-      ctx.stroke();
+        // Right Label Box for "بناته"
+        ctx.fillStyle = '#FFE4E6';
+        drawRoundedRect(ctx, labelBoxX, daughtersTopY + 12, LABEL_COL_W, daughtersSectionH - 24, 10);
+        ctx.fill();
+        ctx.strokeStyle = '#BE123C';
+        ctx.lineWidth = 1.5;
+        drawRoundedRect(ctx, labelBoxX, daughtersTopY + 12, LABEL_COL_W, daughtersSectionH - 24, 10);
+        ctx.stroke();
 
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#881337';
-      ctx.font = '900 18px Cairo, sans-serif';
-      ctx.fillText(`بناته (${block.daughters.length})`, labelBoxX + LABEL_COL_W / 2, daughtersTopY + daughtersSectionH / 2);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#881337';
+        ctx.font = '900 18px Cairo, sans-serif';
+        ctx.fillText(`بناته (${block.daughters.length})`, labelBoxX + LABEL_COL_W / 2, daughtersTopY + daughtersSectionH / 2);
 
-      // Daughters Pills Grid (RTL from right to left)
-      if (block.daughters.length === 0) {
-        ctx.textAlign = 'right';
-        ctx.fillStyle = '#94A3B8';
-        ctx.font = 'bold 16px Cairo, sans-serif';
-        ctx.fillText('— لا توجد بنات مسجلات —', pillsRightStart - 8, daughtersTopY + daughtersSectionH / 2);
-      } else {
-        block.daughters.forEach((daughter, idx) => {
-          const row = Math.floor(idx / COLS_PER_ROW);
-          const col = idx % COLS_PER_ROW;
-
-          const pillRightX = pillsRightStart - col * (PILL_W + PILL_GAP_X);
-          const pillLeftX = pillRightX - PILL_W;
-          const pillTopY = daughtersTopY + 12 + row * (PILL_H + PILL_GAP_Y);
-
-          ctx.fillStyle = '#FFFFFF';
-          drawRoundedRect(ctx, pillLeftX, pillTopY, PILL_W, PILL_H, 10);
-          ctx.fill();
-
-          ctx.strokeStyle = '#FDA4AF';
-          ctx.lineWidth = 1.4;
-          drawRoundedRect(ctx, pillLeftX, pillTopY, PILL_W, PILL_H, 10);
-          ctx.stroke();
-
+        // Daughters Pills Grid (RTL from right to left)
+        if (block.daughters.length === 0) {
           ctx.textAlign = 'right';
-          ctx.fillStyle = '#881337';
-          ctx.font = '900 17px Cairo, sans-serif';
-          const daughterLabel = truncateRtlText(ctx, `${idx + 1}. ${daughter.firstName}`, PILL_W - 22);
-          ctx.fillText(daughterLabel, pillRightX - 10, pillTopY + PILL_H / 2 + 1);
-        });
+          ctx.fillStyle = '#94A3B8';
+          ctx.font = 'bold 16px Cairo, sans-serif';
+          ctx.fillText('— لا توجد بنات مسجلات —', pillsRightStart - 8, daughtersTopY + daughtersSectionH / 2);
+        } else {
+          block.daughters.forEach((daughter, idx) => {
+            const row = Math.floor(idx / COLS_PER_ROW);
+            const col = idx % COLS_PER_ROW;
+
+            const pillRightX = pillsRightStart - col * (PILL_W + PILL_GAP_X);
+            const pillLeftX = pillRightX - PILL_W;
+            const pillTopY = daughtersTopY + 12 + row * (PILL_H + PILL_GAP_Y);
+
+            ctx.fillStyle = '#FFFFFF';
+            drawRoundedRect(ctx, pillLeftX, pillTopY, PILL_W, PILL_H, 10);
+            ctx.fill();
+
+            ctx.strokeStyle = '#FDA4AF';
+            ctx.lineWidth = 1.4;
+            drawRoundedRect(ctx, pillLeftX, pillTopY, PILL_W, PILL_H, 10);
+            ctx.stroke();
+
+            ctx.textAlign = 'right';
+            ctx.fillStyle = '#881337';
+            ctx.font = '900 17px Cairo, sans-serif';
+            const daughterLabel = truncateRtlText(ctx, `${idx + 1}. ${daughter.firstName}`, PILL_W - 22);
+            ctx.fillText(daughterLabel, pillRightX - 10, pillTopY + PILL_H / 2 + 1);
+          });
+        }
       }
 
       ctx.restore();
@@ -1682,10 +1706,20 @@ export async function exportTreeToPdf(options: ExportTreePdfOptions) {
   }
 
   const pdfBlob = createPdfBlobFromJpegPages(pdfPages);
-  triggerBlobDownload(pdfBlob, `شجرة_${rootFirstName}.pdf`);
+  const filename = `شجرة_${rootFirstName}.pdf`.replace(/[\\/:*?"<>|]/g, '_');
+  return { blob: pdfBlob, filename, rootFirstName };
 }
 
-export async function exportTreeToPng(options: ExportTreePdfOptions) {
+export async function exportTreeToPdf(options: ExportTreePdfOptions) {
+  const { blob, filename } = await generateTreePdfBlob(options);
+  triggerBlobDownload(blob, filename);
+}
+
+export async function generateTreePngBlob(options: ExportTreePdfOptions): Promise<{
+  blob: Blob;
+  filename: string;
+  rootFirstName: string;
+}> {
   const { canvas, rootFirstName } = await renderTreeToCanvas({
     ...options,
     collapsedNodes: options.collapsedNodes ?? new Set<string>(),
@@ -1719,10 +1753,15 @@ export async function exportTreeToPng(options: ExportTreePdfOptions) {
     }, 'image/png');
   });
 
+  return { blob, filename: safeName, rootFirstName };
+}
+
+export async function exportTreeToPng(options: ExportTreePdfOptions) {
+  const { blob, filename } = await generateTreePngBlob(options);
   const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = blobUrl;
-  a.download = safeName;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

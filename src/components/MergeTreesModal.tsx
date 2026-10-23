@@ -17,6 +17,7 @@ import { Person } from '../types/family';
 import {
   advancedArabicMatch,
   scoreArabicMatch,
+  filterAndSortBySearch,
   normalizeArabic,
   formatAppName,
   formatBranchName,
@@ -101,23 +102,18 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
   const sourceChildren = sourcePerson ? getChildren(sourcePerson.id) : [];
   const targetChildren = targetPerson ? getChildren(targetPerson.id) : [];
 
-  // Filter candidates for Source (prioritizing independent tree roots)
+  // Filter candidates for Source (prioritizing closest search match, then independent tree roots, then alphabetical)
   const filteredSources = useMemo(() => {
-    const candidates = persons.filter(p => {
+    const candidates = persons.filter((p) => {
       if (p.gender !== 'male') return false;
       if (targetPersonId && p.id === targetPersonId) return false;
-      if (sourceSearch.trim()) {
-        return advancedArabicMatch(p.fullName, sourceSearch, p.notes ? [p.notes] : []);
-      }
       return true;
     });
+    const q = sourceSearch.trim();
+    if (q) {
+      return filterAndSortBySearch(candidates, q, (p) => (p.notes ? [p.notes] : []));
+    }
     return candidates.sort((a, b) => {
-      if (sourceSearch.trim()) {
-        const diff =
-          scoreArabicMatch(b.fullName, sourceSearch, b.notes ? [b.notes] : []) -
-          scoreArabicMatch(a.fullName, sourceSearch, a.notes ? [a.notes] : []);
-        if (diff !== 0) return diff;
-      }
       const aRoot = treeRootIds.has(a.id) ? 1 : 0;
       const bRoot = treeRootIds.has(b.id) ? 1 : 0;
       if (aRoot !== bRoot) return bRoot - aRoot;
@@ -125,23 +121,18 @@ export const MergeTreesModal: React.FC<MergeTreesModalProps> = ({
     });
   }, [persons, targetPersonId, sourceSearch, treeRootIds]);
 
-  // Filter candidates for Target (prioritizing independent tree roots)
+  // Filter candidates for Target (prioritizing closest search match, then independent tree roots, then alphabetical)
   const filteredTargets = useMemo(() => {
-    const candidates = persons.filter(p => {
+    const candidates = persons.filter((p) => {
       if (p.gender !== 'male') return false;
       if (sourcePersonId && p.id === sourcePersonId) return false;
-      if (targetSearch.trim()) {
-        return advancedArabicMatch(p.fullName, targetSearch, p.notes ? [p.notes] : []);
-      }
       return true;
     });
+    const q = targetSearch.trim();
+    if (q) {
+      return filterAndSortBySearch(candidates, q, (p) => (p.notes ? [p.notes] : []));
+    }
     return candidates.sort((a, b) => {
-      if (targetSearch.trim()) {
-        const diff =
-          scoreArabicMatch(b.fullName, targetSearch, b.notes ? [b.notes] : []) -
-          scoreArabicMatch(a.fullName, targetSearch, a.notes ? [a.notes] : []);
-        if (diff !== 0) return diff;
-      }
       const aRoot = treeRootIds.has(a.id) ? 1 : 0;
       const bRoot = treeRootIds.has(b.id) ? 1 : 0;
       if (aRoot !== bRoot) return bRoot - aRoot;

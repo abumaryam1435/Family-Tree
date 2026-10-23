@@ -6,6 +6,7 @@ import {
   getPatronymicSuffix,
   advancedArabicMatch,
   scoreArabicMatch,
+  filterAndSortBySearch,
   sortPersonsMalesFirstAlphabetical,
   comparePersonsMalesFirstAlphabetical,
   rebuildChildFullName,
@@ -164,11 +165,9 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
   }, [persons, editPerson, editPersonDescendantIds]);
 
   const filteredFathers = useMemo(() => {
-    if (!fatherSearch.trim()) return eligibleFathers.slice(0, 15);
-    return eligibleFathers
-      .filter(p => advancedArabicMatch(p.fullName, fatherSearch))
-      .sort(comparePersonsMalesFirstAlphabetical)
-      .slice(0, 15);
+    const q = fatherSearch.trim();
+    if (!q) return eligibleFathers.slice(0, 15);
+    return filterAndSortBySearch(eligibleFathers, q, (p) => (p.notes ? [p.notes] : [])).slice(0, 15);
   }, [eligibleFathers, fatherSearch]);
 
   const selectedFather = useMemo(() => {
@@ -195,27 +194,13 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
   }, [persons]);
 
   const filteredHusbands = useMemo(() => {
-    if (!husbandSearch.trim()) return eligibleHusbands.slice(0, 25);
     const q = husbandSearch.trim();
-    return eligibleHusbands
-      .filter(p => {
-        const f = p.fatherId ? persons.find(x => x.id === p.fatherId) : null;
-        const kids = persons.filter(c => c.fatherId === p.id);
-        const kidNames = kids.map(c => c.fullName).join(' ');
-        return advancedArabicMatch(p.fullName, q, [f?.fullName || '', kidNames]);
-      })
-      .sort((a, b) => {
-        const fA = persons.find(x => x.id === a.fatherId);
-        const kidsA = persons.filter(c => c.fatherId === a.id).map(c => c.fullName).join(' ');
-        const fB = persons.find(x => x.id === b.fatherId);
-        const kidsB = persons.filter(c => c.fatherId === b.id).map(c => c.fullName).join(' ');
-        const diff =
-          scoreArabicMatch(b.fullName, q, [fB?.fullName || '', kidsB]) -
-          scoreArabicMatch(a.fullName, q, [fA?.fullName || '', kidsA]);
-        if (diff !== 0) return diff;
-        return a.fullName.localeCompare(b.fullName, 'ar');
-      })
-      .slice(0, 30);
+    if (!q) return eligibleHusbands.slice(0, 25);
+    return filterAndSortBySearch(eligibleHusbands, q, (p) => {
+      const f = p.fatherId ? persons.find((x) => x.id === p.fatherId) : null;
+      const kids = persons.filter((c) => c.fatherId === p.id).map((c) => c.fullName);
+      return [f?.fullName || '', ...kids];
+    }).slice(0, 30);
   }, [eligibleHusbands, husbandSearch, persons]);
 
   const selectedHusbandPerson = useMemo(() => {
@@ -552,7 +537,7 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
                             )
                           : [];
                         const filteredOtherMothers = otherMotherSearch.trim()
-                          ? eligibleOtherMothers.filter(m => advancedArabicMatch(m.fullName, otherMotherSearch))
+                          ? filterAndSortBySearch(eligibleOtherMothers, otherMotherSearch)
                           : eligibleOtherMothers;
 
                         return (

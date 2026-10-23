@@ -1,10 +1,13 @@
-import React from 'react';
-import { TreeDeciduous, GitMerge, Users, ChevronLeft, Plus, Info, Layers, ArrowUp } from 'lucide-react';
+import React, { useState } from 'react';
+import { TreeDeciduous, GitMerge, Users, ChevronLeft, Plus, Info, Layers, ArrowUp, FolderArchive } from 'lucide-react';
 import { Person } from '../types/family';
 import { formatAppName } from '../utils/nameUtils';
+import { BulkZipExportModal } from './BulkZipExportModal';
 
 interface IndependentTreesProps {
   treeRoots: Person[];
+  persons: Person[];
+  getChildren: (personId: string) => Person[];
   onSelectTree: (rootId: string) => void;
   onOpenMergeModal: () => void;
   onOpenAddModal: () => void;
@@ -16,14 +19,17 @@ interface IndependentTreesProps {
 
 export const IndependentTrees: React.FC<IndependentTreesProps> = ({
   treeRoots,
+  persons,
+  getChildren,
   onSelectTree,
   onOpenMergeModal,
   onOpenAddModal,
   onOpenAddFather,
-  editingEnabled,
   isAdmin,
   getDescendantsCount
 }) => {
+  const [showBulkZipModal, setShowBulkZipModal] = useState(false);
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Intro Header */}
@@ -34,41 +40,54 @@ export const IndependentTrees: React.FC<IndependentTreesProps> = ({
             <span>الأشجار والفروع العائلية المستقلة ({treeRoots.length})</span>
           </h2>
           <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
-            يمكن للمشرف إضافة أصل أعلى (أب أو جد صاعد) لأي أصل موجود من أصول الأشجار، ثم دمج الأشجار معاً عند التوصل إلى أصل مشترك دون فقدان أي فرع.
+            يمكن استعراض أو تصدير جميع الأشجار العائلية دفعة واحدة في ملف مضغوط (ZIP)، كما يمكن للمشرف إضافة أصل أعلى ودمج الأشجار معاً.
           </p>
         </div>
 
-        {isAdmin && (
-          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 w-full sm:w-auto shrink-0">
-            {onOpenAddFather && treeRoots.length > 0 && (
-              <button
-                onClick={() => onOpenAddFather(treeRoots[0].id)}
-                className="min-h-[42px] flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-[#0F4C3A]/30 bg-emerald-50 text-[#0F4C3A] hover:bg-emerald-100 font-bold text-xs transition cursor-pointer"
-              >
-                <ArrowUp className="w-4 h-4 shrink-0" />
-                <span>إضافة أصل للأصول الموجودة</span>
-              </button>
-            )}
+        <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2 w-full sm:w-auto shrink-0">
+          {treeRoots.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowBulkZipModal(true)}
+              className="min-h-[42px] flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-[#093829] to-[#0F4C3A] text-white border border-[#D4AF37]/50 font-bold text-xs shadow-sm hover:brightness-110 transition cursor-pointer"
+            >
+              <FolderArchive className="w-4 h-4 text-[#FDE68A] shrink-0" />
+              <span>تصدير شامل للأشجار (ZIP)</span>
+            </button>
+          )}
 
-            <div className="grid grid-cols-2 sm:flex items-center gap-2">
-              <button
-                onClick={onOpenMergeModal}
-                className="min-h-[42px] flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#B89738] text-[#0A3327] font-bold text-xs shadow-sm hover:brightness-105 transition cursor-pointer"
-              >
-                <GitMerge className="w-4 h-4 shrink-0" />
-                <span>دمج الأشجار</span>
-              </button>
+          {isAdmin && (
+            <>
+              {onOpenAddFather && treeRoots.length > 0 && (
+                <button
+                  onClick={() => onOpenAddFather(treeRoots[0].id)}
+                  className="min-h-[42px] flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-[#0F4C3A]/30 bg-emerald-50 text-[#0F4C3A] hover:bg-emerald-100 font-bold text-xs transition cursor-pointer"
+                >
+                  <ArrowUp className="w-4 h-4 shrink-0" />
+                  <span>إضافة أصل للأصول الموجودة</span>
+                </button>
+              )}
 
-              <button
-                onClick={onOpenAddModal}
-                className="min-h-[42px] flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold transition bg-[#0F4C3A] text-white hover:bg-[#0c3c2e] cursor-pointer"
-              >
-                <Plus className="w-4 h-4 shrink-0" />
-                <span>إضافة شجرة جديدة</span>
-              </button>
-            </div>
-          </div>
-        )}
+              <div className="grid grid-cols-2 sm:flex items-center gap-2">
+                <button
+                  onClick={onOpenMergeModal}
+                  className="min-h-[42px] flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-[#D4AF37] to-[#B89738] text-[#0A3327] font-bold text-xs shadow-sm hover:brightness-105 transition cursor-pointer"
+                >
+                  <GitMerge className="w-4 h-4 shrink-0" />
+                  <span>دمج الأشجار</span>
+                </button>
+
+                <button
+                  onClick={onOpenAddModal}
+                  className="min-h-[42px] flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold transition bg-[#0F4C3A] text-white hover:bg-[#0c3c2e] cursor-pointer"
+                >
+                  <Plus className="w-4 h-4 shrink-0" />
+                  <span>إضافة شجرة جديدة</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Grid of Trees */}
@@ -145,7 +164,16 @@ export const IndependentTrees: React.FC<IndependentTreesProps> = ({
           );
         })}
       </div>
+
+      <BulkZipExportModal
+        isOpen={showBulkZipModal}
+        onClose={() => setShowBulkZipModal(false)}
+        treeRoots={treeRoots}
+        getChildren={getChildren}
+        getAllPersons={() => persons}
+      />
     </div>
   );
 };
+
 

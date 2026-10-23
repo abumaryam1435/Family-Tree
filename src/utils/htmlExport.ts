@@ -6,10 +6,20 @@ export interface ExportHtmlOptions {
   getChildren: (personId: string) => Person[];
   getAllPersons: () => Person[];
   mode?: 'classic' | 'organic';
+  includeFemales?: boolean;
 }
 
-export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
-  const { rootPerson, getChildren, getAllPersons, mode = 'classic' } = options;
+export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
+  blob: Blob;
+  filename: string;
+  rootFirstName: string;
+} {
+  const {
+    rootPerson,
+    getChildren,
+    mode = 'classic',
+    includeFemales = false
+  } = options;
 
   // Collect all reachable descendants starting from rootPerson
   const visited = new Set<string>();
@@ -47,13 +57,14 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
 
   const rootFirstName = extractGivenName(rootPerson.fullName);
   const totalCount = familyList.length;
+  const modeLabel = mode === 'organic' ? 'الجذور والغصون' : 'المخطط الهرمي';
 
   const htmlContent = `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
-  <title>شجرة العائلة التفاعلية — أصل الشجرة: ${rootFirstName}</title>
+  <title>شجرة العائلة التفاعلية (${modeLabel}) — أصل الشجرة: ${rootFirstName}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
@@ -350,16 +361,16 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
     <div class="title-group">
       <div class="badge-icon">🌳</div>
       <div>
-        <div class="app-title">شجرة العائلة التفاعلية — أصل الشجرة: ${rootFirstName}</div>
-        <div id="app-subtitle" class="app-subtitle">عرض الذكور فقط افتراضياً · اضغط «إظهار البنات» لعرض الإناث</div>
+        <div class="app-title">شجرة العائلة التفاعلية (${modeLabel}) — أصل الشجرة: ${rootFirstName}</div>
+        <div id="app-subtitle" class="app-subtitle">${includeFemales ? `${totalCount} فرداً موثقاً (الذكور والإناث) · اضغط على أي بطاقة لتوسيع أو طي فروعها` : 'عرض الذكور فقط افتراضياً · اضغط «إظهار البنات» لعرض الإناث'}</div>
       </div>
     </div>
 
     <div class="controls-group">
       <input type="text" id="search-input" class="search-input" placeholder="بحث..." oninput="onSearchInput(this.value)">
-      <button id="toggle-females-btn" class="btn btn-rose" onclick="toggleFemales()" title="إظهار أو إخفاء الإناث (البنات) في الشجرة">
-        <span id="toggle-females-text-full" class="btn-text-full">إظهار البنات</span>
-        <span id="toggle-females-text-short" class="btn-text-short">إظهار البنات</span>
+      <button id="toggle-females-btn" class="btn btn-rose${includeFemales ? ' active' : ''}" onclick="toggleFemales()" title="إظهار أو إخفاء الإناث (البنات) في الشجرة">
+        <span id="toggle-females-text-full" class="btn-text-full">${includeFemales ? 'إخفاء البنات' : 'إظهار البنات'}</span>
+        <span id="toggle-females-text-short" class="btn-text-short">${includeFemales ? 'إخفاء البنات' : 'إظهار البنات'}</span>
       </button>
       <button class="btn btn-gold" onclick="expandAll()" title="توسيع جميع الفروع">
         <span>➕</span>
@@ -397,9 +408,10 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
     // Embedded Family Dataset
     const familyData = ${JSON.stringify(familyList, null, 2)};
     const rootId = "${rootPerson.id}";
+    const displayMode = "${mode}";
 
-    // Default: show males only; user can toggle females with button
-    let showFemales = false;
+    // Default gender visibility based on export selection
+    let showFemales = ${includeFemales ? 'true' : 'false'};
 
     // Map by ID & Parent -> Children Index
     const personMap = new Map();
@@ -611,12 +623,22 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
 
           const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           const midY = (pY + kY) / 2;
-          const d = \`M \${pX} \${pY} C \${pX} \${midY}, \${kX} \${midY}, \${kX} \${kY}\`;
-          path.setAttribute('d', d);
-          path.setAttribute('stroke', '#0F4C3A');
-          path.setAttribute('stroke-width', '3');
+          if (displayMode === 'organic') {
+            const ctrlY1 = pY + (kY - pY) * 0.45;
+            const ctrlY2 = pY + (kY - pY) * 0.55;
+            const d = \`M \${pX} \${pY} C \${pX} \${ctrlY1}, \${kX} \${ctrlY2}, \${kX} \${kY}\`;
+            path.setAttribute('d', d);
+            path.setAttribute('stroke', parentId === rootId ? '#5C3A21' : '#064E3B');
+            path.setAttribute('stroke-width', parentId === rootId ? '5' : '3.5');
+          } else {
+            const d = \`M \${pX} \${pY} L \${pX} \${midY} L \${kX} \${midY} L \${kX} \${kY}\`;
+            path.setAttribute('d', d);
+            path.setAttribute('stroke', '#0F4C3A');
+            path.setAttribute('stroke-width', '3');
+          }
           path.setAttribute('fill', 'none');
           path.setAttribute('stroke-linecap', 'round');
+          path.setAttribute('stroke-linejoin', 'round');
           svgLayer.appendChild(path);
 
           connectRecursive(kidGroup);
@@ -645,6 +667,64 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
       });
     }
 
+    function normalizeAr(str) {
+      if (!str) return '';
+      return str
+        .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+        .replace(/[أإآٱ]/g, 'ا')
+        .replace(/ة/g, 'ه')
+        .replace(/[ىئ]/g, 'ي')
+        .replace(/ؤ/g, 'و')
+        .replace(/(^|\s)(الشيخ|العم|الدكتور|المهندس|الحاج|السيد|الشريف|أبو|ابو|أم|ام)\s+/g, '$1')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function tokenizeWords(normStr) {
+      if (!normStr) return [];
+      const connectors = new Set(['بن', 'بنت', 'ابن', 'ابنه']);
+      return normStr.split(' ').filter(w => w.length > 0 && !connectors.has(w));
+    }
+
+    function scorePersonMatch(p, qTokens) {
+      const words = tokenizeWords(normalizeAr(p.fullName));
+      if (words.length < qTokens.length) return 0;
+      const m = qTokens.length;
+      const n = words.length;
+      let best = 0;
+
+      function searchAlign(qIdx, wStart, indices) {
+        if (qIdx === m) {
+          const start = indices[0];
+          const span = indices[m - 1] - start + 1;
+          const gaps = span - m;
+          let tokScore = 0;
+          for (let i = 0; i < m; i++) {
+            const qt = qTokens[i];
+            const tw = words[indices[i]];
+            tokScore += tw === qt ? 300 : Math.round((qt.length / tw.length) * 200);
+          }
+          let s = 0;
+          if (start === 0 && gaps === 0) s = 90000 + tokScore - (n - m) * 150;
+          else if (start === 0) s = 75000 - gaps * 3500 + tokScore;
+          else if (gaps === 0) s = 55000 - start * 3000 + tokScore;
+          else s = 40000 - start * 2500 - gaps * 2500 + tokScore;
+          if (s > best) best = s;
+          return;
+        }
+        const rem = m - qIdx;
+        for (let w = wStart; w <= n - rem; w++) {
+          if (words[w].startsWith(qTokens[qIdx])) {
+            indices.push(w);
+            searchAlign(qIdx + 1, w + 1, indices);
+            indices.pop();
+          }
+        }
+      }
+      searchAlign(0, 0, []);
+      return best;
+    }
+
     function onSearchInput(query) {
       const q = query.trim();
       document.querySelectorAll('.node-card').forEach(card => {
@@ -652,28 +732,36 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
       });
       if (!q) return;
 
-      familyData.forEach(p => {
-        if (p.fullName.includes(q) || p.firstName.includes(q)) {
-          if (p.gender === 'female' && !showFemales) {
-            toggleFemales();
-          }
-          // Expand ancestors to reveal searched node
-          let curr = p;
-          while (curr && curr.fatherId) {
-            collapsedSet.delete(curr.fatherId);
-            curr = personMap.get(curr.fatherId);
-          }
+      const qTokens = tokenizeWords(normalizeAr(q));
+      if (qTokens.length === 0) return;
+
+      const matches = familyData
+        .map(p => ({ p, score: scorePersonMatch(p, qTokens) }))
+        .filter(item => item.score > 0)
+        .sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          return a.p.fullName.localeCompare(b.p.fullName, 'ar');
+        });
+
+      if (matches.length === 0) return;
+
+      matches.forEach(({ p }) => {
+        if (p.gender === 'female' && !showFemales) {
+          toggleFemales();
+        }
+        let curr = p;
+        while (curr && curr.fatherId) {
+          collapsedSet.delete(curr.fatherId);
+          curr = personMap.get(curr.fatherId);
         }
       });
 
       renderTree();
 
       setTimeout(() => {
-        familyData.forEach(p => {
-          if (p.fullName.includes(q) || p.firstName.includes(q)) {
-            const group = document.querySelector(\`[data-id="\${p.id}"] > .node-card\`);
-            if (group) group.classList.add('highlighted');
-          }
+        matches.forEach(({ p }) => {
+          const group = document.querySelector(\`[data-id="\${p.id}"] > .node-card\`);
+          if (group) group.classList.add('highlighted');
         });
       }, 50);
     }
@@ -754,10 +842,14 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
 </body>
 </html>`;
 
-  // Create File & Attempt Web Share API (WhatsApp / Telegram / Share Sheet)
   const safeFilename = `شجرة_العائلة_التفاعلية_${rootFirstName}.html`.replace(/[\\/:*?"<>|]/g, '_');
   const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-  const file = new File([blob], safeFilename, { type: 'text/html' });
+  return { blob, filename: safeFilename, rootFirstName };
+}
+
+export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
+  const { blob, filename, rootFirstName } = generateTreeInteractiveHtmlBlob(options);
+  const file = new File([blob], filename, { type: 'text/html' });
 
   // 1. Try Native Web Share API first
   if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -777,9 +869,10 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = safeFilename;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
+

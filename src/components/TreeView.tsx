@@ -28,17 +28,20 @@ import {
   Globe,
   Crown,
   Layers,
-  Info
+  Info,
+  FolderArchive
 } from 'lucide-react';
 import { Person } from '../types/family';
 import {
   advancedArabicMatch,
+  filterAndSortBySearch,
   formatAppName,
   formatBranchName,
   formatDropdownName
 } from '../utils/nameUtils';
 import { exportTreeToPdf, exportTreeToPng, exportTreeToSvg } from '../utils/pdfExport';
 import { exportTreeToInteractiveHtml } from '../utils/htmlExport';
+import { BulkZipExportModal } from './BulkZipExportModal';
 
 interface TreeViewProps {
   persons: Person[];
@@ -137,7 +140,9 @@ export const TreeView: React.FC<TreeViewProps> = ({
   onToggleGender,
   isAdmin,
   getPerson,
-  getChildren
+  getChildren,
+  getAncestors,
+  getLineageString
 }) => {
   // Tree display mode:
   // 1. 'classic' -> المخطط الهرمي (البطاقات)
@@ -161,6 +166,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
   const [zoomDisplay, setZoomDisplay] = useState<number>(100);
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
+  const [showBulkZipModal, setShowBulkZipModal] = useState<boolean>(false);
 
   const handleExportTreeFormat = async (format: 'png' | 'svg' | 'pdf' | 'html') => {
     if (!currentRoot) return;
@@ -274,6 +280,16 @@ export const TreeView: React.FC<TreeViewProps> = ({
 
   // Search filter inside tree view
   const [localSearch, setLocalSearch] = useState<string>('');
+  const [showLocalSearchDropdown, setShowLocalSearchDropdown] = useState<boolean>(false);
+
+  const localSearchResults = useMemo(() => {
+    const q = localSearch.trim();
+    if (!q) return [];
+    return filterAndSortBySearch(persons, q, (p) => [
+      getLineageString(p.id),
+      p.notes || ''
+    ]).slice(0, 12);
+  }, [persons, localSearch, getLineageString]);
 
   // Drag & Drop Merging States
   const [draggedPerson, setDraggedPerson] = useState<Person | null>(null);
@@ -680,6 +696,32 @@ export const TreeView: React.FC<TreeViewProps> = ({
       }, 60);
     },
     [applyCameraTransform, stopInertia]
+  );
+
+  // Reveal a searched person in the tree (switch root if needed, uncollapse ancestors, and center card)
+  const focusPersonInTree = useCallback(
+    (person: Person) => {
+      if (person.gender === 'female' && !showFemales) {
+        setShowFemales(true);
+      }
+      const ancestors = getAncestors(person.id);
+      const topRoot = ancestors.length > 0 ? ancestors[ancestors.length - 1] : person;
+      if (topRoot && topRoot.id !== selectedTreeRootId && !isCompareMode) {
+        setSelectedTreeRootId(topRoot.id);
+      }
+      setCollapsedNodes((prev) => {
+        const next = new Set(prev);
+        for (const anc of ancestors) {
+          next.delete(anc.id);
+        }
+        return next;
+      });
+      setShowLocalSearchDropdown(false);
+      setTimeout(() => {
+        centerOnPersonCard(person.id, true);
+      }, 120);
+    },
+    [showFemales, getAncestors, selectedTreeRootId, isCompareMode, setSelectedTreeRootId, centerOnPersonCard]
   );
 
   // Re-center or auto-fit smoothly when root, display mode, or direction changes
@@ -1239,7 +1281,9 @@ export const TreeView: React.FC<TreeViewProps> = ({
     const children = getVisibleChildren(person.id);
     const hasChildren = children.length > 0;
     const isCollapsed = collapsedNodes.has(person.id);
-    const isHighlighted = Boolean(localSearch.trim() && advancedArabicMatch(person.fullName, localSearch));
+    const isHighlighted = Boolean(
+      localSearch.trim() && advancedArabicMatch(person.fullName, localSearch, [getLineageString(person.id)])
+    );
 
     const maleChildrenCount = allChildren.filter(c => c.gender === 'male').length;
     const femaleChildrenCount = allChildren.filter(c => c.gender === 'female').length;
@@ -1911,7 +1955,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
           const isRoot = depth === 1;
           const isBough = depth > 1 && hasChildren;
           const isHighlighted = Boolean(
-            localSearch.trim() && advancedArabicMatch(person.fullName, localSearch)
+            localSearch.trim() && advancedArabicMatch(person.fullName, localSearch, [getLineageString(person.id)])
           );
 
           // Role label in the organic tree
@@ -2274,11 +2318,56 @@ export const TreeView: React.FC<TreeViewProps> = ({
             <input
               type="text"
               value={localSearch}
-              onChange={(e) => setLocalSearch(e.target.value)}
+              onFocus={() => setShowLocalSearchDropdown(true)}
+              onChange={(e) => {
+                setLocalSearch(e.target.value);
+                setShowLocalSearchDropdown(true);
+              }}
               placeholder="بحث اسم..."
-              className="w-full h-7 pr-6 pl-1.5 text-[11px] rounded-lg border border-slate-200 bg-slate-50 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+              className="w-full h-7 pr-6 pl-5 text-[11px] rounded-lg border border-slate-200 bg-slate-50 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
             />
             <Search className="w-3 h-3 text-slate-400 absolute right-1.5 top-2" />
+            {localSearch && (
+              <button
+                type="button"
+                onClick={() => {
+                  setLocalSearch('');
+                  setShowLocalSearchDropdown(false);
+                }}
+                className="absolute left-1 top-1.5 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {showLocalSearchDropdown && localSearch.trim() && (
+              <div className="absolute right-0 left-0 mt-1 w-64 max-w-[85vw] bg-white rounded-xl border border-slate-200 shadow-xl z-50 max-h-60 overflow-y-auto divide-y divide-slate-100">
+                {localSearchResults.length === 0 ? (
+                  <div className="p-2.5 text-[11px] text-slate-400 text-center">لا توجد نتائج مطابقة</div>
+                ) : (
+                  localSearchResults.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => focusPersonInTree(p)}
+                      className="w-full px-3 py-2 text-right hover:bg-emerald-50/70 flex items-center justify-between gap-2 transition"
+                    >
+                      <span className="text-xs font-bold text-slate-800 truncate">
+                        {formatDropdownName(p.fullName)}
+                      </span>
+                      <span
+                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                          p.gender === 'male'
+                            ? 'bg-emerald-50 text-[#0F4C3A]'
+                            : 'bg-rose-50 text-rose-700'
+                        }`}
+                      >
+                        {p.gender === 'male' ? 'ذكر' : 'أنثى'}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
@@ -2473,15 +2562,60 @@ export const TreeView: React.FC<TreeViewProps> = ({
           </div>
 
           {/* Local Tree Search */}
-          <div className="relative w-44 sm:w-56">
+          <div className="relative w-44 sm:w-64">
             <input
               type="text"
               value={localSearch}
-              onChange={(e) => setLocalSearch(e.target.value)}
-              placeholder="تمييز اسم في الشجرة..."
-              className="w-full h-8 pr-7 pl-2 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
+              onFocus={() => setShowLocalSearchDropdown(true)}
+              onChange={(e) => {
+                setLocalSearch(e.target.value);
+                setShowLocalSearchDropdown(true);
+              }}
+              placeholder="بحث وتوسيط اسم في الشجرة..."
+              className="w-full h-8 pr-7 pl-6 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:outline-none focus:ring-1 focus:ring-[#0F4C3A]"
             />
             <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-2.5" />
+            {localSearch && (
+              <button
+                type="button"
+                onClick={() => {
+                  setLocalSearch('');
+                  setShowLocalSearchDropdown(false);
+                }}
+                className="absolute left-1.5 top-2 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {showLocalSearchDropdown && localSearch.trim() && (
+              <div className="absolute right-0 left-0 mt-1.5 w-72 bg-white rounded-xl border border-slate-200 shadow-xl z-50 max-h-64 overflow-y-auto divide-y divide-slate-100">
+                {localSearchResults.length === 0 ? (
+                  <div className="p-3 text-xs text-slate-400 text-center">لا توجد نتائج مطابقة</div>
+                ) : (
+                  localSearchResults.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => focusPersonInTree(p)}
+                      className="w-full px-3.5 py-2 text-right hover:bg-emerald-50/70 flex items-center justify-between gap-2 transition"
+                    >
+                      <span className="text-xs font-bold text-slate-800 truncate">
+                        {formatDropdownName(p.fullName)}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 ${
+                          p.gender === 'male'
+                            ? 'bg-emerald-50 text-[#0F4C3A]'
+                            : 'bg-rose-50 text-rose-700'
+                        }`}
+                      >
+                        {p.gender === 'male' ? 'ذكر' : 'أنثى'}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           {/* Zoom & Expand Controls */}
@@ -3204,6 +3338,34 @@ export const TreeView: React.FC<TreeViewProps> = ({
                 </div>
               </button>
 
+              {/* Option 5: Comprehensive Bulk ZIP Export */}
+              <button
+                type="button"
+                disabled={isExportingPdf}
+                onClick={() => {
+                  setShowExportModal(false);
+                  setShowBulkZipModal(true);
+                }}
+                className="w-full p-3.5 rounded-2xl border-2 border-[#D4AF37] bg-gradient-to-l from-[#093829] via-[#0F4C3A] to-[#15664F] hover:brightness-110 text-right transition flex items-start gap-3 cursor-pointer disabled:opacity-50 shadow-md"
+              >
+                <div className="w-10 h-10 rounded-xl bg-[#D4AF37]/25 border border-[#D4AF37]/60 text-[#FDE68A] flex items-center justify-center shrink-0 mt-0.5">
+                  <FolderArchive className="w-5 h-5" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="font-black text-xs sm:text-sm text-white block">
+                      5. تصدير شامل في ملف مضغوط (ZIP)
+                    </span>
+                    <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-[#D4AF37] text-slate-950 shrink-0">
+                      واتساب بدون ضغط الصور
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-100/95 leading-snug mt-1">
+                    تصدير جميع الأشجار المختارة دفعة واحدة مع تحديد التخطيط (هرمي/غصون/كلاهما)، وتضمين البنات أو لا، واختيار الصيغ (PNG, HTML, PDF, SVG) لإرسالها بالواتساب دون تأثر الجودة.
+                  </p>
+                </div>
+              </button>
+
               {isExportingPdf && (
                 <div className="p-3 bg-amber-50 text-amber-900 text-xs rounded-xl font-bold text-center border border-amber-200 animate-pulse">
                   جارٍ معالجة وتجهيز الملف بدقة فائقة... يرجى الانتظار لحظة
@@ -3224,6 +3386,19 @@ export const TreeView: React.FC<TreeViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Comprehensive Bulk ZIP Export Modal */}
+      <BulkZipExportModal
+        isOpen={showBulkZipModal}
+        onClose={() => setShowBulkZipModal(false)}
+        treeRoots={treeRoots}
+        currentRoot={currentRoot}
+        defaultMode={treeDisplayMode}
+        defaultShowFemales={showFemales}
+        organicDirection={organicDirection}
+        getChildren={getChildren}
+        getAllPersons={() => persons}
+      />
     </div>
   );
 };

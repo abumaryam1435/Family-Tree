@@ -391,6 +391,8 @@ export default function App() {
             {activeTab === 'trees' && (
               <IndependentTrees
                 treeRoots={treeRoots}
+                persons={persons}
+                getChildren={getChildren}
                 onSelectTree={(rootId) => {
                   setSelectedTreeRootId(rootId);
                   setActiveTab('tree');

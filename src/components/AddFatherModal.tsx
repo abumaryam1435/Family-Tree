@@ -18,6 +18,7 @@ import { Person } from '../types/family';
 import {
   advancedArabicMatch,
   scoreArabicMatch,
+  filterAndSortBySearch,
   normalizeArabic,
   extractGivenName,
   splitLineageChain,
@@ -138,13 +139,15 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
   // Filterable list of all persons in case admin wants to pick another Son/Father to move with his branches
   const switchableBranches = useMemo(() => {
     const q = branchSearch.trim();
-    const list = persons.filter(p => (q ? advancedArabicMatch(p.fullName, q, p.notes ? [p.notes] : []) : true));
-    return list.sort(comparePersonsMalesFirstAlphabetical).slice(0, 25);
+    if (!q) {
+      return [...persons].sort(comparePersonsMalesFirstAlphabetical).slice(0, 25);
+    }
+    return filterAndSortBySearch(persons, q, (p) => (p.notes ? [p.notes] : [])).slice(0, 25);
   }, [persons, branchSearch]);
 
   // Candidate existing higher grandfathers/fathers (males not in person's descendants)
   const candidateFathers = useMemo(() => {
-    const males = persons.filter(p => p.gender === 'male' && !descendantIds.has(p.id));
+    const males = persons.filter((p) => p.gender === 'male' && !descendantIds.has(p.id));
     const q = existingSearch.trim();
     if (!q) {
       return [...males].sort((a, b) => {
@@ -154,18 +157,7 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
         return comparePersonsMalesFirstAlphabetical(a, b);
       });
     }
-    return males
-      .filter(p => advancedArabicMatch(p.fullName, q, p.notes ? [p.notes] : []))
-      .sort((a, b) => {
-        const scoreDiff =
-          scoreArabicMatch(b.fullName, q, b.notes ? [b.notes] : []) -
-          scoreArabicMatch(a.fullName, q, a.notes ? [a.notes] : []);
-        if (scoreDiff !== 0) return scoreDiff;
-        const aIsRoot = treeRootIds.has(a.id) ? 1 : 0;
-        const bIsRoot = treeRootIds.has(b.id) ? 1 : 0;
-        if (aIsRoot !== bIsRoot) return bIsRoot - aIsRoot;
-        return comparePersonsMalesFirstAlphabetical(a, b);
-      });
+    return filterAndSortBySearch(males, q, (p) => (p.notes ? [p.notes] : []));
   }, [persons, descendantIds, existingSearch, treeRootIds]);
 
   const selectedExistingFather = useMemo(

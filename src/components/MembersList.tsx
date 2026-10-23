@@ -18,6 +18,8 @@ import { Person } from '../types/family';
 import {
   advancedArabicMatch,
   comparePersonsMalesFirstAlphabetical,
+  filterAndSortBySearch,
+  extractGivenName,
   formatAppName,
   formatBranchName
 } from '../utils/nameUtils';
@@ -60,32 +62,30 @@ export const MembersList: React.FC<MembersListProps> = ({
   const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
 
   const filteredPersons = useMemo(() => {
-    return persons
-      .filter((p) => {
-        // Gender filter
-        if (genderFilter !== 'all' && p.gender !== genderFilter) return false;
-        // Advanced Search (supports partial non-consecutive parts like "مح زا سع")
-        if (search.trim()) {
-          const father = p.fatherId ? getPerson(p.fatherId)?.fullName || '' : '';
-          const ancestorsNames = getAncestors(p.id).map(a => a.fullName).join(' ');
-          return advancedArabicMatch(p.fullName, search, [
-            father,
-            ancestorsNames,
-            p.husbandName || '',
-            p.notes || ''
-          ]);
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        // Always sort Males first then Females, and alphabetically within each group
-        if (sortBy === 'newest') {
-          if (a.gender !== b.gender) return a.gender === 'male' ? -1 : 1;
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-        }
-        return comparePersonsMalesFirstAlphabetical(a, b);
+    const genderFiltered =
+      genderFilter === 'all' ? persons : persons.filter((p) => p.gender === genderFilter);
+
+    const q = search.trim();
+    if (q) {
+      // Sort by closest match to search query first, then next closest, then Arabic alphabetical order
+      return filterAndSortBySearch(genderFiltered, q, (p) => {
+        const ancestors = getAncestors(p.id);
+        const lineage =
+          ancestors.length > 0
+            ? [extractGivenName(p.fullName), ...ancestors.map((a) => extractGivenName(a.fullName))].join(' بن ')
+            : p.fullName;
+        return [lineage, p.husbandName || '', p.notes || ''];
       });
-  }, [persons, genderFilter, search, sortBy, getPerson, getAncestors]);
+    }
+
+    return [...genderFiltered].sort((a, b) => {
+      if (sortBy === 'newest') {
+        if (a.gender !== b.gender) return a.gender === 'male' ? -1 : 1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+      return comparePersonsMalesFirstAlphabetical(a, b);
+    });
+  }, [persons, genderFilter, search, sortBy, getAncestors]);
 
   return (
     <div className="space-y-6">

@@ -164,96 +164,417 @@ export function normalizeArabic(text: string): string {
     .replace(/ؤ/g, 'و')
     .replace(/ئ/g, 'ي')
     .replace(/عبد\s+ال/g, 'عبدال')
+    .replace(/ابو\s+/g, 'ابو')
+    .replace(/ام\s+/g, 'ام')
     .trim();
+}
+
+const GENEALOGICAL_CONNECTORS = new Set(['بن', 'بنت', 'ابن', 'ابنه']);
+
+/**
+ * Splits normalized Arabic text into meaningful name words, ignoring standalone connectors (بن / بنت / ابن).
+ */
+export function tokenizeArabicNameWords(text: string): string[] {
+  const norm = normalizeArabic(text);
+  if (!norm) return [];
+  const rawTokens = norm.split(/\s+/).filter(Boolean);
+  const filtered = rawTokens.filter((w) => !GENEALOGICAL_CONNECTORS.has(w));
+  return filtered.length > 0 ? filtered : rawTokens;
+}
+
+/**
+ * Scores a single field's words against query tokens.
+ * Returns -1 if not all query tokens can be matched to distinct words in the field.
+ *
+ * Ranking hierarchy (highest to lowest):
+ * 1. Exact full name match (100,000+)
+ * 2. Consecutive word-prefix match starting from the 1st name [0, 1, 2, ...] (90,000+)
+ *    e.g. "محمد راش مح" -> "محمد بن راشد بن محمد"
+ * 3. Ordered word-prefix match starting from the 1st name with skipped ancestors (75,000 - gap penalties)
+ *    e.g. "محمد راش مح" -> "محمد بن راشد بن سالم بن محمد" (beats "محمد بن سالم بن راشد بن محمد")
+ * 4. Consecutive word-prefix match starting from father/grandfather [startIdx > 0] (55,000 - startIdx penalty)
+ *    e.g. "محمد راش مح" -> "أحمد بن محمد بن راشد بن محمد"
+ * 5. Ordered word-prefix match starting from father/grandfather with skipped ancestors (40,000 - penalties)
+ * 6. Ordered substring match across distinct words (25,000 - penalties)
+ * 7. Unordered match across distinct words (10,000 - penalties)
+ */
+function scoreFieldAgainstQueryTokens(fieldText: string, queryTokens: string[], normFullQuery: string): number {
+  const normField = normalizeArabic(fieldText);
+  if (!normField) return -1;
+
+  const targetWords = tokenizeArabicNameWords(fieldText);
+  const M = queryTokens.length;
+  const N = targetWords.length;
+
+  if (M === 0) return 0;
+
+  // If the field has fewer words than query tokens, check direct substring only as a last resort
+  if (N < M) {
+    if (normField.includes(normFullQuery)) {
+      return 30000;
+    }
+    return -1;
+  }
+
+  // Exact full-word sequence match
+  if (N === M && targetWords.every((w, i) => w === queryTokens[i])) {
+    return 100000;
+  }
+
+  // Helper to compute closeness of a single query token to a target word
+  const getPrefixCloseness = (qTok: string, tWord: string): number => {
+    if (tWord === qTok) return 100;
+    if (tWord.startsWith(qTok)) {
+      return Math.round((qTok.length / tWord.length) * 80);
+    }
+    return -1;
+  };
+
+  const getSubstringCloseness = (qTok: string, tWord: string): number => {
+    const p = getPrefixCloseness(qTok, tWord);
+    if (p >= 0) return p;
+    if (tWord.includes(qTok)) {
+      return Math.round((qTok.length / tWord.length) * 35);
+    }
+    return -1;
+  };
+
+  // 1. Search for the best ORDERED WORD-PREFIX alignment: 0 <= i_0 < i_1 < ... < i_{M-1} < N
+  let bestPrefixScore = -1;
+
+  function findBestOrderedAlignment(
+    useSubstring: boolean
+  ): number {
+    let bestScore = -1;
+
+    // Try each possible starting word index i_0 for queryTokens[0]
+    for (let startIdx = 0; startIdx <= N - M; startIdx++) {
+      const firstQuality = useSubstring
+        ? getSubstringCloseness(queryTokens[0], targetWords[startIdx])
+        : getPrefixCloseness(queryTokens[0], targetWords[startIdx]);
+      if (firstQuality < 0) continue;
+
+      if (M === 1) {
+        let score: number;
+        const isPrefix = targetWords[startIdx].startsWith(queryTokens[0]);
+        if (!useSubstring || isPrefix) {
+          score =
+            startIdx === 0
+              ? 90000 + firstQuality + (N === 1 ? 20 : 0)
+              : Math.max(30000, 55000 - startIdx * 3000 + firstQuality);
+        } else {
+          score =
+            startIdx === 0
+              ? 25000 + firstQuality
+              : Math.max(12000, 18000 - startIdx * 1200 + firstQuality);
+        }
+        if (score > bestScore) bestScore = score;
+        continue;
+      }
+
+      // Dynamic programming / memoized search for remaining tokens k = 1 .. M-1
+      // We want to minimize gap penalties and maximize word closeness
+      const memo = new Map<number, { penalty: number; quality: number; prefixHits: number } | null>();
+
+      const solve = (
+        k: number,
+        prevIdx: number
+      ): { penalty: number; quality: number; prefixHits: number } | null => {
+        const key = k * 64 + prevIdx;
+        if (memo.has(key)) return memo.get(key)!;
+
+        let bestSub: { penalty: number; quality: number; prefixHits: number } | null = null;
+        const maxIdx = N - (M - k);
+
+        for (let idx = prevIdx + 1; idx <= maxIdx; idx++) {
+          const q = useSubstring
+            ? getSubstringCloseness(queryTokens[k], targetWords[idx])
+            : getPrefixCloseness(queryTokens[k], targetWords[idx]);
+          if (q < 0) continue;
+
+          const stepGap = idx - prevIdx - 1;
+          // Each skipped word costs 2500, plus 400 * (M - k) so earlier gaps are penalized more heavily
+          const stepPenalty = stepGap * 2500 + stepGap * (M - k) * 400;
+          const isPref = targetWords[idx].startsWith(queryTokens[k]) ? 1 : 0;
+
+          if (k === M - 1) {
+            const candidate = {
+              penalty: stepPenalty,
+              quality: q,
+              prefixHits: isPref
+            };
+            if (
+              !bestSub ||
+              candidate.quality - candidate.penalty > bestSub.quality - bestSub.penalty
+            ) {
+              bestSub = candidate;
+            }
+          } else {
+            const rest = solve(k + 1, idx);
+            if (rest) {
+              const candidate = {
+                penalty: stepPenalty + rest.penalty,
+                quality: q + rest.quality,
+                prefixHits: isPref + rest.prefixHits
+              };
+              if (
+                !bestSub ||
+                candidate.quality - candidate.penalty > bestSub.quality - bestSub.penalty
+              ) {
+                bestSub = candidate;
+              }
+            }
+          }
+        }
+
+        memo.set(key, bestSub);
+        return bestSub;
+      };
+
+      const tail = solve(1, startIdx);
+      if (!tail) continue;
+
+      const totalQuality = firstQuality + tail.quality;
+      const totalPenalty = tail.penalty;
+      const isZeroGaps = totalPenalty === 0;
+      const exactLengthBonus = N === M && startIdx === 0 ? 20 : 0;
+
+      let alignmentScore: number;
+      if (!useSubstring) {
+        if (startIdx === 0 && isZeroGaps) {
+          // Tier 2: Consecutive prefix match from 1st name (e.g. "محمد راش مح" -> "محمد بن راشد بن محمد")
+          alignmentScore = 90000 + totalQuality + exactLengthBonus;
+        } else if (startIdx === 0) {
+          // Tier 3: Starts at 1st name, but skips 1+ ancestors in between
+          alignmentScore = Math.max(56000, 75000 - totalPenalty + totalQuality);
+        } else if (isZeroGaps) {
+          // Tier 4: Consecutive prefix match starting at father/grandfather
+          alignmentScore = Math.max(41000, 55000 - startIdx * 3000 + totalQuality);
+        } else {
+          // Tier 5: Starts at father/grandfather with skipped ancestors
+          alignmentScore = Math.max(26000, 40000 - startIdx * 2500 - totalPenalty + totalQuality);
+        }
+      } else {
+        const firstIsPref = targetWords[startIdx].startsWith(queryTokens[0]) ? 1 : 0;
+        const totalPrefs = firstIsPref + tail.prefixHits;
+        alignmentScore = Math.max(
+          15000,
+          (startIdx === 0 ? 24000 : 19000 - startIdx * 1000) -
+            Math.round(totalPenalty * 0.4) +
+            totalPrefs * 400 +
+            totalQuality
+        );
+      }
+
+      if (alignmentScore > bestScore) {
+        bestScore = alignmentScore;
+      }
+    }
+
+    return bestScore;
+  }
+
+  bestPrefixScore = findBestOrderedAlignment(false);
+  if (bestPrefixScore >= 0) {
+    return bestPrefixScore;
+  }
+
+  // 2. Try ordered substring alignment across distinct words
+  const bestOrderedSubstringScore = findBestOrderedAlignment(true);
+  if (bestOrderedSubstringScore >= 0) {
+    return bestOrderedSubstringScore;
+  }
+
+  // 3. Try unordered match across distinct words (each query token must match a separate word)
+  const usedWordIndices = new Set<number>();
+  let totalUnorderedQuality = 0;
+  let matchedWordZero = false;
+  let prefixMatchesCount = 0;
+  let indicesPenalty = 0;
+
+  for (const qTok of queryTokens) {
+    let chosenIdx = -1;
+    let chosenQuality = -1;
+
+    // Prefer prefix match on an unused word first
+    for (let wIdx = 0; wIdx < N; wIdx++) {
+      if (usedWordIndices.has(wIdx)) continue;
+      const pq = getPrefixCloseness(qTok, targetWords[wIdx]);
+      if (pq >= 0) {
+        chosenIdx = wIdx;
+        chosenQuality = pq;
+        prefixMatchesCount++;
+        break;
+      }
+    }
+
+    // Fallback to substring match on an unused word
+    if (chosenIdx === -1) {
+      for (let wIdx = 0; wIdx < N; wIdx++) {
+        if (usedWordIndices.has(wIdx)) continue;
+        const sq = getSubstringCloseness(qTok, targetWords[wIdx]);
+        if (sq >= 0) {
+          chosenIdx = wIdx;
+          chosenQuality = sq;
+          break;
+        }
+      }
+    }
+
+    if (chosenIdx === -1) {
+      return -1; // Could not match all query tokens to distinct words
+    }
+
+    usedWordIndices.add(chosenIdx);
+    if (chosenIdx === 0) matchedWordZero = true;
+    totalUnorderedQuality += chosenQuality;
+    indicesPenalty += chosenIdx * 120;
+  }
+
+  return Math.max(
+    5000,
+    10000 +
+      (matchedWordZero ? 1500 : 0) +
+      prefixMatchesCount * 300 +
+      totalUnorderedQuality -
+      indicesPenalty
+  );
+}
+
+/**
+ * Scores a match for sorting search results (higher score = closer match).
+ * Returns -1 if the candidate does not match the query.
+ */
+export function scoreArabicMatch(
+  targetText: string,
+  rawQuery: string,
+  additionalTexts: string[] = []
+): number {
+  const normQuery = normalizeArabic(rawQuery);
+  if (!normQuery) return 0;
+
+  const queryTokens = tokenizeArabicNameWords(rawQuery);
+  if (queryTokens.length === 0) return 0;
+
+  // 1. Score primary targetText independently
+  let bestScore = scoreFieldAgainstQueryTokens(targetText, queryTokens, normQuery);
+
+  const primaryFirstWord = tokenizeArabicNameWords(targetText)[0] || '';
+
+  // 2. Score each additional text independently (NEVER concatenating duplicate lineage strings together)
+  const nonLineageExtras: string[] = [];
+  for (const extra of additionalTexts) {
+    if (!extra || !extra.trim()) continue;
+    const extraWords = tokenizeArabicNameWords(extra);
+    if (extraWords.length === 0) continue;
+
+    // Check if this extra text is the full ascending lineage string of the same person
+    const isSamePersonLineage =
+      primaryFirstWord &&
+      extraWords[0] === primaryFirstWord &&
+      (extra.includes('بن') || extra.includes('بنت') || extraWords.length >= tokenizeArabicNameWords(targetText).length);
+
+    const extraScore = scoreFieldAgainstQueryTokens(extra, queryTokens, normQuery);
+    if (extraScore >= 0) {
+      // Lineage string gets full primary weight; secondary metadata (notes, spouse) is capped below primary name matches
+      const weightedScore = isSamePersonLineage
+        ? extraScore
+        : Math.min(35000, Math.round(extraScore * 0.45));
+      if (weightedScore > bestScore) {
+        bestScore = weightedScore;
+      }
+    }
+
+    if (!isSamePersonLineage) {
+      nonLineageExtras.push(extra);
+    }
+  }
+
+  if (bestScore >= 0) {
+    return bestScore;
+  }
+
+  // 3. Fallback: check if query tokens match across (primaryName + non-lineage metadata like notes/husbandName)
+  if (nonLineageExtras.length > 0) {
+    const combinedMetadata = `${targetText} ${nonLineageExtras.join(' ')}`;
+    const crossScore = scoreFieldAgainstQueryTokens(combinedMetadata, queryTokens, normQuery);
+    if (crossScore >= 0) {
+      return Math.min(4500, Math.round(crossScore * 0.25));
+    }
+  }
+
+  return -1;
 }
 
 /**
  * Advanced partial & non-consecutive Arabic search.
- * Example: query "مح زا سع" matches "محمد بن زاهر بن سعيد".
+ * Example: query "محمد راش مح" matches "محمد بن راشد بن محمد".
  */
-export function advancedArabicMatch(targetText: string, rawQuery: string, additionalTexts: string[] = []): boolean {
+export function advancedArabicMatch(
+  targetText: string,
+  rawQuery: string,
+  additionalTexts: string[] = []
+): boolean {
   const normQuery = normalizeArabic(rawQuery);
   if (!normQuery) return true;
-
-  const combinedTarget = normalizeArabic([targetText, ...additionalTexts].filter(Boolean).join(' '));
-  if (!combinedTarget) return false;
-
-  // Direct substring match
-  if (combinedTarget.includes(normQuery)) return true;
-
-  // Split query into tokens (e.g. ["مح", "زا", "سع"])
-  const queryTokens = normQuery.split(/\s+/).filter(Boolean);
-  if (queryTokens.length === 0) return true;
-
-  // 1. Check if all query tokens appear in order (even non-consecutively across words)
-  let searchPos = 0;
-  let allInOrder = true;
-  for (const token of queryTokens) {
-    const foundIdx = combinedTarget.indexOf(token, searchPos);
-    if (foundIdx === -1) {
-      allInOrder = false;
-      break;
-    }
-    searchPos = foundIdx + token.length;
-  }
-  if (allInOrder) return true;
-
-  // 2. Also allow matching when every token is present anywhere in the target text
-  return queryTokens.every(token => combinedTarget.includes(token));
+  return scoreArabicMatch(targetText, rawQuery, additionalTexts) >= 0;
 }
 
 /**
- * Scores a match for sorting search results (higher score = better match).
+ * Comparator that sorts by closest search match first (descending score),
+ * and then alphabetically in Arabic.
  */
-export function scoreArabicMatch(targetText: string, rawQuery: string, additionalTexts: string[] = []): number {
-  const normQuery = normalizeArabic(rawQuery);
-  if (!normQuery) return 0;
-
-  const normPrimary = normalizeArabic(targetText);
-  const normCombined = normalizeArabic([targetText, ...additionalTexts].filter(Boolean).join(' '));
-
-  if (!advancedArabicMatch(targetText, rawQuery, additionalTexts)) return -1;
-
-  // Exact match or startsWith
-  if (normPrimary === normQuery) return 1000;
-  if (normPrimary.startsWith(normQuery)) return 900;
-  if (normPrimary.includes(normQuery)) return 800;
-
-  const queryTokens = normQuery.split(/\s+/).filter(Boolean);
-  // Remove connector words from target words for word-by-word prefix check
-  const targetWords = normCombined.split(/\s+/).filter(w => w && w !== 'بن' && w !== 'بنت');
-
-  // Check if tokens match prefixes of targetWords in sequence (e.g., "مح زا سع" -> "محمد", "زاهر", "سعيد")
-  let wordIdx = 0;
-  let matchedWordPrefixesInOrder = 0;
-  for (const token of queryTokens) {
-    while (wordIdx < targetWords.length) {
-      if (targetWords[wordIdx].startsWith(token)) {
-        matchedWordPrefixesInOrder++;
-        wordIdx++;
-        break;
-      }
-      wordIdx++;
+export function compareBySearchRelevance<T extends { fullName: string }>(
+  a: T,
+  b: T,
+  rawQuery: string,
+  getAdditionalTexts?: (item: T) => string[]
+): number {
+  const q = rawQuery.trim();
+  if (q) {
+    const extraA = getAdditionalTexts ? getAdditionalTexts(a) : [];
+    const extraB = getAdditionalTexts ? getAdditionalTexts(b) : [];
+    const scoreA = scoreArabicMatch(a.fullName, q, extraA);
+    const scoreB = scoreArabicMatch(b.fullName, q, extraB);
+    if (scoreB !== scoreA) {
+      return scoreB - scoreA;
     }
   }
-  if (matchedWordPrefixesInOrder === queryTokens.length) {
-    return 700;
+  return a.fullName.localeCompare(b.fullName, 'ar');
+}
+
+/**
+ * Filters a list of items and sorts them by closest match to the search query first,
+ * then next closest, and finally alphabetically in Arabic.
+ */
+export function filterAndSortBySearch<T extends { fullName: string }>(
+  items: T[],
+  rawQuery: string,
+  getAdditionalTexts?: (item: T) => string[],
+  emptyQueryComparator?: (a: T, b: T) => number
+): T[] {
+  const q = rawQuery.trim();
+  if (!q) {
+    return emptyQueryComparator ? [...items].sort(emptyQueryComparator) : [...items];
   }
 
-  // Check if tokens appear in order in primary name
-  let pos = 0;
-  let inOrderPrimary = true;
-  for (const token of queryTokens) {
-    const idx = normPrimary.indexOf(token, pos);
-    if (idx === -1) {
-      inOrderPrimary = false;
-      break;
+  const scored: { item: T; score: number }[] = [];
+  for (const item of items) {
+    const extra = getAdditionalTexts ? getAdditionalTexts(item) : [];
+    const score = scoreArabicMatch(item.fullName, q, extra);
+    if (score >= 0) {
+      scored.push({ item, score });
     }
-    pos = idx + token.length;
   }
-  if (inOrderPrimary) return 600;
 
-  return 400;
+  scored.sort((x, y) => {
+    if (y.score !== x.score) {
+      return y.score - x.score;
+    }
+    return x.item.fullName.localeCompare(y.item.fullName, 'ar');
+  });
+
+  return scored.map((s) => s.item);
 }
 
 /**
@@ -277,4 +598,5 @@ export function sortPersonsMalesFirstAlphabetical<T extends { fullName: string; 
 ): T[] {
   return [...list].sort(comparePersonsMalesFirstAlphabetical);
 }
+
 

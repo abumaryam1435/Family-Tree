@@ -16,6 +16,7 @@ import { Person } from '../types/family';
 import {
   advancedArabicMatch,
   scoreArabicMatch,
+  filterAndSortBySearch,
   sortPersonsMalesFirstAlphabetical,
   formatAppName,
   formatDropdownName
@@ -67,17 +68,13 @@ export const KinshipFinderView: React.FC<KinshipFinderViewProps> = ({
   const filteredListA = useMemo(() => {
     const q = searchA.trim();
     if (!q) return sortedPersons;
-    return sortedPersons
-      .filter((p) => advancedArabicMatch(p.fullName, q))
-      .sort((a, b) => scoreArabicMatch(b.fullName, q) - scoreArabicMatch(a.fullName, q));
+    return filterAndSortBySearch(sortedPersons, q, (p) => (p.notes ? [p.notes] : []));
   }, [sortedPersons, searchA]);
 
   const filteredListB = useMemo(() => {
     const q = searchB.trim();
     if (!q) return sortedPersons;
-    return sortedPersons
-      .filter((p) => advancedArabicMatch(p.fullName, q))
-      .sort((a, b) => scoreArabicMatch(b.fullName, q) - scoreArabicMatch(a.fullName, q));
+    return filterAndSortBySearch(sortedPersons, q, (p) => (p.notes ? [p.notes] : []));
   }, [sortedPersons, searchB]);
 
   const personA = useMemo(

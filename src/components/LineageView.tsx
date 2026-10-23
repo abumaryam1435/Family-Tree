@@ -16,6 +16,7 @@ import { Person } from '../types/family';
 import {
   advancedArabicMatch,
   comparePersonsMalesFirstAlphabetical,
+  filterAndSortBySearch,
   formatAppName,
   formatBranchName,
   formatDropdownName
@@ -68,11 +69,9 @@ export const LineageView: React.FC<LineageViewProps> = ({
   }, [activePerson, getLineageString]);
 
   const filteredPersons = useMemo(() => {
-    if (!searchTerm.trim()) return [];
-    return persons
-      .filter(p => advancedArabicMatch(p.fullName, searchTerm, [getLineageString(p.id)]))
-      .sort(comparePersonsMalesFirstAlphabetical)
-      .slice(0, 12);
+    const q = searchTerm.trim();
+    if (!q) return [];
+    return filterAndSortBySearch(persons, q, (p) => [getLineageString(p.id)]).slice(0, 15);
   }, [persons, searchTerm, getLineageString]);
 
   if (!activePerson) {

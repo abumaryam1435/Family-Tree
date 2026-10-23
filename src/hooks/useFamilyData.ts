@@ -6,7 +6,8 @@ import {
   advancedArabicMatch,
   scoreArabicMatch,
   sortPersonsMalesFirstAlphabetical,
-  comparePersonsMalesFirstAlphabetical
+  comparePersonsMalesFirstAlphabetical,
+  filterAndSortBySearch
 } from '../utils/nameUtils';
 
 export function useFamilyData() {
@@ -207,18 +208,16 @@ export function useFamilyData() {
     return { total: males + females, males, females, maxDepth };
   }, [childrenMap]);
 
-  // Filtered persons based on advanced multi-part / non-consecutive search query (Males first then Females alphabetically)
+  // Filtered persons based on proximity to search query (closest first, then next closest, then Arabic alphabetical)
   const searchResults = useMemo(() => {
     const q = searchQuery.trim();
     if (!q) return [];
-    return persons
-      .filter(p => {
-        const lineage = getLineageString(p.id);
-        const fatherName = p.fatherId ? (personsMap.get(p.fatherId)?.fullName || '') : '';
-        return advancedArabicMatch(p.fullName, q, [lineage, fatherName, p.husbandName || '', p.notes || '']);
-      })
-      .sort(comparePersonsMalesFirstAlphabetical);
-  }, [persons, searchQuery, personsMap, getLineageString]);
+    return filterAndSortBySearch(persons, q, (p) => [
+      getLineageString(p.id),
+      p.husbandName || '',
+      p.notes || ''
+    ]);
+  }, [persons, searchQuery, getLineageString]);
 
   // Global family tree metrics
   const stats = useMemo(() => {
