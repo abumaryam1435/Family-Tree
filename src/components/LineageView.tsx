@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   User,
   Users,
@@ -6,17 +6,17 @@ import {
   Printer,
   ChevronDown,
   ArrowUp,
-  ArrowDown,
   Search,
   ExternalLink,
-  TreeDeciduous,
-  Share2
+  X,
+  Check,
+  IdCard
 } from 'lucide-react';
 import { Person } from '../types/family';
 import {
-  advancedArabicMatch,
   comparePersonsMalesFirstAlphabetical,
   filterAndSortBySearch,
+  sortPersonsMalesFirstAlphabetical,
   formatAppName,
   formatBranchName,
   formatDropdownName
@@ -26,6 +26,7 @@ interface LineageViewProps {
   persons: Person[];
   selectedPersonId: string | null;
   onSelectPerson: (id: string) => void;
+  onOpenPersonModal?: (id: string) => void;
   getPerson: (id: string) => Person | undefined;
   getChildren: (personId: string) => Person[];
   getAncestors: (personId: string) => Person[];
@@ -37,6 +38,7 @@ export const LineageView: React.FC<LineageViewProps> = ({
   persons,
   selectedPersonId,
   onSelectPerson,
+  onOpenPersonModal,
   getPerson,
   getChildren,
   getAncestors,
@@ -44,14 +46,72 @@ export const LineageView: React.FC<LineageViewProps> = ({
   onPrintPerson
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
+
+  const dropdownContainerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const listContainerRef = useRef<HTMLDivElement>(null);
+
+  const sortedPersons = useMemo(
+    () => sortPersonsMalesFirstAlphabetical(persons),
+    [persons]
+  );
+
+  const [internalPersonId, setInternalPersonId] = useState<string | null>(
+    selectedPersonId || sortedPersons[0]?.id || null
+  );
+
+  // Sync internalPersonId if selectedPersonId prop changes from parent
+  useEffect(() => {
+    if (selectedPersonId) {
+      setInternalPersonId(selectedPersonId);
+    } else if (!internalPersonId && sortedPersons.length > 0) {
+      setInternalPersonId(sortedPersons[0].id);
+    }
+  }, [selectedPersonId, sortedPersons, internalPersonId]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        dropdownContainerRef.current &&
+        !dropdownContainerRef.current.contains(event.target as Node)
+      ) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Auto-focus search input when opening dropdown
+  useEffect(() => {
+    if (isDropdownOpen) {
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+    }
+  }, [isDropdownOpen]);
+
+  const handleChoosePerson = (id: string) => {
+    setInternalPersonId(id);
+    onSelectPerson(id);
+    setIsDropdownOpen(false);
+    setSearchTerm('');
+  };
 
   // Determine active person to inspect
   const activePerson = useMemo(() => {
-    if (selectedPersonId) {
-      return getPerson(selectedPersonId) || persons[0] || null;
+    if (internalPersonId) {
+      const found = getPerson(internalPersonId);
+      if (found) return found;
     }
-    return persons[0] || null;
-  }, [selectedPersonId, persons, getPerson]);
+    if (selectedPersonId) {
+      const found = getPerson(selectedPersonId);
+      if (found) return found;
+    }
+    return sortedPersons[0] || null;
+  }, [internalPersonId, selectedPersonId, sortedPersons, getPerson]);
 
   const ancestors = useMemo(() => {
     if (!activePerson) return [];
@@ -70,9 +130,14 @@ export const LineageView: React.FC<LineageViewProps> = ({
 
   const filteredPersons = useMemo(() => {
     const q = searchTerm.trim();
-    if (!q) return [];
-    return filterAndSortBySearch(persons, q, (p) => [getLineageString(p.id)]).slice(0, 15);
-  }, [persons, searchTerm, getLineageString]);
+    if (!q) return sortedPersons;
+    return filterAndSortBySearch(
+      sortedPersons,
+      q,
+      (p) => [getLineageString(p.id), p.notes || ''],
+      comparePersonsMalesFirstAlphabetical
+    );
+  }, [sortedPersons, searchTerm, getLineageString]);
 
   if (!activePerson) {
     return (
@@ -85,49 +150,215 @@ export const LineageView: React.FC<LineageViewProps> = ({
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Search & Selector Card */}
-      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3.5 sm:gap-4">
-        <div className="flex-1 relative">
-          <label className="text-xs font-bold text-slate-600 block mb-1.5">
-            اختر فرداً لعرض فروعه ومسار نسبه الصاعد:
+      {/* Dropdown Selector with Search Button & Actions Card */}
+      <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-xs flex flex-col lg:flex-row items-stretch lg:items-end justify-between gap-3.5 sm:gap-4">
+        <div className="flex-1 relative" ref={dropdownContainerRef}>
+          <label className="text-xs font-bold text-slate-600 block mb-2">
+            اختر الاسم من القائمة لعرض فروعه ومسار نسبه الصاعد:
           </label>
-          <div className="relative">
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="ابحث بالاسم لتغيير الفرد المعروض..."
-              className="w-full h-11 pr-9 pl-3 rounded-xl border border-slate-200 bg-slate-50 text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]"
-            />
-            <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3.5" />
-          </div>
 
-          {filteredPersons.length > 0 && (
-            <div className="absolute top-18 right-0 left-0 bg-white border border-slate-200 rounded-2xl shadow-xl z-30 p-2 divide-y divide-slate-100 max-h-64 overflow-y-auto">
-              {filteredPersons.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => {
-                    onSelectPerson(p.id);
-                    setSearchTerm('');
-                  }}
-                  className="w-full text-right p-2.5 hover:bg-slate-50 active:bg-slate-100 rounded-xl text-xs sm:text-sm font-bold text-slate-800 flex items-center justify-between gap-2"
-                >
-                  <span className="break-words leading-snug">{formatDropdownName(p.fullName)}</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 shrink-0">
-                    {p.gender === 'male' ? 'ذكر' : 'أنثى'}
+          {/* Dropdown Trigger Button */}
+          <button
+            type="button"
+            onClick={() => setIsDropdownOpen((prev) => !prev)}
+            className={`w-full min-h-[48px] px-3.5 py-2.5 rounded-2xl border transition flex items-center justify-between gap-3 text-right cursor-pointer ${
+              isDropdownOpen
+                ? 'border-[#0F4C3A] bg-emerald-50/40 ring-2 ring-[#0F4C3A]/20'
+                : 'border-slate-200 bg-slate-50/80 hover:bg-white hover:border-[#0F4C3A]/50'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                  activePerson.gender === 'male'
+                    ? 'bg-[#0F4C3A] text-[#D4AF37]'
+                    : 'bg-rose-600 text-white'
+                }`}
+              >
+                <User className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-bold text-slate-400">
+                  الاسم المعروض حالياً ({persons.length} فرد في القائمة):
+                </div>
+                <div className="text-xs sm:text-sm font-extrabold text-slate-900 truncate">
+                  {formatDropdownName(activePerson.fullName)}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <span
+                className={`hidden sm:inline-block text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                  activePerson.gender === 'male'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-rose-100 text-rose-800'
+                }`}
+              >
+                {activePerson.gender === 'male' ? 'ذكر' : 'أنثى'}
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0F4C3A] text-white text-xs font-bold shadow-2xs">
+                <Search className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <span>اختيار الاسم</span>
+                <ChevronDown
+                  className={`w-4 h-4 text-[#D4AF37] transition-transform duration-200 ${
+                    isDropdownOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </span>
+            </div>
+          </button>
+
+          {/* Dropdown Menu Panel with Search Bar & Search Button */}
+          {isDropdownOpen && (
+            <div className="absolute top-full mt-2 right-0 left-0 bg-white border-2 border-[#0F4C3A]/20 rounded-2xl shadow-2xl z-40 overflow-hidden">
+              {/* Search Bar Header inside Dropdown */}
+              <div className="p-3 bg-slate-50 border-b border-slate-200/80 space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      value={searchTerm}
+                      onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        if (listContainerRef.current) {
+                          listContainerRef.current.scrollTop = 0;
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && filteredPersons.length > 0) {
+                          e.preventDefault();
+                          handleChoosePerson(filteredPersons[0].id);
+                        } else if (e.key === 'Escape') {
+                          setIsDropdownOpen(false);
+                        }
+                      }}
+                      placeholder="اكتب الاسم أو جزءاً منه للبحث (مثال: محمد راش مح)..."
+                      className="w-full h-10 pr-9 pl-8 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]"
+                    />
+                    <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
+                    {searchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchTerm('');
+                          searchInputRef.current?.focus();
+                        }}
+                        className="w-5 h-5 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-600 flex items-center justify-center absolute left-2.5 top-2.5 cursor-pointer"
+                        title="مسح البحث"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      searchInputRef.current?.focus();
+                      if (listContainerRef.current) {
+                        listContainerRef.current.scrollTop = 0;
+                      }
+                    }}
+                    className="h-10 px-3.5 rounded-xl bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white text-xs font-bold flex items-center gap-1.5 shrink-0 transition cursor-pointer shadow-2xs"
+                  >
+                    <Search className="w-3.5 h-3.5 text-[#D4AF37]" />
+                    <span>بحث</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-slate-500 px-1">
+                  <span>
+                    {searchTerm.trim()
+                      ? `نتائج البحث المطابقة (${filteredPersons.length}) — مرتبة بالأقرب فالأقرب ثم هجائياً`
+                      : `جميع الأفراد المسجلين (${filteredPersons.length}) — اختر اسماً أو ابحث أعلاه`}
                   </span>
-                </button>
-              ))}
+                  {searchTerm.trim() && filteredPersons.length > 0 && (
+                    <span className="text-[#0F4C3A] font-bold">
+                      اضغط على الاسم لاختياره
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Scrollable Dropdown List */}
+              <div
+                ref={listContainerRef}
+                className="max-h-72 overflow-y-auto divide-y divide-slate-100 p-1.5"
+              >
+                {filteredPersons.length === 0 ? (
+                  <div className="py-8 px-4 text-center text-xs text-slate-400">
+                    لا توجد أسماء مطابقة لنص البحث «{searchTerm}»
+                  </div>
+                ) : (
+                  filteredPersons.map((p) => {
+                    const isSelected = p.id === activePerson.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => handleChoosePerson(p.id)}
+                        className={`w-full text-right p-2.5 sm:px-3.5 sm:py-2.5 rounded-xl transition flex items-center justify-between gap-2 cursor-pointer ${
+                          isSelected
+                            ? 'bg-[#0F4C3A] text-white font-extrabold shadow-2xs'
+                            : 'hover:bg-emerald-50/70 active:bg-emerald-100/60 text-slate-800 font-bold'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <span
+                            className={`w-2 h-2 rounded-full shrink-0 ${
+                              isSelected
+                                ? 'bg-[#D4AF37]'
+                                : p.gender === 'male'
+                                ? 'bg-emerald-600'
+                                : 'bg-rose-500'
+                            }`}
+                          />
+                          <span className="text-xs sm:text-sm break-words leading-snug">
+                            {formatDropdownName(p.fullName)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${
+                              isSelected
+                                ? 'bg-white/20 text-white'
+                                : p.gender === 'male'
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : 'bg-rose-50 text-rose-700'
+                            }`}
+                          >
+                            {p.gender === 'male' ? 'ذكر' : 'أنثى'}
+                          </span>
+                          {isSelected && <Check className="w-4 h-4 text-[#D4AF37]" />}
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
             </div>
           )}
         </div>
 
-        {/* Print / Action CTA */}
-        <div className="flex items-center gap-2 w-full md:w-auto">
+        {/* Print & Details Action CTAs */}
+        <div className="flex items-center gap-2 w-full lg:w-auto shrink-0">
+          {onOpenPersonModal && (
+            <button
+              type="button"
+              onClick={() => onOpenPersonModal(activePerson.id)}
+              className="flex-1 lg:flex-initial min-h-[48px] flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl border border-[#0F4C3A]/30 bg-emerald-50/60 text-[#0F4C3A] hover:bg-emerald-100/70 active:scale-[0.99] text-xs font-bold transition cursor-pointer"
+            >
+              <IdCard className="w-4 h-4 text-[#0F4C3A]" />
+              <span>بطاقة التفاصيل</span>
+            </button>
+          )}
           <button
+            type="button"
             onClick={() => onPrintPerson(activePerson.id)}
-            className="w-full md:w-auto min-h-[42px] flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#0F4C3A] text-white hover:bg-[#0c3c2e] active:scale-[0.99] text-xs font-bold transition shadow-xs cursor-pointer"
+            className="flex-1 lg:flex-initial min-h-[48px] flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-[#0F4C3A] text-white hover:bg-[#0c3c2e] active:scale-[0.99] text-xs font-bold transition shadow-xs cursor-pointer"
           >
             <Printer className="w-4 h-4 text-[#D4AF37]" />
             <span>طباعة صك النسب</span>
@@ -147,7 +378,7 @@ export const LineageView: React.FC<LineageViewProps> = ({
         <div className="mt-3 sm:mt-4 flex flex-wrap items-center justify-center gap-2 sm:gap-4 text-xs text-slate-300">
           <span>الجيل المسجل: {ancestors.length + 1}</span>
           <span>·</span>
-          <span className="break-words">الأصل: {formatAppName(ancestors[ancestors.length - 1]?.fullName || activePerson.fullName)}</span>
+          <span className="break-words">الأصل: {formatBranchName(ancestors[ancestors.length - 1]?.fullName || activePerson.fullName)}</span>
         </div>
       </div>
 
@@ -174,7 +405,8 @@ export const LineageView: React.FC<LineageViewProps> = ({
               {children.map((child) => (
                 <button
                   key={child.id}
-                  onClick={() => onSelectPerson(child.id)}
+                  type="button"
+                  onClick={() => handleChoosePerson(child.id)}
                   className="w-full text-right p-3 sm:p-3.5 rounded-2xl border border-slate-200/80 hover:border-[#0F4C3A]/40 bg-slate-50/60 hover:bg-white active:bg-slate-100 transition flex items-center justify-between gap-2.5 group cursor-pointer"
                 >
                   <div className="min-w-0 flex-1">
@@ -219,7 +451,7 @@ export const LineageView: React.FC<LineageViewProps> = ({
                   )}
                 </div>
                 <h4 className="text-sm sm:text-base font-bold text-slate-900 break-words leading-snug">
-                  {formatAppName(activePerson.fullName)}
+                  {lineageString || activePerson.fullName}
                 </h4>
                 {activePerson.notes && (
                   <p className="text-xs text-slate-600 mt-1 break-words">{activePerson.notes}</p>
@@ -235,7 +467,7 @@ export const LineageView: React.FC<LineageViewProps> = ({
                 </div>
 
                 <div
-                  onClick={() => onSelectPerson(anc.id)}
+                  onClick={() => handleChoosePerson(anc.id)}
                   className="flex-1 min-w-0 bg-white border border-slate-200/80 hover:border-[#0F4C3A]/50 active:bg-slate-50 p-3.5 sm:p-4 rounded-2xl cursor-pointer transition group shadow-2xs"
                 >
                   <div className="flex items-center justify-between gap-2 mb-1">
@@ -254,7 +486,7 @@ export const LineageView: React.FC<LineageViewProps> = ({
                     </span>
                   </div>
                   <h4 className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-[#0F4C3A] transition break-words leading-snug">
-                    {formatAppName(anc.fullName)}
+                    {formatBranchName(anc.fullName)}
                   </h4>
                   {anc.notes && (
                     <p className="text-xs text-slate-500 mt-1 line-clamp-2 break-words">{anc.notes}</p>

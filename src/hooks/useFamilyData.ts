@@ -7,7 +7,8 @@ import {
   scoreArabicMatch,
   sortPersonsMalesFirstAlphabetical,
   comparePersonsMalesFirstAlphabetical,
-  filterAndSortBySearch
+  filterAndSortBySearch,
+  extractGivenName
 } from '../utils/nameUtils';
 
 export function useFamilyData() {
@@ -105,10 +106,13 @@ export function useFamilyData() {
   }, [persons]);
 
   // Children index map (each father's children sorted Males first then Females alphabetically)
+  // Strictly patrilineal: children branch under their father in the tree, never under a female node
   const childrenMap = useMemo(() => {
     const map = new Map<string, Person[]>();
     for (const p of persons) {
       if (p.fatherId) {
+        const father = personsMap.get(p.fatherId);
+        if (father && father.gender === 'female') continue;
         const arr = map.get(p.fatherId) || [];
         arr.push(p);
         map.set(p.fatherId, arr);
@@ -118,7 +122,7 @@ export function useFamilyData() {
       map.set(fid, sortPersonsMalesFirstAlphabetical(arr));
     }
     return map;
-  }, [persons]);
+  }, [persons, personsMap]);
 
   // Independent tree roots (ancestors with no fatherId, sorted alphabetically)
   const treeRoots = useMemo(() => {
@@ -140,16 +144,22 @@ export function useFamilyData() {
   }, [personsMap]);
 
   const getChildren = useCallback((personId: string): Person[] => {
+    const p = personsMap.get(personId);
+    if (p && p.gender === 'female') return [];
     return childrenMap.get(personId) || [];
-  }, [childrenMap]);
+  }, [childrenMap, personsMap]);
 
   const getSons = useCallback((personId: string): Person[] => {
+    const p = personsMap.get(personId);
+    if (p && p.gender === 'female') return [];
     return (childrenMap.get(personId) || []).filter(c => c.gender === 'male');
-  }, [childrenMap]);
+  }, [childrenMap, personsMap]);
 
   const getDaughters = useCallback((personId: string): Person[] => {
+    const p = personsMap.get(personId);
+    if (p && p.gender === 'female') return [];
     return (childrenMap.get(personId) || []).filter(c => c.gender === 'female');
-  }, [childrenMap]);
+  }, [childrenMap, personsMap]);
 
   const getAncestors = useCallback((personId: string): Person[] => {
     const ancestors: Person[] = [];
@@ -177,11 +187,12 @@ export function useFamilyData() {
     const ancestors = getAncestors(personId);
     if (ancestors.length === 0) return person.fullName;
 
-    const chain = [person.fullName.split(' ')[0]];
+    const chain = [extractGivenName(person.fullName)];
     for (let i = 0; i < ancestors.length; i++) {
       const anc = ancestors[i];
-      const nameParts = anc.fullName.split(' ');
-      const firstName = nameParts[0].replace(/^(الشيخ|العم|الدكتور|المهندس)\s*/, '');
+      const firstName = extractGivenName(anc.fullName)
+        .replace(/^(الشيخ|العم|الدكتور|المهندس)\s*/, '')
+        .trim();
       const isFemale = i === 0 && person.gender === 'female';
       chain.push(isFemale ? `بنت ${firstName}` : `بن ${firstName}`);
     }

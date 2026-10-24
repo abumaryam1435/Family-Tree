@@ -71,6 +71,7 @@ export default function App() {
   const [printPersonId, setPrintPersonId] = useState<string | null>(null);
   const [personToDelete, setPersonToDelete] = useState<Person | null>(null);
   const [personHistory, setPersonHistory] = useState<string[]>([]);
+  const [lineagePersonId, setLineagePersonId] = useState<string | null>(null);
 
   // Selected person object for PersonModal
   const inspectedPerson = selectedPersonId ? getPerson(selectedPersonId) || null : null;
@@ -345,8 +346,9 @@ export default function App() {
             {activeTab === 'lineage' && (
               <LineageView
                 persons={persons}
-                selectedPersonId={selectedPersonId}
-                onSelectPerson={(id) => setSelectedPersonId(id)}
+                selectedPersonId={lineagePersonId || selectedPersonId}
+                onSelectPerson={(id) => setLineagePersonId(id)}
+                onOpenPersonModal={(id) => setSelectedPersonId(id)}
                 getPerson={getPerson}
                 getChildren={getChildren}
                 getAncestors={getAncestors}
@@ -454,7 +456,8 @@ export default function App() {
           }}
           onToggleGender={handleToggleGender}
           onNavigateToLineage={(id) => {
-            setSelectedPersonId(id);
+            setLineagePersonId(id);
+            setSelectedPersonId(null);
             setActiveTab('lineage');
           }}
           onNavigateToTreeBranch={(id) => {

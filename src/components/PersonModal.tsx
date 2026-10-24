@@ -29,7 +29,8 @@ import {
   generateChildFullName,
   getPatronymicSuffix,
   formatAppName,
-  formatBranchName
+  formatBranchName,
+  formatQuadrupleName
 } from '../utils/nameUtils';
 
 interface PersonModalProps {
@@ -281,12 +282,20 @@ export const PersonModal: React.FC<PersonModalProps> = ({
               <h4 className="text-xs sm:text-sm font-bold text-[#0F4C3A] flex items-center gap-1.5">
                 <Users className="w-4 h-4 text-[#D4AF37] shrink-0" />
                 <span>
-                  {person.gender === 'female' && kinship.children.length > 0
+                  {person.gender === 'female'
                     ? `الفروع والأبناء (${kinship.children.length}):`
                     : `الفروع والأبناء (${children.length}):`}
                 </span>
               </h4>
               
+              {person.gender === 'female' && kinship.children.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-lg border border-rose-200/70 font-bold">
+                    {kinship.sons.length} ذكور · {kinship.daughters.length} إناث
+                  </span>
+                </div>
+              )}
+
               {person.gender === 'male' && (
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-[11px] text-slate-600 font-semibold">
@@ -386,7 +395,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
 
             {person.gender === 'female' ? (
               <div className="space-y-2.5">
-                {kinship.children.length > 0 && (
+                {kinship.children.length > 0 ? (
                   <div className="space-y-1.5 sm:space-y-2">
                     {kinship.children.map((ch) => (
                       <div
@@ -395,13 +404,20 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                       >
                         <div className="flex items-start gap-2 min-w-0 flex-1">
                           <span className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${ch.gender === 'male' ? 'bg-emerald-600' : 'bg-rose-500'}`} />
-                          <button
-                            type="button"
-                            onClick={() => onSelectRelative?.(ch.id)}
-                            className="font-bold text-slate-900 hover:text-[#0F4C3A] hover:underline text-right leading-relaxed break-words text-xs sm:text-sm flex-1"
-                          >
-                            {formatBranchName(ch.fullName)}
-                          </button>
+                          <div className="flex flex-wrap items-center gap-1.5 flex-1">
+                            <button
+                              type="button"
+                              onClick={() => onSelectRelative?.(ch.id)}
+                              className="font-bold text-slate-900 hover:text-[#0F4C3A] hover:underline text-right leading-relaxed break-words text-xs sm:text-sm"
+                            >
+                              {formatQuadrupleName(ch, getPerson)}
+                            </button>
+                            {ch.gender === 'female' && ch.husbandName && (
+                              <span className="text-[11px] text-rose-700 font-semibold bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200/60">
+                                زوجة: {formatAppName(ch.husbandName)}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <span
                           className={`self-end sm:self-center shrink-0 text-[10px] font-bold px-2.5 py-1 rounded-lg ${
@@ -415,9 +431,15 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                       </div>
                     ))}
                   </div>
+                ) : (
+                  <div className="p-3 rounded-xl bg-white border border-slate-200 text-center text-xs text-slate-500">
+                    {person.husbandId
+                      ? 'لا يوجد أبناء مسجلون لها من زوجها حالياً'
+                      : 'لا يوجد أبناء مسجلون حالياً (يظهر أبناء البنت هنا عند ربطها بزوج من الشجرة)'}
+                  </div>
                 )}
                 <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 leading-relaxed">
-                  <strong>قاعدة نسب الأبناء:</strong> في شجرة النسب العربية، ينسب الأبناء لآبائهم؛ وتظهر الإناث في الشجرة ويُعرض نسبهن الصاعد إلى الأجداد دون إضافة فروع مباشرة لهن داخل شجرة النسب الأساسية.
+                  <strong>قاعدة نسب الأبناء:</strong> يُعرض أبناء البنت هنا بالاسم الرباعي عند ربطها بزوج (مع استثناء أبناء الزوج من زوجة أخرى)، ولا يظهرون في تفرع البنت تحت الشجرة لأنهم يتفرعون تحت أبيهم{husbandPerson ? ` (${formatAppName(husbandPerson.fullName)})` : ''}.
                 </div>
               </div>
             ) : children.length === 0 ? (
@@ -656,7 +678,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                                 : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200/60'
                             }`}
                           >
-                            <span>{formatBranchName(k.fullName)}</span>
+                            <span>{formatQuadrupleName(k, getPerson)}</span>
                             <span className="text-[10px] opacity-80 shrink-0">({k.gender === 'male' ? 'ابنها' : 'ابنتها'})</span>
                           </button>
                         ))}
@@ -709,7 +731,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                               child.gender === 'male' ? 'text-slate-800' : 'text-rose-800'
                             }`}
                           >
-                            {formatBranchName(child.fullName)}
+                            {formatQuadrupleName(child, getPerson)}
                           </button>
                           {otherMother ? (
                             <button

@@ -105,6 +105,62 @@ export function formatAppName(fullName?: string | null): string {
 }
 
 /**
+ * Formats a person's quadruple name (الاسم الرباعي: الاسم + الأب + الجد + جد الأب).
+ * Uses `person.fullName` and, if fewer than 4 names are present in `fullName`,
+ * walks up `fatherId` to construct the complete 4-part name.
+ */
+export function formatQuadrupleName(
+  person?: { id?: string; fullName?: string | null; gender?: Gender; fatherId?: string | null } | null,
+  lookup?: ((id: string) => { id?: string; fullName?: string | null; gender?: Gender; fatherId?: string | null } | undefined) | Array<{ id: string; fullName: string; gender: Gender; fatherId?: string | null }>
+): string {
+  if (!person || !person.fullName) return '';
+  const chainParts = splitLineageChain(person.fullName);
+  if (chainParts.length >= 4 || !person.fatherId || !lookup) {
+    return formatNameWithLimit(person.fullName, 4);
+  }
+
+  const getById = typeof lookup === 'function'
+    ? lookup
+    : (id: string) => lookup.find(p => p.id === id);
+
+  const names: string[] = [extractGivenName(person.fullName)];
+  let currentFatherId: string | null | undefined = person.fatherId;
+  const visited = new Set<string>();
+  if (person.id) visited.add(person.id);
+
+  while (currentFatherId && names.length < 4) {
+    if (visited.has(currentFatherId)) break;
+    visited.add(currentFatherId);
+    const father = getById(currentFatherId);
+    if (!father || !father.fullName) break;
+
+    const fatherParts = splitLineageChain(father.fullName);
+    if (fatherParts.length > 1) {
+      for (const part of fatherParts) {
+        if (names.length < 4) {
+          names.push(part);
+        }
+      }
+      break;
+    } else {
+      names.push(extractGivenName(father.fullName));
+      currentFatherId = father.fatherId;
+    }
+  }
+
+  if (names.length <= 1) {
+    return formatNameWithLimit(person.fullName, 4);
+  }
+
+  const firstConnector = person.gender === 'female' ? 'بنت' : 'بن';
+  let result = `${names[0]} ${firstConnector} ${names[1]}`;
+  for (let i = 2; i < names.length; i++) {
+    result += ` بن ${names[i]}`;
+  }
+  return result;
+}
+
+/**
  * Formats a branch/child name (son or daughter) to show ONLY the first name (الاسم الأول فقط).
  */
 export function formatBranchName(fullName?: string | null): string {

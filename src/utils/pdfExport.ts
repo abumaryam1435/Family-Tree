@@ -1,6 +1,6 @@
 import { Person } from '../types/family';
 import { calculateKinship, getCoupleRelationship, KinshipInfo } from './kinship';
-import { extractGivenName, formatAppName, formatBranchName, formatNameWithLimit } from './nameUtils';
+import { extractGivenName, formatAppName, formatBranchName, formatNameWithLimit, formatQuadrupleName } from './nameUtils';
 
 /**
  * Pure TypeScript PDF-1.4 multi-page generator from High-DPI HTML5 Canvas pages.
@@ -2379,7 +2379,7 @@ export async function exportPersonCertificateToPdf(options: {
     );
   } else {
     const motherChildrenItems: GridCardItem[] = (kinship?.children || []).map((ch, idx) => ({
-      title: `${idx + 1}. ${formatAppName(ch.fullName)}`,
+      title: `${idx + 1}. ${formatQuadrupleName(ch, allPersons)}`,
       badge: ch.gender === 'male' ? 'ابنها' : 'ابنتها',
       theme: ch.gender === 'male' ? 'emerald' : 'rose'
     }));

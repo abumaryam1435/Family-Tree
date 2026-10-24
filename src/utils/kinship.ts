@@ -71,9 +71,13 @@ export function resolveMotherOfChild(
   }
   if (child.fatherId) {
     const fatherWives = wivesOfHusband.get(child.fatherId) || [];
-    const matchingWife = fatherWives.find(w => isChildIncludedForWife(w, child));
-    if (matchingWife) {
-      return matchingWife;
+    const matchingWives = fatherWives.filter(w => isChildIncludedForWife(w, child));
+    if (matchingWives.length === 1) {
+      return matchingWives[0];
+    }
+    if (matchingWives.length > 1) {
+      const curatedWife = matchingWives.find(w => Array.isArray(w.excludedChildIds) && w.excludedChildIds.length > 0);
+      return curatedWife || matchingWives[0];
     }
   }
   return null;
@@ -189,15 +193,12 @@ export function calculateKinship(personId: string, persons: Person[]): KinshipIn
 
   // 5. Children of target
   // If male: all children whose fatherId === target.id
-  // If female: all children of her husband for whom she is their mother (not excluded)
+  // If female: all children of her husband for whom she is their mother (excluding husband's children from another wife)
   const myChildren = sortPersonsMalesFirstAlphabetical(
     target.gender === 'male'
       ? (childrenOfFather.get(target.id) || [])
       : (target.husbandId
-          ? (childrenOfFather.get(target.husbandId) || []).filter(c => {
-              const m = resolveMotherOfChild(c, map, wivesOfHusband);
-              return m?.id === target.id;
-            })
+          ? (childrenOfFather.get(target.husbandId) || []).filter(c => isChildIncludedForWife(target, c))
           : [])
   );
   const sons = myChildren.filter(c => c.gender === 'male');
@@ -208,8 +209,8 @@ export function calculateKinship(personId: string, persons: Person[]): KinshipIn
   if (target.gender === 'female' && target.husbandId) {
     const allHusbandKids = childrenOfFather.get(target.husbandId) || [];
     for (const c of allHusbandKids) {
-      const resolvedMother = resolveMotherOfChild(c, map, wivesOfHusband);
-      if (!resolvedMother || resolvedMother.id !== target.id) {
+      if (!isChildIncludedForWife(target, c)) {
+        const resolvedMother = resolveMotherOfChild(c, map, wivesOfHusband);
         excludedHusbandChildren.push({
           child: c,
           otherMother: resolvedMother && resolvedMother.id !== target.id ? resolvedMother : null

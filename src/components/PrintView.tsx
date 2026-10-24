@@ -13,7 +13,7 @@ import {
 import { Person } from '../types/family';
 import { exportPersonCertificateToPdf } from '../utils/pdfExport';
 import { calculateKinship, getCoupleRelationship } from '../utils/kinship';
-import { extractGivenName, formatAppName, formatBranchName } from '../utils/nameUtils';
+import { extractGivenName, formatAppName, formatBranchName, formatQuadrupleName } from '../utils/nameUtils';
 
 interface PrintViewProps {
   person: Person | null;
@@ -430,7 +430,7 @@ export const PrintView: React.FC<PrintViewProps> = ({
                               className="p-2.5 rounded-xl bg-white border border-rose-200 flex items-center justify-between gap-2"
                             >
                               <span className="text-xs sm:text-sm font-bold text-slate-900">
-                                {idx + 1}. {formatAppName(ch.fullName)}
+                                {idx + 1}. {formatQuadrupleName(ch, persons)}
                               </span>
                               <span className="px-2 py-0.5 rounded-lg bg-rose-50 text-rose-800 border border-rose-200 text-[10px] font-bold shrink-0">
                                 {ch.gender === 'male' ? 'ابنها' : 'ابنتها'}

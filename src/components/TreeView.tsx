@@ -2236,7 +2236,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
                   }}
                   className={`absolute ${
                     organicDirection === 'up' ? '-top-3' : '-bottom-3'
-                  } left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity w-6 h-6 rounded-full bg-[#0F4C3A] text-[#D4AF37] border border-[#D4AF37] flex items-center justify-center shadow-md hover:scale-110 z-30`}
+                  } left-1/2 -translate-x-1/2 opacity-95 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity w-6 h-6 rounded-full bg-[#0F4C3A] text-[#D4AF37] border border-[#D4AF37] flex items-center justify-center shadow-md hover:scale-110 z-30`}
                   title="إضافة غصن / ابن أو ابنة"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -2251,9 +2251,9 @@ export const TreeView: React.FC<TreeViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* MOBILE COMPACT HEADER BAR: Fits comfortably on phone screens (~68px height) */}
+      {/* MOBILE HEADER BAR: All buttons wrap cleanly so nothing is clipped on phone screens */}
       <div className="sm:hidden bg-white p-2.5 rounded-2xl border border-slate-200/80 shadow-2xs space-y-2">
-        {/* Row 1: Root selector + Mode switch + Export */}
+        {/* Row 1: Root selector + Mode switch */}
         <div className="flex items-center gap-1.5">
           <select
             value={selectedTreeRootId || ''}
@@ -2296,25 +2296,42 @@ export const TreeView: React.FC<TreeViewProps> = ({
               <span>شجرة</span>
             </button>
           </div>
-
-          {/* Export Button */}
-          {currentRoot && (
-            <button
-              type="button"
-              disabled={isExportingPdf}
-              onClick={() => setShowExportModal(true)}
-              className="h-8 px-2.5 rounded-xl bg-[#0F4C3A] text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs shrink-0 cursor-pointer disabled:opacity-60"
-              title="تصدير الشجرة"
-            >
-              <FileDown className="w-3.5 h-3.5 text-[#D4AF37]" />
-              <span>تصدير</span>
-            </button>
-          )}
         </div>
 
-        {/* Row 2: Search + Expand All / Collapse All + Quick View Buttons */}
+        {/* Optional Row: Organic Direction sub-toggle on mobile when in Organic Tree Mode */}
+        {treeDisplayMode === 'organic' && (
+          <div className="flex items-center justify-between gap-1.5 pt-0.5">
+            <span className="text-[10px] font-bold text-slate-500 shrink-0">اتجاه الأغصان:</span>
+            <div className="flex-1 grid grid-cols-2 gap-1 p-0.5 bg-amber-50/80 rounded-xl border border-amber-200/80 text-[10px]">
+              <button
+                type="button"
+                onClick={() => setOrganicDirection('up')}
+                className={`py-1 px-1.5 rounded-lg font-bold transition text-center ${
+                  organicDirection === 'up'
+                    ? 'bg-[#5C3A21] text-white shadow-2xs'
+                    : 'text-amber-900 hover:bg-amber-100/60'
+                }`}
+              >
+                جذر بالأسفل وأغصان صاعدة
+              </button>
+              <button
+                type="button"
+                onClick={() => setOrganicDirection('down')}
+                className={`py-1 px-1.5 rounded-lg font-bold transition text-center ${
+                  organicDirection === 'down'
+                    ? 'bg-[#5C3A21] text-white shadow-2xs'
+                    : 'text-amber-900 hover:bg-amber-100/60'
+                }`}
+              >
+                جذر بالأعلى وتفريعات نازلة
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Row 2: Search + Zoom & View Reset Controls (All on one line) */}
         <div className="flex items-center gap-1">
-          <div className="relative flex-1 min-w-[90px]">
+          <div className="relative flex-1 min-w-[95px]">
             <input
               type="text"
               value={localSearch}
@@ -2370,61 +2387,140 @@ export const TreeView: React.FC<TreeViewProps> = ({
             )}
           </div>
 
+          {/* Compact Zoom, Fit (icon only) & Root (icon only) Controls */}
           <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
-              onClick={() => setShowFemales((prev) => !prev)}
-              className={`h-7 px-2 flex items-center justify-center gap-0.5 rounded-lg border text-[10px] font-black transition cursor-pointer ${
-                showFemales
-                  ? 'border-rose-700 bg-rose-600 text-white shadow-2xs'
-                  : 'border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-900'
-              }`}
-              title={showFemales ? 'إخفاء الإناث وعرض الذكور فقط' : 'إظهار الإناث (البنات) في الشجرة'}
+              onClick={() => handleStepZoom(0.18)}
+              className="w-7 h-7 rounded-lg border border-slate-200 bg-slate-50 active:bg-slate-100 text-slate-700 flex items-center justify-center cursor-pointer"
+              title="تكبير"
+              aria-label="تكبير"
             >
-              <span>{showFemales ? 'إخفاء البنات' : 'إظهار البنات'}</span>
+              <ZoomIn className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
-              onClick={expandAll}
-              className="h-7 px-2 flex items-center justify-center gap-0.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-[#0F4C3A] text-[10px] font-black transition cursor-pointer"
-              title="توسيع وإظهار جميع فروع الشجرة"
+              onClick={() => handleStepZoom(-0.18)}
+              className="w-7 h-7 rounded-lg border border-slate-200 bg-slate-50 active:bg-slate-100 text-slate-700 flex items-center justify-center cursor-pointer"
+              title="تصغير"
+              aria-label="تصغير"
             >
-              <ChevronDown className="w-3 h-3" />
-              <span>توسيع الكل</span>
-            </button>
-            <button
-              type="button"
-              onClick={collapseAll}
-              className="h-7 px-2 flex items-center justify-center gap-0.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-950 text-[10px] font-black transition cursor-pointer"
-              title="طي جميع الفروع وإبقاء الجذر الأصلي فقط"
-            >
-              <ChevronUp className="w-3 h-3" />
-              <span>طي الكل</span>
+              <ZoomOut className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
               onClick={() => fitTreeToScreen(true)}
-              className="h-7 px-1.5 flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-[10px] font-bold"
+              className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 active:bg-slate-100 text-[#0F4C3A] cursor-pointer"
               title="احتواء الشجرة في الشاشة"
+              aria-label="احتواء الشجرة"
             >
-              احتواء
+              <Maximize2 className="w-3.5 h-3.5" />
             </button>
-            {treeRoots.length > 1 && (
+            <button
+              type="button"
+              onClick={resetView}
+              className="w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 bg-slate-50 active:bg-slate-100 text-amber-700 cursor-pointer"
+              title="توسيط الأصل"
+              aria-label="توسيط الأصل"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Row 3: Single row for Show Females, Expand, Collapse, Compare, and Export */}
+        <div className="flex items-center gap-1 pt-0.5">
+          <button
+            type="button"
+            onClick={() => setShowFemales((prev) => !prev)}
+            className={`flex-1 h-7 px-1.5 flex items-center justify-center gap-0.5 rounded-lg border text-[10px] font-black whitespace-nowrap transition cursor-pointer ${
+              showFemales
+                ? 'border-rose-700 bg-rose-600 text-white shadow-2xs'
+                : 'border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-900'
+            }`}
+            title={showFemales ? 'إخفاء الإناث وعرض الذكور فقط' : 'إظهار الإناث (البنات) في الشجرة'}
+          >
+            <span>{showFemales ? 'إخفاء البنات' : 'إظهار البنات'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={expandAll}
+            className="flex-1 h-7 px-1.5 flex items-center justify-center gap-0.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-[#0F4C3A] text-[10px] font-black whitespace-nowrap transition cursor-pointer"
+            title="توسيع وإظهار جميع فروع الشجرة"
+          >
+            <ChevronDown className="w-3 h-3 shrink-0" />
+            <span>توسيع</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={collapseAll}
+            className="flex-1 h-7 px-1.5 flex items-center justify-center gap-0.5 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-950 text-[10px] font-black whitespace-nowrap transition cursor-pointer"
+            title="طي جميع الفروع وإبقاء الجذر الأصلي فقط"
+          >
+            <ChevronUp className="w-3 h-3 shrink-0" />
+            <span>طي</span>
+          </button>
+
+          {treeRoots.length > 1 && (
+            <button
+              type="button"
+              onClick={toggleCompareMode}
+              className={`flex-1 h-7 px-1.5 flex items-center justify-center gap-0.5 rounded-lg text-[10px] font-bold border whitespace-nowrap transition cursor-pointer ${
+                isCompareMode
+                  ? 'bg-amber-500 text-slate-950 border-amber-600'
+                  : 'bg-amber-50 text-amber-900 border-amber-300'
+              }`}
+              title="مقارنة الأشجار"
+            >
+              <GitMerge className="w-3 h-3 shrink-0" />
+              <span>{isCompareMode ? 'إغلاق' : 'مقارنة'}</span>
+            </button>
+          )}
+
+          {currentRoot && (
+            <button
+              type="button"
+              disabled={isExportingPdf}
+              onClick={() => setShowExportModal(true)}
+              className="flex-1 h-7 px-1.5 rounded-lg bg-[#0F4C3A] text-white text-[10px] font-bold flex items-center justify-center gap-1 shadow-2xs whitespace-nowrap cursor-pointer disabled:opacity-60"
+              title="تصدير الشجرة"
+            >
+              <FileDown className="w-3 h-3 text-[#D4AF37] shrink-0" />
+              <span>تصدير</span>
+            </button>
+          )}
+        </div>
+
+        {/* Optional Row 4: Admin-only quick actions when logged in as Admin */}
+        {isAdmin && ((currentRoot && onOpenAddFather) || (treeRoots.length > 1 && onOpenMergeModal)) && (
+          <div className="flex items-center gap-1.5 pt-0.5">
+            {currentRoot && onOpenAddFather && (
               <button
                 type="button"
-                onClick={toggleCompareMode}
-                className={`h-7 px-1.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
-                  isCompareMode
-                    ? 'bg-amber-500 text-slate-950 border-amber-600'
-                    : 'bg-amber-50 text-amber-900 border-amber-300'
-                }`}
-                title="مقارنة الشجرات"
+                onClick={() => onOpenAddFather(currentRoot.id)}
+                className="flex-1 h-7 px-2 flex items-center justify-center gap-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-[#0F4C3A] border border-emerald-200 text-[10px] font-bold transition cursor-pointer"
+                title="إضافة جد أعلى أو نقل فرع لجد أعلى"
               >
-                مقارنة
+                <ArrowUp className="w-3 h-3 shrink-0" />
+                <span>+ إضافة جد أعلى</span>
+              </button>
+            )}
+
+            {treeRoots.length > 1 && onOpenMergeModal && (
+              <button
+                type="button"
+                onClick={() => onOpenMergeModal()}
+                className="flex-1 h-7 px-2 flex items-center justify-center gap-1 rounded-lg bg-[#D4AF37]/20 hover:bg-[#D4AF37]/30 text-[#8C6D1F] border border-[#D4AF37]/40 text-[10px] font-bold transition cursor-pointer"
+                title="دمج الأشجار"
+              >
+                <GitMerge className="w-3 h-3 shrink-0" />
+                <span>دمج الأشجار</span>
               </button>
             )}
           </div>
-        </div>
+        )}
       </div>
 
       {/* DESKTOP HEADER BANNERS: Full spacious layout for larger screens */}
@@ -2838,133 +2934,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
           )}
         </div>
 
-        {/* Floating Touch-Ergonomic Control Pad on Bottom Left */}
-        <div
-          dir="rtl"
-          className="absolute bottom-3 left-3 sm:bottom-4 sm:left-4 z-20 bg-white/95 backdrop-blur-md p-1.5 sm:p-2 rounded-2xl border border-slate-200/80 shadow-md flex items-center gap-1 sm:gap-1.5"
-        >
-          {/* Zoom In */}
-          <button
-            type="button"
-            onClick={() => handleStepZoom(0.2)}
-            className="w-8 h-8 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center transition cursor-pointer"
-            title="تكبير الشجرة"
-            aria-label="تكبير"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
 
-          {/* Zoom Out */}
-          <button
-            type="button"
-            onClick={() => handleStepZoom(-0.2)}
-            className="w-8 h-8 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center transition cursor-pointer"
-            title="تصغير الشجرة"
-            aria-label="تصغير"
-          >
-            <Minus className="w-4 h-4" />
-          </button>
-
-          <div className="h-5 w-px bg-slate-200 mx-0.5" />
-
-          {/* Fit entire tree to screen */}
-          <button
-            type="button"
-            onClick={() => fitTreeToScreen(true)}
-            className="h-8 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-[#0F4C3A] text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
-            title={isCompareMode ? 'احتواء الشجرات معاً داخل الشاشة' : 'احتواء الشجرة كاملة داخل الشاشة'}
-            aria-label="احتواء الشجرة"
-          >
-            <Maximize2 className="w-3.5 h-3.5" />
-            <span>احتواء</span>
-          </button>
-
-          {/* Center Root */}
-          <button
-            type="button"
-            onClick={() => centerOnRoot(true, 1)}
-            className="h-8 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-900 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
-            title={isCompareMode ? 'توسيط الجذور الأصلية' : 'توسيط الأصل'}
-            aria-label="توسيط الجد أو الأصل"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span className="hidden xs:inline">الأصل</span>
-          </button>
-
-          <div className="h-5 w-px bg-slate-200 mx-0.5" />
-
-          {/* Show / Hide Females Toggle */}
-          <button
-            type="button"
-            onClick={() => setShowFemales((prev) => !prev)}
-            className={`h-8 px-2.5 rounded-xl border text-[11px] font-black transition flex items-center gap-1 cursor-pointer ${
-              showFemales
-                ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700 shadow-2xs'
-                : 'bg-rose-50 hover:bg-rose-100 text-rose-900 border-rose-200/80'
-            }`}
-            title={showFemales ? 'إخفاء الإناث وعرض الذكور فقط' : 'إظهار الإناث (البنات) في الشجرة'}
-          >
-            <span>{showFemales ? 'إخفاء البنات' : 'إظهار البنات'}</span>
-          </button>
-
-          {/* Expand All */}
-          <button
-            type="button"
-            onClick={expandAll}
-            className="h-8 px-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-[#0F4C3A] border border-emerald-200/80 text-[11px] font-black transition flex items-center gap-1 cursor-pointer"
-            title="توسيع جميع فروع الشجرة"
-          >
-            <ChevronDown className="w-3.5 h-3.5" />
-            <span>توسيع الكل</span>
-          </button>
-
-          {/* Collapse All (Keep only Original Root) */}
-          <button
-            type="button"
-            onClick={collapseAll}
-            className="h-8 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 active:bg-amber-200 text-amber-950 border border-amber-200/80 text-[11px] font-black transition flex items-center gap-1 cursor-pointer"
-            title="طي جميع الفروع وإبقاء الجذر الأصلي فقط"
-          >
-            <ChevronUp className="w-3.5 h-3.5" />
-            <span>طي الكل</span>
-          </button>
-
-          {/* Directional Nudge Pad (hidden on small phone screens) */}
-          <div className="hidden sm:flex items-center gap-0.5 border-r border-slate-200 pr-1 mr-0.5">
-            <button
-              type="button"
-              onClick={() => handleDirectionalPan(0, 140)}
-              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-              title="تحريك للأعلى"
-            >
-              <ArrowUp className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDirectionalPan(0, -140)}
-              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-              title="تحريك للأسفل"
-            >
-              <ArrowDown className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDirectionalPan(-160, 0)}
-              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-              title="تحريك لليمين"
-            >
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDirectionalPan(160, 0)}
-              className="p-1 rounded-lg hover:bg-slate-100 text-slate-700 transition"
-              title="تحريك لليسار"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
 
         {/* Legend for Organic Tree Mode */}
         {!isCompareMode && treeDisplayMode === 'organic' && (
