@@ -277,13 +277,14 @@ export function computeVerticalPyramidLayout(options: {
   measure(rootPerson, 1);
 
   // 2. Card sizing adapted to screen vs print export and family size
-  const NODE_W = forScreen ? 248 : totalNodes <= 20 ? 310 : totalNodes <= 55 ? 280 : 256;
-  const NODE_H = forScreen ? 132 : totalNodes <= 20 ? 150 : totalNodes <= 55 ? 140 : 132;
+  // Slightly reduced card dimensions to eliminate excess empty space
+  const NODE_W = forScreen ? 208 : totalNodes <= 20 ? 256 : totalNodes <= 55 ? 232 : 216;
+  const NODE_H = forScreen ? 88 : totalNodes <= 20 ? 112 : totalNodes <= 55 ? 102 : 94;
 
-  const SPINE_CORRIDOR = forScreen ? 34 : 40; // Clear corridor around the vertical spine line
-  const V_PARENT_TO_CHILDREN = forScreen ? 38 : 44; // Vertical gap from parent card bottom to first child tier
-  const V_TIER_GAP = forScreen ? 34 : 40; // Vertical gap between stacked subtrees in the same column
-  const BRANCH_DROP = forScreen ? 16 : 18; // Distance above child's top edge where horizontal branch turns down
+  const SPINE_CORRIDOR = forScreen ? 28 : 34; // Clear corridor around the vertical spine line
+  const V_PARENT_TO_CHILDREN = forScreen ? 28 : 36; // Vertical gap from parent card bottom to first child tier
+  const V_TIER_GAP = forScreen ? 26 : 32; // Vertical gap between stacked subtrees in the same column
+  const BRANCH_DROP = forScreen ? 14 : 16; // Distance above child's top edge where horizontal branch turns down
 
   // Maximum combined width for pairing two subtrees side-by-side before switching to single-column stacking
   // This keeps the entire family tree in a clean vertical portrait proportion!

@@ -184,23 +184,23 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
                   onSelectPerson(person);
                 }
               }}
-              className={`absolute rounded-2xl shadow-md hover:shadow-xl cursor-pointer transition-transform hover:-translate-y-0.5 flex flex-col justify-between p-2.5 select-none ${
+              className={`absolute rounded-2xl shadow-md hover:shadow-xl cursor-pointer transition-transform hover:-translate-y-0.5 flex flex-col justify-between p-1.5 sm:p-2 select-none ${
                 isFocused ? 'ring-4 ring-amber-400 scale-105 z-30' : 'z-10'
               }`}
               dir="rtl"
             >
               {/* Top Row: Generation Badge, Info Details Button & Gender */}
               <div
-                className="flex items-center justify-between border-b pb-1"
+                className="flex items-center justify-between border-b pb-0.5"
                 style={{ borderColor: theme.divider }}
               >
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1 sm:gap-1.5">
                   <span
                     style={{
                       backgroundColor: theme.badgeBg,
                       color: theme.badgeText
                     }}
-                    className="px-2 py-0.5 rounded-md text-[10px] font-black leading-none"
+                    className="px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black leading-none"
                   >
                     {isRoot ? 'الأصل الراسخ' : `الجيل ${depth}`}
                   </span>
@@ -211,7 +211,7 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
                       e.stopPropagation();
                       onSelectPerson(person);
                     }}
-                    className="px-1.5 py-0.5 rounded-md text-[10px] font-black flex items-center gap-0.5 shadow-2xs transition-all hover:scale-105"
+                    className="px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black flex items-center gap-0.5 shadow-2xs transition-all hover:scale-105"
                     style={{
                       backgroundColor: isRoot ? 'rgba(253, 230, 138, 0.25)' : 'rgba(0, 0, 0, 0.08)',
                       color: isRoot ? '#FDE68A' : theme.nameText,
@@ -232,18 +232,20 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
                       ? '#BE123C'
                       : theme.subText
                   }}
-                  className="text-[10px] font-black leading-none"
+                  className="text-[9px] sm:text-[10px] font-black leading-none"
                 >
                   {person.gender === 'male' ? 'ذكر' : 'أنثى'}
                 </span>
               </div>
 
-              {/* Center Name: Large, bold and prominently legible */}
-              <div className="flex-1 flex items-center justify-center text-center px-1 py-1">
+              {/* Center Name: Prominently large, bold and clearly filling the card */}
+              <div className="flex-1 flex items-center justify-center text-center px-1">
                 <span
                   style={{ color: theme.nameText }}
                   className={`font-black leading-tight line-clamp-2 ${
-                    isRoot ? 'text-lg sm:text-2xl tracking-wide' : 'text-base sm:text-xl'
+                    isRoot
+                      ? 'text-xl sm:text-2xl md:text-3xl tracking-wide'
+                      : 'text-lg sm:text-2xl md:text-[25px]'
                   }`}
                   title={person.fullName}
                 >
@@ -343,9 +345,9 @@ const TreeNode: React.FC<TreeNodeProps> = ({
             }
           }}
           className={`
-            group relative flex flex-col items-center p-3 sm:p-4 rounded-xl sm:rounded-2xl cursor-pointer
+            group relative flex flex-col items-center pt-2.5 pb-2 px-2.5 sm:px-3 rounded-xl sm:rounded-2xl cursor-pointer
             transition-all duration-300 hover:-translate-y-1 hover:shadow-xl
-            w-40 sm:w-60 text-center backdrop-blur-md
+            w-36 sm:w-48 text-center backdrop-blur-md
             ${
               isRoot
                 ? 'bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-950 text-white shadow-xl shadow-emerald-900/30 border-2 border-amber-400/80 ring-4 ring-amber-400/20'
@@ -388,10 +390,10 @@ const TreeNode: React.FC<TreeNodeProps> = ({
             {person.gender === 'male' ? 'ذكر' : 'أنثى'}
           </div>
 
-          {/* Person Name: Clearly large, bold and prominent */}
+          {/* Person Name: Prominently large, bold and filling the card */}
           <h3
-            className={`font-black mt-2 mb-1 line-clamp-2 leading-snug ${
-              isRoot ? 'text-amber-50 text-base sm:text-xl tracking-wide' : 'text-slate-900 text-sm sm:text-lg'
+            className={`font-black mt-1 mb-0.5 line-clamp-2 leading-tight ${
+              isRoot ? 'text-amber-50 text-lg sm:text-2xl tracking-wide' : 'text-slate-900 text-base sm:text-xl'
             }`}
             title={person.fullName}
           >
@@ -399,7 +401,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
           </h3>
 
           {/* Details Button + Children Count Summary */}
-          <div className="mt-1.5 flex items-center justify-center gap-1.5">
+          <div className="mt-1 flex items-center justify-center gap-1.5">
             <button
               type="button"
               onClick={(e) => {
@@ -407,7 +409,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                 onSelect(person);
               }}
               className={`
-                px-2 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all hover:scale-105 shadow-2xs
+                px-1.5 py-0.5 rounded-lg text-[9px] sm:text-[10px] font-bold flex items-center gap-0.5 transition-all hover:scale-105 shadow-2xs
                 ${
                   isRoot
                     ? 'bg-emerald-950/80 hover:bg-emerald-900 text-amber-300 border border-amber-400/40'
@@ -416,13 +418,13 @@ const TreeNode: React.FC<TreeNodeProps> = ({
               `}
               title="عرض بيانات وتفاصيل الشخص"
             >
-              <Info size={11} />
+              <Info size={10} />
               <span>تفاصيل</span>
             </button>
 
             {hasChildren && (
               <div
-                className={`flex items-center justify-center gap-1 px-2 py-0.5 rounded-lg text-[9px] sm:text-[10px] font-bold ${
+                className={`flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-lg text-[9px] sm:text-[10px] font-bold ${
                   isRoot
                     ? 'bg-emerald-950/70 text-amber-300 border border-amber-400/30'
                     : 'bg-slate-100 text-slate-700 border border-slate-200'

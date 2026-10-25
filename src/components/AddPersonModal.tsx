@@ -71,6 +71,8 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
   const [childMotherMap, setChildMotherMap] = useState<Record<string, string | null>>({});
   const [otherMotherSearch, setOtherMotherSearch] = useState<string>('');
   const [notes, setNotes] = useState<string>(editPerson?.notes || '');
+  const [linkedWifeIds, setLinkedWifeIds] = useState<string[]>([]);
+  const [maleWifeSearch, setMaleWifeSearch] = useState<string>('');
 
   // Batch children list
   const [batchList, setBatchList] = useState<BatchChildItem[]>([
@@ -111,6 +113,11 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
         }
         setExcludedChildIds(Array.from(initialExcluded));
         setChildMotherMap(initialMotherMap);
+        const initialWives = persons
+          .filter((p) => p.gender === 'female' && p.husbandId === editPerson.id)
+          .map((p) => p.id);
+        setLinkedWifeIds(initialWives);
+        setMaleWifeSearch('');
         setNotes(editPerson.notes || '');
         setFirstName('');
         setEntryMode('manual');
@@ -124,6 +131,8 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
         setHusbandName('');
         setExcludedChildIds([]);
         setChildMotherMap({});
+        setLinkedWifeIds([]);
+        setMaleWifeSearch('');
         setNotes('');
         setEntryMode(fid ? 'quick' : 'manual');
         setBatchList([
@@ -307,6 +316,24 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
           excludedChildIds: finalExcludedChildIds,
           childMotherAssignments
         });
+
+        // If male: apply any added/removed wives links
+        if (gender === 'male') {
+          const originalWifeIds = persons
+            .filter((p) => p.gender === 'female' && p.husbandId === editPerson.id)
+            .map((p) => p.id);
+          for (const wId of linkedWifeIds) {
+            if (!originalWifeIds.includes(wId)) {
+              await onUpdate(wId, { husbandId: editPerson.id, husbandName: nameToSave });
+            }
+          }
+          for (const wId of originalWifeIds) {
+            if (!linkedWifeIds.includes(wId)) {
+              await onUpdate(wId, { husbandId: null, husbandName: '' });
+            }
+          }
+        }
+
         onClose();
       } else {
         await onSubmit({
@@ -763,6 +790,147 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
             </p>
           </div>
         )}
+      </div>
+    );
+  };
+
+  const renderWifeSectionForMale = () => {
+    if (gender !== 'male') return null;
+
+    const currentWives = persons.filter((p) => linkedWifeIds.includes(p.id));
+    const eligibleFemales = sortPersonsMalesFirstAlphabetical(
+      persons.filter(
+        (p) =>
+          p.gender === 'female' &&
+          p.id !== editPerson?.id &&
+          !linkedWifeIds.includes(p.id)
+      )
+    );
+    const filteredEligible = maleWifeSearch.trim()
+      ? filterAndSortBySearch(eligibleFemales, maleWifeSearch)
+      : eligibleFemales;
+
+    return (
+      <div className="p-4 rounded-2xl bg-rose-50/70 border border-rose-200/90 space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-bold text-rose-950 flex items-center gap-1.5">
+            <Heart className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>بيانات الزوجة (زوجات هذا الابن / الفرد - اختياري)</span>
+          </label>
+          <span className="text-[10px] text-rose-800 font-semibold">
+            ({currentWives.length} زوجات مربوطات)
+          </span>
+        </div>
+
+        {/* Currently linked wives list */}
+        {currentWives.length > 0 && (
+          <div className="space-y-2">
+            <span className="text-[10px] font-bold text-slate-600 block">
+              الزوجات المربوطات حالياً:
+            </span>
+            <div className="space-y-1.5">
+              {currentWives.map((w) => {
+                const wFather = w.fatherId ? persons.find((p) => p.id === w.fatherId) : null;
+                const rel = editPerson
+                  ? getCoupleRelationship(w.id, w.fatherId, editPerson.id, persons)
+                  : null;
+                return (
+                  <div
+                    key={w.id}
+                    className="p-2.5 rounded-xl bg-white border border-rose-200 flex items-center justify-between gap-2 text-xs"
+                  >
+                    <div>
+                      <span className="font-bold text-slate-900 block">
+                        {formatAppName(w.fullName)}
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        {wFather ? `بنت: ${formatAppName(wFather.fullName)}` : 'شجرة مستقلة'}
+                        {rel?.relationToHusband && (
+                          <span className="text-emerald-800 font-bold mr-1.5">
+                            · {rel.relationToHusband}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLinkedWifeIds((prev) => prev.filter((id) => id !== w.id))
+                      }
+                      className="text-[11px] font-bold text-red-600 hover:bg-red-50 px-2.5 py-1 rounded-lg border border-red-200 transition cursor-pointer"
+                    >
+                      فك الارتباط
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Search and link new wife from family */}
+        <div className="pt-2 border-t border-rose-200/70 space-y-2">
+          <span className="text-[10px] font-bold text-rose-950 block">
+            ربط زوجة من بنات العائلة:
+          </span>
+          <div className="relative">
+            <input
+              type="text"
+              value={maleWifeSearch}
+              onChange={(e) => setMaleWifeSearch(e.target.value)}
+              placeholder="ابحث عن زوجة بالاسم أو اسم والدها..."
+              className="w-full h-9 pr-8 pl-3 rounded-xl border border-rose-200 bg-white text-xs focus:outline-none focus:ring-1 focus:ring-rose-500"
+            />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5" />
+          </div>
+
+          <div className="max-h-36 overflow-y-auto divide-y divide-rose-100 rounded-xl border border-rose-200 bg-white">
+            {filteredEligible.length === 0 ? (
+              <div className="p-3 text-center text-xs text-slate-400">
+                {maleWifeSearch.trim()
+                  ? 'لا توجد نتائج مطابقة'
+                  : 'لا توجد إناث متاحة للربط حالياً'}
+              </div>
+            ) : (
+              filteredEligible.slice(0, 15).map((fem) => {
+                const femFather = fem.fatherId ? persons.find((p) => p.id === fem.fatherId) : null;
+                const rel = editPerson
+                  ? getCoupleRelationship(fem.id, fem.fatherId, editPerson.id, persons)
+                  : null;
+                return (
+                  <div
+                    key={fem.id}
+                    className="p-2 hover:bg-rose-50/60 flex items-center justify-between gap-2 text-xs"
+                  >
+                    <div>
+                      <span className="font-bold text-slate-900 block text-xs">
+                        {formatAppName(fem.fullName)}
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        {femFather ? `بنت: ${formatAppName(femFather.fullName)}` : 'شجرة مستقلة'}
+                        {rel?.relationToHusband && (
+                          <span className="text-emerald-800 font-bold mr-1">
+                            · {rel.relationToHusband}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLinkedWifeIds((prev) => [...prev, fem.id]);
+                        setMaleWifeSearch('');
+                      }}
+                      className="px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition shrink-0 cursor-pointer"
+                    >
+                      ربط كزوجة
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
       </div>
     );
   };
@@ -1253,6 +1421,9 @@ export const AddPersonModal: React.FC<AddPersonModalProps> = ({
 
               {/* Advanced Field for Females: Husband ("زوجة فلان") */}
               {isCurrentFemale && renderHusbandSection()}
+
+              {/* Advanced Field for Males: Wife ("بيانات الزوجة") */}
+              {!isCurrentFemale && editPerson && renderWifeSectionForMale()}
 
               {/* Notes: Plain Text */}
               <div>

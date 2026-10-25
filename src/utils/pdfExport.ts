@@ -558,10 +558,10 @@ export async function renderVerticalPyramidToCanvas(options: ExportTreePdfOption
     const textCenterX = left + nodeW / 2;
     const textCenterY = dividerY + (nodeH - (dividerY - top)) / 2;
 
-    let nameFontSize = Math.min(48, Math.floor(nodeH * 0.36));
+    let nameFontSize = Math.min(48, Math.floor(nodeH * 0.42));
     ctx.font = `900 ${nameFontSize}px Cairo, 'Segoe UI', Tahoma, sans-serif`;
-    while (nameFontSize > 18 && ctx.measureText(displayName).width > maxTextWidth) {
-      nameFontSize -= 1.5;
+    while (nameFontSize > 16 && ctx.measureText(displayName).width > maxTextWidth) {
+      nameFontSize -= 1;
       ctx.font = `900 ${nameFontSize}px Cairo, 'Segoe UI', Tahoma, sans-serif`;
     }
 

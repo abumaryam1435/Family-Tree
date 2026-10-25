@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { Person } from '../types/family';
 import { exportPersonCertificateToPdf } from '../utils/pdfExport';
-import { calculateKinship, getCoupleRelationship } from '../utils/kinship';
+import { calculateKinship, getCoupleRelationship, isChildIncludedForWife } from '../utils/kinship';
 import { extractGivenName, formatAppName, formatBranchName, formatQuadrupleName } from '../utils/nameUtils';
 
 interface PrintViewProps {
@@ -312,6 +312,85 @@ export const PrintView: React.FC<PrintViewProps> = ({
                       </p>
                     </div>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* 4b. Spouse / Marriage Details for Male (بيانات الزوجة وصلة القرابة بين الزوجين) */}
+            {person.gender === 'male' && kinship.wives.length > 0 && (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50/50 overflow-hidden">
+                <div className="px-4 py-2.5 bg-rose-900 text-white flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs sm:text-sm font-bold">
+                    <Heart className="w-4 h-4 text-rose-300" />
+                    <span>
+                      {kinship.wives.length === 1
+                        ? 'بيانات الزوجة وصلة القرابة بين الزوجين'
+                        : `بيانات الزوجات المسجلات (${kinship.wives.length}) وصلات القرابة`}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-4 space-y-3 text-xs">
+                  {kinship.wives.map((w, wIdx) => {
+                    const wFather = w.fatherId ? persons.find((p) => p.id === w.fatherId) : null;
+                    const wLineage = getLineageString(w.id);
+                    const wRel = getCoupleRelationship(w.id, w.fatherId, person.id, persons);
+                    const wKids = children.filter((c) => isChildIncludedForWife(w, c));
+                    const wSons = wKids.filter((c) => c.gender === 'male');
+                    const wDaughters = wKids.filter((c) => c.gender === 'female');
+
+                    return (
+                      <div key={w.id} className="p-3.5 rounded-xl bg-white border border-rose-200 space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-rose-100">
+                          <div>
+                            {kinship.wives.length > 1 && (
+                              <span className="text-[10px] font-bold text-rose-700 block">
+                                الزوجة ({wIdx + 1}):
+                              </span>
+                            )}
+                            <span className="text-sm font-black text-rose-950 block">
+                              {formatAppName(w.fullName)}
+                            </span>
+                            <span className="text-[11px] text-slate-500 block">
+                              « نسبها: {wLineage} »
+                            </span>
+                          </div>
+                          {wFather && (
+                            <span className="text-[11px] text-slate-600 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
+                              والدها: <strong>{formatAppName(wFather.fullName)}</strong>
+                            </span>
+                          )}
+                        </div>
+
+                        {wRel && (
+                          <div className="p-2.5 rounded-lg bg-amber-50/80 border border-amber-200 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-amber-900">صلة القرابة بينهما:</span>
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-[#0F4C3A] border border-emerald-200 font-extrabold">
+                                {wRel.relationToHusband}
+                              </span>
+                            </div>
+                            <p className="text-slate-600 text-[11px] font-medium leading-relaxed">
+                              {wRel.description}
+                            </p>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between flex-wrap gap-1 text-[11px] text-slate-600 pt-1">
+                          <span>
+                            الأبناء منها ({wKids.length}):{' '}
+                            <strong>
+                              {wSons.length} ذكور · {wDaughters.length} إناث
+                            </strong>
+                          </span>
+                          {wKids.length > 0 && (
+                            <span className="text-rose-800 font-bold">
+                              {wKids.map((c) => formatBranchName(c.fullName)).join('، ')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

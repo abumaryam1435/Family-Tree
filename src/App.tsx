@@ -18,6 +18,7 @@ import { OfflineBanner } from './components/OfflineBanner';
 import { ConfirmModal } from './components/ConfirmModal';
 import { apiClient } from './api/client';
 import { Person, Gender } from './types/family';
+import { formatAppName } from './utils/nameUtils';
 import { TreeDeciduous, CheckCircle, AlertCircle } from 'lucide-react';
 
 export default function App() {
@@ -138,6 +139,39 @@ export default function App() {
       await fetchData(true);
     } catch (err: any) {
       showToast(err.message, 'error');
+    }
+  };
+
+  const handleLinkWife = async (husbandId: string, wifeId: string) => {
+    if (!isAdmin) return;
+    try {
+      const husband = getPerson(husbandId);
+      const wife = getPerson(wifeId);
+      await apiClient.updatePerson(wifeId, {
+        husbandId: husbandId,
+        husbandName: husband ? husband.fullName : ''
+      });
+      showToast(`تم ربط الزوجة (${wife ? formatAppName(wife.fullName) : ''}) بهذا الابن بنجاح`);
+      await fetchData(true);
+    } catch (err: any) {
+      showToast(err.message || 'حدث خطأ أثناء ربط الزوجة', 'error');
+      throw err;
+    }
+  };
+
+  const handleUnlinkWife = async (wifeId: string) => {
+    if (!isAdmin) return;
+    try {
+      const wife = getPerson(wifeId);
+      await apiClient.updatePerson(wifeId, {
+        husbandId: null,
+        husbandName: ''
+      });
+      showToast(`تم فك ارتباط الزوجة (${wife ? formatAppName(wife.fullName) : ''}) بنجاح`);
+      await fetchData(true);
+    } catch (err: any) {
+      showToast(err.message || 'حدث خطأ أثناء فك الارتباط', 'error');
+      throw err;
     }
   };
 
@@ -485,6 +519,8 @@ export default function App() {
           previousPersonName={previousPerson?.fullName || null}
           onOpenMergeModal={(id) => handleOpenMergeModal(id)}
           onQuickAddChild={handleQuickAddChild}
+          onLinkWife={handleLinkWife}
+          onUnlinkWife={handleUnlinkWife}
           editingEnabled={isAdmin}
           isAdmin={isAdmin}
           getPerson={getPerson}
