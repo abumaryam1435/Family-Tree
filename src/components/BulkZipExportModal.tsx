@@ -1,416 +1,251 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
+import { Person } from '../types/family';
 import {
-  FolderArchive,
+  Archive,
   X,
   Check,
-  TreeDeciduous,
-  LayoutGrid,
-  Sparkles,
-  Globe,
-  Smartphone,
-  FileText,
-  Maximize2,
-  Share2,
-  Download,
-  Users,
   CheckSquare,
-  Square
+  Square,
+  FileImage,
+  FileText,
+  Globe,
+  FileCode,
+  Sparkles,
+  Loader2,
+  FolderArchive,
+  Users,
+  Network,
+  Layers
 } from 'lucide-react';
-import { Person } from '../types/family';
-import { formatAppName } from '../utils/nameUtils';
 import {
   BulkExportFormat,
   BulkTreeModeChoice,
   BulkFemalesChoice,
-  BulkZipResult,
+  BulkGroupingChoice,
   calculateBulkExportTasksCount,
-  generateBulkTreesZip,
-  downloadZipBlob,
-  shareBulkResultToWhatsApp
+  generateBulkTreesZip
 } from '../utils/zipExport';
 
 interface BulkZipExportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  treeRoots: Person[];
-  currentRoot?: Person | null;
-  defaultMode?: 'classic' | 'organic';
-  defaultShowFemales?: boolean;
-  organicDirection?: 'up' | 'down';
+  roots?: Person[];
+  treeRoots?: Person[];
+  currentRootId?: string;
   getChildren: (personId: string) => Person[];
-  getAllPersons: () => Person[];
+  getAllPersons?: () => Person[];
+  initialMode?: 'classic' | 'classic_vertical';
+  initialShowFemales?: boolean;
 }
 
 export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
   isOpen,
   onClose,
+  roots: rootsProp,
   treeRoots,
-  currentRoot,
-  defaultMode = 'classic',
-  defaultShowFemales = false,
-  organicDirection = 'up',
+  currentRootId,
   getChildren,
-  getAllPersons
+  initialMode = 'classic',
+  initialShowFemales = true
 }) => {
-  // Combine treeRoots and currentRoot (if currentRoot is a sub-branch not in treeRoots)
-  const availableTrees = useMemo(() => {
-    const list: Person[] = [...treeRoots];
-    if (currentRoot && !list.some((r) => r.id === currentRoot.id)) {
-      list.unshift(currentRoot);
-    }
-    return list;
-  }, [treeRoots, currentRoot]);
-
-  const [selectedRootIds, setSelectedRootIds] = useState<string[]>([]);
-  const [modeChoice, setModeChoice] = useState<BulkTreeModeChoice>('both');
+  const roots = rootsProp || treeRoots || [];
+  const [selectedRootIds, setSelectedRootIds] = useState<string[]>(() =>
+    roots.length > 0 ? roots.map((r) => r.id) : []
+  );
+  const [groupingChoice, setGroupingChoice] = useState<BulkGroupingChoice>('both');
+  const [modeChoice, setModeChoice] = useState<BulkTreeModeChoice>(
+    initialMode === 'classic_vertical' ? 'classic_vertical' : 'both'
+  );
   const [femalesChoice, setFemalesChoice] = useState<BulkFemalesChoice>(
-    defaultShowFemales ? 'with_females' : 'males_only'
+    initialShowFemales ? 'both' : 'males_only'
   );
   const [selectedFormats, setSelectedFormats] = useState<BulkExportFormat[]>([
     'png',
-    'html',
+    'pdf_poster',
     'pdf',
+    'html',
     'svg'
   ]);
 
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState<{
-    completed: number;
-    total: number;
-    label: string;
+    currentStep: number;
+    totalSteps: number;
+    treeName: string;
+    detailLabel: string;
   } | null>(null);
-  const [generatedResult, setGeneratedResult] = useState<BulkZipResult | null>(null);
-  const [readyToSharePrompt, setReadyToSharePrompt] = useState(false);
-  const [shareUnsupportedMsg, setShareUnsupportedMsg] = useState<string | null>(null);
+  const [doneResult, setDoneResult] = useState<{
+    zipFilename: string;
+    totalFilesGenerated: number;
+  } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const readyCardRef = useRef<HTMLDivElement | null>(null);
-
-  // Initialize defaults when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      if (availableTrees.length > 0) {
-        setSelectedRootIds(availableTrees.map((t) => t.id));
-      }
-      setFemalesChoice(defaultShowFemales ? 'with_females' : 'males_only');
-      setGeneratedResult(null);
-      setReadyToSharePrompt(false);
-      setShareUnsupportedMsg(null);
-      setErrorMsg(null);
-      setProgress(null);
-    }
-  }, [isOpen, availableTrees, defaultShowFemales, defaultMode]);
-
-  // Clear cached result whenever options change
-  useEffect(() => {
-    setGeneratedResult(null);
-    setReadyToSharePrompt(false);
-    setShareUnsupportedMsg(null);
-    setErrorMsg(null);
-  }, [selectedRootIds, modeChoice, femalesChoice, selectedFormats]);
-
-  // Scroll the prepared ZIP card into view when generation completes
-  useEffect(() => {
-    if (generatedResult && readyCardRef.current) {
-      setTimeout(() => {
-        readyCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }, 60);
-    }
-  }, [generatedResult, readyToSharePrompt, shareUnsupportedMsg]);
-
-  // Calculate member counts per tree
-  const treeMemberCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const root of availableTrees) {
-      const visited = new Set<string>();
-      const queue = [root.id];
-      visited.add(root.id);
-      while (queue.length > 0) {
-        const curr = queue.shift()!;
-        const kids = getChildren(curr);
-        for (const k of kids) {
-          if (!visited.has(k.id)) {
-            visited.add(k.id);
-            queue.push(k.id);
-          }
-        }
-      }
-      map.set(root.id, visited.size);
-    }
-    return map;
-  }, [availableTrees, getChildren]);
-
-  const totalFilesToGenerate = useMemo(() => {
-    return calculateBulkExportTasksCount(
-      selectedRootIds.length,
-      modeChoice,
-      femalesChoice,
-      selectedFormats
-    );
-  }, [selectedRootIds.length, modeChoice, femalesChoice, selectedFormats]);
 
   if (!isOpen) return null;
 
-  const toggleTreeRoot = (id: string) => {
+  const toggleRoot = (id: string) => {
     setSelectedRootIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
+    setDoneResult(null);
   };
 
-  const selectAllTrees = () => {
-    setSelectedRootIds(availableTrees.map((t) => t.id));
+  const selectAllRoots = () => {
+    setSelectedRootIds(roots.map((r) => r.id));
+    setDoneResult(null);
   };
 
-  const selectCurrentTreeOnly = () => {
-    if (currentRoot) {
-      setSelectedRootIds([currentRoot.id]);
-    } else if (availableTrees[0]) {
-      setSelectedRootIds([availableTrees[0].id]);
+  const selectCurrentRootOnly = () => {
+    if (currentRootId) {
+      setSelectedRootIds([currentRootId]);
+    } else if (roots[0]) {
+      setSelectedRootIds([roots[0].id]);
     }
+    setDoneResult(null);
   };
+
+  const allFormats: BulkExportFormat[] = ['png', 'pdf_poster', 'pdf', 'html', 'svg'];
 
   const toggleFormat = (fmt: BulkExportFormat) => {
     setSelectedFormats((prev) =>
-      prev.includes(fmt) ? prev.filter((f) => f !== fmt) : [...prev, fmt]
+      prev.includes(fmt) ? prev.filter((x) => x !== fmt) : [...prev, fmt]
     );
+    setDoneResult(null);
   };
 
   const selectAllFormats = () => {
-    if (selectedFormats.length === 4) {
-      setSelectedFormats(['png']);
-    } else {
-      setSelectedFormats(['png', 'html', 'pdf', 'svg']);
-    }
+    setSelectedFormats(allFormats);
+    setDoneResult(null);
   };
 
-  // Synchronous handler for when files are already generated in memory (0ms user gesture -> navigator.share)
-  const handleImmediateShare = async (cached: BulkZipResult) => {
-    // MUST invoke shareBulkResultToWhatsApp(cached, true) synchronously on the first line before any state updates or awaits
-    const sharePromise = shareBulkResultToWhatsApp(cached, true);
+  const totalFilesToGenerate = calculateBulkExportTasksCount({
+    rootsCount: selectedRootIds.length,
+    groupingChoice,
+    modeChoice,
+    femalesChoice,
+    formatsCount: selectedFormats.length
+  });
+
+  const handleStartExport = async () => {
+    if (selectedRootIds.length === 0 || selectedFormats.length === 0) return;
+
+    setIsExporting(true);
     setErrorMsg(null);
-    setShareUnsupportedMsg(null);
-
-    const outcome = await sharePromise;
-    if (outcome === 'shared_zip' || outcome === 'shared_files') {
-      setReadyToSharePrompt(false);
-    } else if (
-      outcome === 'downloaded_fallback' ||
-      outcome === 'unsupported' ||
-      outcome === 'need_user_gesture'
-    ) {
-      setReadyToSharePrompt(false);
-      setShareUnsupportedMsg(
-        `تم حفظ الملف المضغوط (${cached.zipFilename}) على جهازك؛ يمكنك إرساله مباشرة عبر الواتساب أو أي تطبيق آخر بكامل دقته الأصلية.`
-      );
-    }
-  };
-
-  const handleRunExport = async (action: 'download' | 'share') => {
-    // If sharing and files are already generated, trigger navigator.share synchronously in this click event!
-    if (action === 'share' && generatedResult) {
-      await handleImmediateShare(generatedResult);
-      return;
-    }
-
-    if (action === 'download' && generatedResult) {
-      downloadZipBlob(generatedResult.zipBlob, generatedResult.zipFilename);
-      return;
-    }
-
-    const rootsToExport = availableTrees.filter((t) =>
-      selectedRootIds.includes(t.id)
-    );
-    if (rootsToExport.length === 0 || selectedFormats.length === 0) return;
-
-    setIsGenerating(true);
-    setErrorMsg(null);
-    setShareUnsupportedMsg(null);
-    setReadyToSharePrompt(false);
+    setDoneResult(null);
 
     try {
-      const result = await generateBulkTreesZip({
-        roots: rootsToExport,
+      const chosenRoots = roots.filter((r) => selectedRootIds.includes(r.id));
+      const res = await generateBulkTreesZip({
+        roots: chosenRoots,
+        getChildren,
+        groupingChoice,
         modeChoice,
         femalesChoice,
         formats: selectedFormats,
-        organicDirection,
-        getChildren,
-        getAllPersons,
-        onProgress: (completed, total, label) => {
-          setProgress({ completed, total, label });
+        onProgress: (info) => {
+          setProgress(info);
         }
       });
-      setGeneratedResult(result);
 
-      if (action === 'share') {
-        const outcome = await shareBulkResultToWhatsApp(result, false);
-        if (outcome === 'need_user_gesture' || outcome === 'unsupported') {
-          // Browser expired the click activation while rendering canvases — show 1-tap synchronous WhatsApp share button
-          setReadyToSharePrompt(true);
-        }
-      } else {
-        setReadyToSharePrompt(true);
-        downloadZipBlob(result.zipBlob, result.zipFilename);
-      }
+      setDoneResult({
+        zipFilename: res.zipFilename,
+        totalFilesGenerated: res.totalFilesGenerated
+      });
     } catch (err: any) {
       console.error('Bulk ZIP export error:', err);
-      setErrorMsg(err?.message || 'حدث خطأ أثناء تجهيز الملف المضغوط.');
+      setErrorMsg(err?.message || 'حدث خطأ غير متوقع أثناء تجهيز الملف المضغوط.');
     } finally {
-      setIsGenerating(false);
+      setIsExporting(false);
+      setProgress(null);
     }
   };
 
-  const formatCards: {
-    id: BulkExportFormat;
-    title: string;
-    badge: string;
-    desc: string;
-    icon: React.ReactNode;
-    activeClass: string;
-  }[] = [
-    {
-      id: 'png',
-      title: 'صورة فائقة الوضوح (PNG)',
-      badge: 'بدون ضغط الواتساب',
-      desc: 'صورة عالية الدقة؛ وجودها داخل ملف ZIP يمنع الواتساب من ضغطها أو إضعاف جودتها.',
-      icon: <Smartphone className="w-4 h-4 text-[#D4AF37]" />,
-      activeClass: 'border-emerald-600 bg-emerald-50/90 text-[#0F4C3A]'
-    },
-    {
-      id: 'html',
-      title: 'شجرة تفاعلية (HTML)',
-      badge: 'تفاعلي للهاتف والحاسوب',
-      desc: 'ملف يعمل في أي متصفح ويسمح بتوسيع وطي الأفرع والبحث وإظهار/إخفاء البنات.',
-      icon: <Globe className="w-4 h-4 text-amber-300" />,
-      activeClass: 'border-amber-500 bg-amber-50/90 text-amber-950'
-    },
-    {
-      id: 'pdf',
-      title: 'سجل المراجعة والطباعة (PDF)',
-      badge: 'صفحات A4 تسلسلية',
-      desc: 'سجل ورقي مرتب يعرض كل أب متبوعاً بأبنائه وبناته وأرقام فروعهم للمراجعة.',
-      icon: <FileText className="w-4 h-4 text-[#D4AF37]" />,
-      activeClass: 'border-teal-600 bg-teal-50/90 text-teal-950'
-    },
-    {
-      id: 'svg',
-      title: 'ملف فيكتور للمطابع (SVG)',
-      badge: 'للّوحات الجدارية الكبرى',
-      desc: 'ملف متجه (Vector) يقبل التكبير لأي مقاس جداري في المطابع دون فقدان أي دقة.',
-      icon: <Maximize2 className="w-4 h-4 text-indigo-200" />,
-      activeClass: 'border-indigo-600 bg-indigo-50/90 text-indigo-950'
-    }
-  ];
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/65 backdrop-blur-xs overflow-y-auto">
-      <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-right my-auto animate-in fade-in zoom-in-95 duration-150 max-h-[94vh] flex flex-col">
+    <div
+      className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
+      dir="rtl"
+    >
+      <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border border-amber-300 overflow-hidden my-auto max-h-[94vh] flex flex-col">
         {/* Header */}
-        <div className="p-4 sm:p-5 bg-gradient-to-r from-[#093829] via-[#0F4C3A] to-[#15664F] text-white flex items-center justify-between shrink-0">
+        <div className="bg-gradient-to-l from-emerald-950 via-emerald-900 to-teal-900 p-4 sm:p-5 text-white flex items-center justify-between border-b border-amber-500/30 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-[#D4AF37]/20 border border-[#D4AF37]/50 flex items-center justify-center text-[#FDE68A] shrink-0 shadow-sm">
-              <FolderArchive className="w-5 h-5 sm:w-6 sm:h-6" />
+            <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shrink-0">
+              <FolderArchive size={24} />
             </div>
             <div>
-              <h3 className="text-sm sm:text-base font-black font-display leading-snug">
-                تصدير شامل لجميع ملفات الأشجار في ملف مضغوط (ZIP)
+              <h3 className="text-base sm:text-lg font-black text-amber-300">
+                تصدير حقيبة أشجار العائلة في ملف مضغوط واحد (ZIP)
               </h3>
-              <p className="text-[11px] text-amber-200/95 font-semibold mt-0.5">
-                مثالي للإرسال عبر الواتساب كملف واحد مع الحفاظ على دقة الصور 100% دون أي ضغط
+              <p className="text-[11px] sm:text-xs text-emerald-100/90 mt-0.5">
+                يدعم تجميع الأشجار في ملف واحد أو مفردة، مع الإناث وبدون إناث، وبجميع الصيغ
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            disabled={isGenerating}
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition shrink-0 cursor-pointer disabled:opacity-40"
-          >
-            <X className="w-4 h-4" />
-          </button>
+
+          {!isExporting && (
+            <button
+              onClick={onClose}
+              className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+              title="إغلاق"
+            >
+              <X size={20} />
+            </button>
+          )}
         </div>
 
         {/* Scrollable Body */}
-        <div className="p-4 sm:p-5 space-y-5 overflow-y-auto flex-1">
-          {/* WhatsApp Quality Preservation Info Banner */}
-          <div className="p-3 rounded-2xl bg-amber-50/90 border border-amber-200/90 flex items-start gap-2.5 text-xs text-amber-950">
-            <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <div className="leading-relaxed">
-              <span className="font-black">لماذا التصدير في ملف مضغوط (ZIP)؟ </span>
-              عند إرسال الصور مباشرة بالواتساب يقوم التطبيق بضغطها وتقليل جودتها، بينما إرسال هذا الملف المضغوط عبر الواتساب يحفظ الصور والملفات بكامل دقتها الأصلية الفائقة.
-            </div>
-          </div>
-
-          {/* 1. Select Trees */}
-          <div className="space-y-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <label className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-1.5">
-                <span className="w-5 h-5 rounded-lg bg-[#0F4C3A] text-[#FDE68A] text-[11px] flex items-center justify-center font-black">
-                  1
+        <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1">
+          {/* 1. Choose Trees */}
+          <div className="bg-slate-50 rounded-2xl p-3.5 sm:p-4 border border-slate-200">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <Network size={18} className="text-emerald-700" />
+                <span className="text-xs sm:text-sm font-black text-slate-800">
+                  1. اختيار الأشجار ({selectedRootIds.length} من {roots.length})
                 </span>
-                <span>اختيار الأشجار المطلوب تصديرها ({selectedRootIds.length} من {availableTrees.length})</span>
-              </label>
-
+              </div>
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  disabled={isGenerating}
-                  onClick={selectAllTrees}
-                  className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-[#0F4C3A] border border-emerald-200 text-[11px] font-bold transition cursor-pointer"
+                  disabled={isExporting}
+                  onClick={selectAllRoots}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-900 transition-colors"
                 >
-                  تحديد جميع الأشجار
+                  تحديد كل الأشجار ({roots.length})
                 </button>
-                {availableTrees.length > 1 && (
-                  <button
-                    type="button"
-                    disabled={isGenerating}
-                    onClick={selectCurrentTreeOnly}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold transition cursor-pointer"
-                  >
-                    الشجرة الحالية فقط
-                  </button>
-                )}
+                <button
+                  type="button"
+                  disabled={isExporting}
+                  onClick={selectCurrentRootOnly}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-200 hover:bg-slate-300 text-slate-800 transition-colors"
+                >
+                  الشجرة الحالية فقط
+                </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto p-1">
-              {availableTrees.map((tree) => {
-                const isSelected = selectedRootIds.includes(tree.id);
-                const count = treeMemberCounts.get(tree.id) || 1;
-                const isCurrent = currentRoot?.id === tree.id;
-
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto p-1">
+              {roots.map((root) => {
+                const isChecked = selectedRootIds.includes(root.id);
                 return (
                   <button
-                    key={tree.id}
+                    key={root.id}
                     type="button"
-                    disabled={isGenerating}
-                    onClick={() => toggleTreeRoot(tree.id)}
-                    className={`p-2.5 rounded-xl border-2 text-right transition flex items-center justify-between gap-2 cursor-pointer ${
-                      isSelected
-                        ? 'border-[#0F4C3A] bg-emerald-50/70 text-slate-900 shadow-2xs'
-                        : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600'
+                    disabled={isExporting}
+                    onClick={() => toggleRoot(root.id)}
+                    className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-right transition-all ${
+                      isChecked
+                        ? 'bg-emerald-50 border-emerald-600 text-emerald-950 shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
                     }`}
                   >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div
-                        className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition ${
-                          isSelected
-                            ? 'bg-[#0F4C3A] text-[#FDE68A]'
-                            : 'border border-slate-300 bg-white text-transparent'
-                        }`}
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="truncate">
-                        <div className="text-xs font-black truncate">
-                          {formatAppName(tree.fullName)}
-                        </div>
-                        <div className="text-[10px] text-slate-500 font-semibold flex items-center gap-1">
-                          <Users className="w-3 h-3 inline" />
-                          <span>{count} فرداً</span>
-                          {isCurrent && (
-                            <span className="text-[#0F4C3A] font-bold">• (المعروضة حالياً)</span>
-                          )}
-                        </div>
+                    {isChecked ? (
+                      <CheckSquare size={18} className="text-emerald-700 shrink-0" />
+                    ) : (
+                      <Square size={18} className="text-slate-400 shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-black truncate">
+                        شجرة {root.fullName}
                       </div>
                     </div>
                   </button>
@@ -419,200 +254,58 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
             </div>
           </div>
 
-          {/* 2. Select Tree Style (Classic / Organic / Both) */}
-          <div className="space-y-2.5">
-            <label className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-1.5">
-              <span className="w-5 h-5 rounded-lg bg-[#0F4C3A] text-[#FDE68A] text-[11px] flex items-center justify-center font-black">
-                2
+          {/* 2. Grouping Choice: Separate, Combined in 1 file, or Both */}
+          <div className="bg-slate-50 rounded-2xl p-3.5 sm:p-4 border border-slate-200">
+            <div className="flex items-center gap-2 mb-2.5">
+              <Layers size={18} className="text-emerald-700" />
+              <span className="text-xs sm:text-sm font-black text-slate-800">
+                2. تجميع الأشجار أو فصلها (المفردة والمجمّعة)
               </span>
-              <span>اختيار نوع تصميم الشجرة (الهرمي أو الغصون أو كليهما)</span>
-            </label>
-
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <button
-                type="button"
-                disabled={isGenerating}
-                onClick={() => setModeChoice('classic')}
-                className={`p-3 rounded-xl border-2 text-right transition cursor-pointer flex items-center gap-2.5 ${
-                  modeChoice === 'classic'
-                    ? 'border-[#0F4C3A] bg-emerald-50/80 text-[#0F4C3A] shadow-2xs'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                }`}
-              >
-                <LayoutGrid className="w-4 h-4 shrink-0 text-[#0F4C3A]" />
-                <div>
-                  <div className="text-xs font-black">المخطط الهرمي فقط</div>
-                  <div className="text-[10px] text-slate-500 font-semibold">بطاقات هرمية متدرجة</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                disabled={isGenerating}
-                onClick={() => setModeChoice('organic')}
-                className={`p-3 rounded-xl border-2 text-right transition cursor-pointer flex items-center gap-2.5 ${
-                  modeChoice === 'organic'
-                    ? 'border-[#0F4C3A] bg-emerald-50/80 text-[#0F4C3A] shadow-2xs'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                }`}
-              >
-                <TreeDeciduous className="w-4 h-4 shrink-0 text-amber-700" />
-                <div>
-                  <div className="text-xs font-black">الجذور والغصون فقط</div>
-                  <div className="text-[10px] text-slate-500 font-semibold">جذر وأغصان شجرية</div>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                disabled={isGenerating}
-                onClick={() => setModeChoice('both')}
-                className={`p-3 rounded-xl border-2 text-right transition cursor-pointer flex items-center gap-2.5 ${
-                  modeChoice === 'both'
-                    ? 'border-[#D4AF37] bg-amber-50/90 text-amber-950 shadow-2xs'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                }`}
-              >
-                <Sparkles className="w-4 h-4 shrink-0 text-amber-600" />
-                <div>
-                  <div className="text-xs font-black">كلاهما معاً (الهرمي + الغصون)</div>
-                  <div className="text-[10px] text-slate-600 font-semibold">تصدير التصميمين معاً</div>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          {/* 3. Include Daughters / Females Option */}
-          <div className="space-y-2.5">
-            <label className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-1.5">
-              <span className="w-5 h-5 rounded-lg bg-[#0F4C3A] text-[#FDE68A] text-[11px] flex items-center justify-center font-black">
-                3
-              </span>
-              <span>خيار تضمين البنات (الإناث) في الملفات المصدرة</span>
-            </label>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <button
-                type="button"
-                disabled={isGenerating}
-                onClick={() => setFemalesChoice('males_only')}
-                className={`p-3 rounded-xl border-2 text-right transition cursor-pointer ${
-                  femalesChoice === 'males_only'
-                    ? 'border-[#0F4C3A] bg-emerald-50/80 text-[#0F4C3A] shadow-2xs'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                }`}
-              >
-                <div className="text-xs font-black">الذكور فقط</div>
-                <div className="text-[10px] text-slate-500 font-semibold mt-0.5">
-                  عرض وتصدير الآباء والأبناء الذكور فقط
-                </div>
-              </button>
-
-              <button
-                type="button"
-                disabled={isGenerating}
-                onClick={() => setFemalesChoice('with_females')}
-                className={`p-3 rounded-xl border-2 text-right transition cursor-pointer ${
-                  femalesChoice === 'with_females'
-                    ? 'border-rose-600 bg-rose-50/80 text-rose-950 shadow-2xs'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                }`}
-              >
-                <div className="text-xs font-black">تضمين البنات (الذكور والإناث)</div>
-                <div className="text-[10px] text-slate-500 font-semibold mt-0.5">
-                  إظهار جميع الأبناء والبنات في الشجرة
-                </div>
-              </button>
-
-              <button
-                type="button"
-                disabled={isGenerating}
-                onClick={() => setFemalesChoice('both')}
-                className={`p-3 rounded-xl border-2 text-right transition cursor-pointer ${
-                  femalesChoice === 'both'
-                    ? 'border-[#D4AF37] bg-amber-50/90 text-amber-950 shadow-2xs'
-                    : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                }`}
-              >
-                <div className="text-xs font-black">النسختان معاً</div>
-                <div className="text-[10px] text-slate-600 font-semibold mt-0.5">
-                  تصدير نسخة للذكور فقط + نسخة مع البنات
-                </div>
-              </button>
-            </div>
-          </div>
-
-          {/* 4. Select File Formats (HTML, PNG, PDF, SVG or All) */}
-          <div className="space-y-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <label className="text-xs sm:text-sm font-black text-slate-900 flex items-center gap-1.5">
-                <span className="w-5 h-5 rounded-lg bg-[#0F4C3A] text-[#FDE68A] text-[11px] flex items-center justify-center font-black">
-                  4
-                </span>
-                <span>أنواع الملفات المطلوبة ({selectedFormats.length} من 4 صيغ)</span>
-              </label>
-
-              <button
-                type="button"
-                disabled={isGenerating}
-                onClick={selectAllFormats}
-                className="px-2.5 py-1 rounded-lg bg-amber-100/80 hover:bg-amber-200/80 text-amber-950 border border-amber-300 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer"
-              >
-                {selectedFormats.length === 4 ? (
-                  <>
-                    <CheckSquare className="w-3.5 h-3.5" />
-                    <span>محدد جميع الصيغ (الكل)</span>
-                  </>
-                ) : (
-                  <>
-                    <Square className="w-3.5 h-3.5" />
-                    <span>تحديد جميع الصيغ (HTML, PNG, PDF, SVG)</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {formatCards.map((card) => {
-                const active = selectedFormats.includes(card.id);
+              {[
+                {
+                  id: 'separate' as BulkGroupingChoice,
+                  title: 'مفردة (كل شجرة بملف)',
+                  sub: 'ملف مستقل لكل شجرة محددة'
+                },
+                {
+                  id: 'combined' as BulkGroupingChoice,
+                  title: 'تجميع في ملف واحد',
+                  sub: 'جمع كل الأشجار المحددة بملف واحد'
+                },
+                {
+                  id: 'both' as BulkGroupingChoice,
+                  title: 'كلاهما معاً (شامل)',
+                  sub: 'الأشجار مفردة + مجمّعة في ملف واحد'
+                }
+              ].map((opt) => {
+                const active = groupingChoice === opt.id;
                 return (
                   <button
-                    key={card.id}
+                    key={opt.id}
                     type="button"
-                    disabled={isGenerating}
-                    onClick={() => toggleFormat(card.id)}
-                    className={`p-3 rounded-2xl border-2 text-right transition flex items-start gap-2.5 cursor-pointer ${
+                    disabled={isExporting}
+                    onClick={() => {
+                      setGroupingChoice(opt.id);
+                      setDoneResult(null);
+                    }}
+                    className={`p-2.5 rounded-xl border text-right transition-all ${
                       active
-                        ? card.activeClass
-                        : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600'
+                        ? 'bg-emerald-900 text-white border-emerald-950 shadow-sm'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black">{opt.title}</span>
+                      {active && <Check size={15} className="text-amber-300" />}
+                    </div>
                     <div
-                      className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
-                        active ? 'bg-[#0F4C3A] text-white' : 'bg-slate-200 text-slate-600'
+                      className={`text-[10px] mt-0.5 ${
+                        active ? 'text-emerald-100' : 'text-slate-500'
                       }`}
                     >
-                      {card.icon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="text-xs font-black">{card.title}</span>
-                        <span
-                          className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 ${
-                            active
-                              ? 'bg-[#0F4C3A] text-[#FDE68A]'
-                              : 'border border-slate-300 bg-white text-transparent'
-                          }`}
-                        >
-                          <Check className="w-3 h-3" />
-                        </span>
-                      </div>
-                      <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-black/5 mt-0.5">
-                        {card.badge}
-                      </span>
-                      <p className="text-[10px] text-slate-600 leading-snug mt-1">
-                        {card.desc}
-                      </p>
+                      {opt.sub}
                     </div>
                   </button>
                 );
@@ -620,139 +313,290 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
             </div>
           </div>
 
-          {/* Progress or Summary Box */}
-          {isGenerating && progress ? (
-            <div className="p-4 rounded-2xl bg-emerald-950 text-white space-y-2.5 border border-[#D4AF37]/40 shadow-md">
-              <div className="flex items-center justify-between text-xs font-bold">
-                <span className="text-[#FDE68A]">{progress.label}</span>
-                <span>
-                  {progress.completed} / {progress.total}
+          {/* 3. Choose Tree Mode */}
+          <div className="bg-slate-50 rounded-2xl p-3.5 sm:p-4 border border-slate-200">
+            <div className="flex items-center gap-2 mb-2.5">
+              <Sparkles size={18} className="text-amber-600" />
+              <span className="text-xs sm:text-sm font-black text-slate-800">
+                3. شكل وتصميم الشجرة
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {[
+                {
+                  id: 'classic' as BulkTreeModeChoice,
+                  title: 'الهرمي صفوف',
+                  sub: 'كل جيل في صف أفقي مستقل'
+                },
+                {
+                  id: 'classic_vertical' as BulkTreeModeChoice,
+                  title: 'الهرمي عمود',
+                  sub: 'عمودي مدمج · كل جيل بلون'
+                },
+                {
+                  id: 'both' as BulkTreeModeChoice,
+                  title: 'كلاهما معاً (التصميمان)',
+                  sub: 'يُصدّر الهرمي صفوف + الهرمي عمود'
+                }
+              ].map((opt) => {
+                const active = modeChoice === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled={isExporting}
+                    onClick={() => {
+                      setModeChoice(opt.id);
+                      setDoneResult(null);
+                    }}
+                    className={`p-2.5 rounded-xl border text-right transition-all ${
+                      active
+                        ? 'bg-emerald-900 text-white border-emerald-950 shadow-sm'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black">{opt.title}</span>
+                      {active && <Check size={15} className="text-amber-300" />}
+                    </div>
+                    <div
+                      className={`text-[10px] mt-0.5 ${
+                        active ? 'text-emerald-100' : 'text-slate-500'
+                      }`}
+                    >
+                      {opt.sub}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 4. Choose Females Option */}
+          <div className="bg-slate-50 rounded-2xl p-3.5 sm:p-4 border border-slate-200">
+            <div className="flex items-center gap-2 mb-2.5">
+              <Users size={18} className="text-rose-700" />
+              <span className="text-xs sm:text-sm font-black text-slate-800">
+                4. خيارات عرض الإناث (مع الإناث / بدون إناث)
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {[
+                {
+                  id: 'males_only' as BulkFemalesChoice,
+                  title: 'بدون إناث (الذكور فقط)',
+                  sub: 'شجرة الآباء والأبناء الذكور'
+                },
+                {
+                  id: 'with_females' as BulkFemalesChoice,
+                  title: 'مع الإناث',
+                  sub: 'شاملة للذكور والبنات معاً'
+                },
+                {
+                  id: 'both' as BulkFemalesChoice,
+                  title: 'النسختان معاً',
+                  sub: 'نسخة مع الإناث + نسخة بدون إناث'
+                }
+              ].map((opt) => {
+                const active = femalesChoice === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled={isExporting}
+                    onClick={() => {
+                      setFemalesChoice(opt.id);
+                      setDoneResult(null);
+                    }}
+                    className={`p-2.5 rounded-xl border text-right transition-all ${
+                      active
+                        ? 'bg-rose-800 text-white border-rose-950 shadow-sm'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black">{opt.title}</span>
+                      {active && <Check size={15} className="text-amber-200" />}
+                    </div>
+                    <div
+                      className={`text-[10px] mt-0.5 ${
+                        active ? 'text-rose-100' : 'text-slate-500'
+                      }`}
+                    >
+                      {opt.sub}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 5. Choose Formats */}
+          <div className="bg-slate-50 rounded-2xl p-3.5 sm:p-4 border border-slate-200">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+              <div className="flex items-center gap-2">
+                <Archive size={18} className="text-indigo-700" />
+                <span className="text-xs sm:text-sm font-black text-slate-800">
+                  5. صيغ الملفات المطلوبة ({selectedFormats.length} من 5 صيغ)
                 </span>
               </div>
-              <div className="w-full h-2.5 bg-white/15 rounded-full overflow-hidden">
+              <button
+                type="button"
+                disabled={isExporting}
+                onClick={selectAllFormats}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-100 hover:bg-indigo-200 text-indigo-900 transition-colors"
+              >
+                تحديد جميع الصيغ (5 صيغ)
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {[
+                {
+                  id: 'png' as BulkExportFormat,
+                  title: 'صورة عالية الدقة (PNG)',
+                  sub: 'جاهزة للعرض والطباعة والمشاركة',
+                  icon: <FileImage size={18} className="text-amber-600" />
+                },
+                {
+                  id: 'pdf_poster' as BulkExportFormat,
+                  title: 'ملف PDF (لوحة الشجرة المصورة)',
+                  sub: 'بوستر كامل للشجرة في صفحة واحدة',
+                  icon: <FileText size={18} className="text-teal-700" />
+                },
+                {
+                  id: 'pdf' as BulkExportFormat,
+                  title: 'ملف PDF (سجل مراجعة A4)',
+                  sub: 'دفتر مراجعة وتدقيق متسلسل للآباء والأبناء',
+                  icon: <FileText size={18} className="text-emerald-700" />
+                },
+                {
+                  id: 'html' as BulkExportFormat,
+                  title: 'ملف تفاعلي (HTML)',
+                  sub: 'يفتح في أي متصفح مع بحث وتكبير وطي الفروع',
+                  icon: <Globe size={18} className="text-indigo-600" />
+                },
+                {
+                  id: 'svg' as BulkExportFormat,
+                  title: 'ملف فيكتور للمطابع (SVG)',
+                  sub: 'دقة لا نهائية للبنرات واللوحات الجدارية',
+                  icon: <FileCode size={18} className="text-purple-700" />
+                }
+              ].map((fmt) => {
+                const checked = selectedFormats.includes(fmt.id);
+                return (
+                  <button
+                    key={fmt.id}
+                    type="button"
+                    disabled={isExporting}
+                    onClick={() => toggleFormat(fmt.id)}
+                    className={`flex items-center gap-2.5 p-2.5 rounded-xl border text-right transition-all ${
+                      checked
+                        ? 'bg-white border-emerald-600 ring-2 ring-emerald-500/20 text-slate-900'
+                        : 'bg-white/60 border-slate-200 text-slate-500 hover:bg-white'
+                    }`}
+                  >
+                    {checked ? (
+                      <CheckSquare size={18} className="text-emerald-700 shrink-0" />
+                    ) : (
+                      <Square size={18} className="text-slate-400 shrink-0" />
+                    )}
+                    <div className="shrink-0">{fmt.icon}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-black">{fmt.title}</div>
+                      <div className="text-[10px] text-slate-500 truncate">{fmt.sub}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Progress Bar while exporting */}
+          {isExporting && progress && (
+            <div className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-4 space-y-2.5 animate-pulse">
+              <div className="flex items-center justify-between text-xs font-black text-amber-950">
+                <span className="flex items-center gap-2">
+                  <Loader2 size={16} className="animate-spin text-amber-700" />
+                  جاري تجهيز: {progress.treeName}
+                </span>
+                <span>
+                  {progress.currentStep} / {progress.totalSteps}
+                </span>
+              </div>
+              <div className="text-[11px] font-bold text-amber-800">
+                {progress.detailLabel}
+              </div>
+              <div className="w-full h-3 bg-amber-200 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-[#D4AF37] to-emerald-400 transition-all duration-200"
+                  className="h-full bg-gradient-to-l from-emerald-700 to-amber-600 transition-all duration-300"
                   style={{
-                    width: `${Math.min(
-                      100,
-                      Math.round((progress.completed / Math.max(1, progress.total)) * 100)
+                    width: `${Math.round(
+                      (progress.currentStep / Math.max(1, progress.totalSteps)) * 100
                     )}%`
                   }}
                 />
               </div>
-              <p className="text-[11px] text-white/80 text-center">
-                يرجى الانتظار... جارٍ رسم وتجهيز الملفات بدقة عالية وتغليفها في ملف ZIP
-              </p>
-            </div>
-          ) : (
-            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs font-bold text-slate-800">
-                إجمالي الملفات التي سيتم إنشاؤها في الملف المضغوط:{' '}
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg bg-[#0F4C3A] text-[#FDE68A] font-black text-sm mx-1">
-                  {totalFilesToGenerate}
-                </span>{' '}
-                ملف
-              </div>
-              {selectedRootIds.length > 1 && (
-                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg">
-                  مرتبة تلقائياً في مجلد خاص لكل شجرة
-                </span>
-              )}
             </div>
           )}
 
-          {generatedResult && (
-            <div
-              ref={readyCardRef}
-              className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-600 shadow-md space-y-2.5 animate-in fade-in zoom-in-95 duration-150"
-            >
-              <div className="text-xs font-black text-emerald-950 text-center">
-                ✅ تم تجهيز وضغط الملفات بنجاح ({generatedResult.filesCount} ملف بكامل الدقة الأصلية)!
+          {/* Success Banner */}
+          {doneResult && !isExporting && (
+            <div className="bg-emerald-50 border-2 border-emerald-500 rounded-2xl p-4 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs sm:text-sm font-black text-emerald-950">
+                  تم تجهيز وتنزيل الحقيبة المضغوطة بنجاح ({doneResult.totalFilesGenerated} ملفاً)!
+                </div>
+                <div className="text-[11px] text-emerald-800 mt-0.5 font-bold">
+                  اسم الملف: {doneResult.zipFilename}
+                </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleImmediateShare(generatedResult)}
-                  className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Share2 className="w-4 h-4 shrink-0" />
-                  <span>مشاركة الملف المضغوط (واتساب أو غيره)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    downloadZipBlob(generatedResult.zipBlob, generatedResult.zipFilename)
-                  }
-                  className="w-full py-3 px-4 rounded-xl bg-[#0F4C3A] hover:bg-[#093829] text-white font-black text-xs sm:text-sm transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Download className="w-4 h-4 text-[#FDE68A] shrink-0" />
-                  <span>حفظ الملف المضغوط (ZIP)</span>
-                </button>
-              </div>
+              <Check size={24} className="text-emerald-700 shrink-0" />
             </div>
           )}
 
-          {shareUnsupportedMsg && generatedResult && (
-            <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs font-bold text-center leading-relaxed space-y-2">
-              <p>{shareUnsupportedMsg}</p>
-              <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() =>
-                    downloadZipBlob(generatedResult.zipBlob, generatedResult.zipFilename)
-                  }
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-black text-xs transition cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5 text-[#0F4C3A]" />
-                  <span>تحميل ملف الـ ZIP</span>
-                </button>
-              </div>
-            </div>
-          )}
-
+          {/* Error Banner */}
           {errorMsg && (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold text-center">
+            <div className="bg-rose-50 border border-rose-300 rounded-2xl p-3.5 text-xs font-bold text-rose-800">
               {errorMsg}
             </div>
           )}
         </div>
 
-        {/* Footer Actions */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 shrink-0">
-          <button
-            type="button"
-            disabled={isGenerating}
-            onClick={onClose}
-            className="px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 font-bold text-xs hover:bg-slate-100 transition cursor-pointer disabled:opacity-50"
-          >
-            إغلاق
-          </button>
+        {/* Footer */}
+        <div className="p-4 bg-slate-100 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+          <div className="text-xs font-bold text-slate-700">
+            إجمالي الملفات التي سيتم توليدها داخل الملف المضغوط:{' '}
+            <span className="inline-block px-2 py-0.5 rounded-lg bg-emerald-900 text-amber-300 font-black">
+              {totalFilesToGenerate} ملف
+            </span>
+          </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-            {/* Share directly via Mobile Share Sheet (WhatsApp or any other app) */}
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={isGenerating || totalFilesToGenerate === 0}
-              onClick={() => handleRunExport('share')}
-              className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs transition shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              disabled={isExporting}
+              onClick={onClose}
+              className="px-4 py-2.5 rounded-xl font-bold text-xs text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 transition-colors disabled:opacity-50"
             >
-              <Share2 className="w-4 h-4 shrink-0" />
-              <span>
-                {generatedResult
-                  ? 'فتح نافذة المشاركة الآن (واتساب أو غيره)'
-                  : 'مشاركة الملف المضغوط (واتساب أو غيره)'}
-              </span>
+              إغلاق
             </button>
-
-            {/* Download ZIP directly */}
             <button
               type="button"
-              disabled={isGenerating || totalFilesToGenerate === 0}
-              onClick={() => handleRunExport('download')}
-              className="px-5 py-2.5 rounded-xl bg-[#0F4C3A] hover:bg-[#093829] text-white font-black text-xs transition shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              disabled={isExporting || totalFilesToGenerate === 0}
+              onClick={handleStartExport}
+              className="px-5 py-2.5 rounded-xl font-black text-xs sm:text-sm text-slate-950 bg-gradient-to-l from-amber-400 via-amber-300 to-yellow-300 hover:from-amber-300 hover:to-yellow-200 shadow-md border border-amber-500 flex items-center gap-2 transition-all disabled:opacity-50"
             >
-              <Download className="w-4 h-4 text-[#FDE68A] shrink-0" />
-              <span>تصدير وتحميل الملف المضغوط (ZIP)</span>
+              {isExporting ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>جاري ضغط وتوليد الملفات...</span>
+                </>
+              ) : (
+                <>
+                  <FolderArchive size={17} />
+                  <span>توليد وتنزيل الملف المضغوط (.ZIP)</span>
+                </>
+              )}
             </button>
           </div>
         </div>

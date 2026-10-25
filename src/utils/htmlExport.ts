@@ -3,9 +3,10 @@ import { extractGivenName } from './nameUtils';
 
 export interface ExportHtmlOptions {
   rootPerson: Person;
+  rootPersons?: Person[];
   getChildren: (personId: string) => Person[];
   getAllPersons: () => Person[];
-  mode?: 'classic' | 'organic';
+  mode?: 'classic' | 'classic_vertical';
   includeFemales?: boolean;
 }
 
@@ -16,12 +17,16 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
 } {
   const {
     rootPerson,
+    rootPersons,
     getChildren,
     mode = 'classic',
     includeFemales = false
   } = options;
 
-  // Collect all reachable descendants starting from rootPerson
+  const selectedRoots =
+    rootPersons && rootPersons.length > 0 ? rootPersons : [rootPerson];
+
+  // Collect all reachable descendants starting from all selected roots
   const visited = new Set<string>();
   const familyList: Array<{
     id: string;
@@ -53,11 +58,16 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
     }
   }
 
-  collect(rootPerson);
+  for (const r of selectedRoots) {
+    collect(r);
+  }
 
-  const rootFirstName = extractGivenName(rootPerson.fullName);
+  const rootFirstName =
+    selectedRoots.length === 1
+      ? extractGivenName(selectedRoots[0].fullName)
+      : `مجمعة_${selectedRoots.length}_أشجار`;
   const totalCount = familyList.length;
-  const modeLabel = mode === 'organic' ? 'الجذور والغصون' : 'المخطط الهرمي';
+  const modeLabel = mode === 'classic_vertical' ? 'الهرمي عمود' : 'الهرمي صفوف';
 
   const htmlContent = `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
@@ -155,7 +165,6 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
     }
     .search-input:focus { border-color: #0F4C3A; box-shadow: 0 0 0 2px rgba(15, 76, 58, 0.15); }
 
-    /* Mobile Responsive Header for Phone Screens */
     @media (max-width: 640px) {
       .header-bar {
         top: 6px;
@@ -171,9 +180,7 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
         font-size: 14px;
         border-radius: 8px;
       }
-      .title-group {
-        gap: 6px;
-      }
+      .title-group { gap: 6px; }
       .app-title {
         font-size: 12px;
         max-width: 190px;
@@ -181,9 +188,7 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .app-subtitle {
-        display: none;
-      }
+      .app-subtitle { display: none; }
       .controls-group {
         width: 100%;
         gap: 3.5px;
@@ -203,29 +208,21 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
         border-radius: 7px;
         gap: 2px;
       }
-      .btn-text-full {
-        display: none;
-      }
-      .btn-text-short {
-        display: inline;
-      }
-      .footer-hint {
-        display: none;
-      }
+      .btn-text-full { display: none; }
+      .btn-text-short { display: inline; }
+      .footer-hint { display: none; }
     }
     @media (min-width: 641px) {
-      .btn-text-short {
-        display: none;
-      }
+      .btn-text-short { display: none; }
     }
 
-    /* Canvas Viewport */
     #viewport {
       width: 100vw;
       height: 100vh;
       position: relative;
       overflow: hidden;
       cursor: grab;
+      direction: ltr;
       background-image: radial-gradient(rgba(15, 76, 58, 0.08) 1px, transparent 1px);
       background-size: 24px 24px;
     }
@@ -234,6 +231,7 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
       position: absolute;
       top: 0;
       left: 0;
+      width: max-content;
       transform-origin: 0 0;
       will-change: transform;
       padding: 120px 80px 100px 80px;
@@ -250,12 +248,13 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
     #tree-container {
       position: relative;
       z-index: 2;
+      direction: rtl;
+      width: max-content;
       display: flex;
       flex-direction: column;
       align-items: center;
     }
 
-    /* Tree Node Elements */
     .node-group {
       display: flex;
       flex-direction: column;
@@ -282,7 +281,7 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
       border-width: 3.5px;
     }
     .node-card.female-card { border-color: #BE123C; background: #FFF1F2; }
-    .node-card.highlighted { ring: 4px #F59E0B; border-color: #F59E0B; animation: pulse 1s infinite alternate; }
+    .node-card.highlighted { border-color: #F59E0B; animation: pulse 1s infinite alternate; }
     
     .node-badges { display: flex; justify-content: space-between; font-size: 10px; font-weight: 700; margin-bottom: 6px; }
     .node-gen { color: #475569; }
@@ -328,9 +327,13 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
       position: relative;
       transition: all 0.25s ease;
     }
+    .children-container.vertical-stack {
+      flex-direction: column;
+      gap: 18px;
+      margin-top: 24px;
+    }
     .children-container.collapsed { display: none; }
 
-    /* Footer Hint */
     .footer-hint {
       position: absolute;
       bottom: 14px;
@@ -356,7 +359,6 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
 </head>
 <body>
 
-  <!-- Floating Control Header Bar -->
   <div class="header-bar">
     <div class="title-group">
       <div class="badge-icon">🌳</div>
@@ -368,6 +370,9 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
 
     <div class="controls-group">
       <input type="text" id="search-input" class="search-input" placeholder="بحث..." oninput="onSearchInput(this.value)">
+      <button id="toggle-mode-btn" class="btn btn-gold" onclick="toggleDisplayMode()" title="التبديل بين الهرمي صفوف والهرمي عمود">
+        <span id="toggle-mode-text">${mode === 'classic_vertical' ? 'هرمي صفوف' : 'هرمي عمود'}</span>
+      </button>
       <button id="toggle-females-btn" class="btn btn-rose${includeFemales ? ' active' : ''}" onclick="toggleFemales()" title="إظهار أو إخفاء الإناث (البنات) في الشجرة">
         <span id="toggle-females-text-full" class="btn-text-full">${includeFemales ? 'إخفاء البنات' : 'إظهار البنات'}</span>
         <span id="toggle-females-text-short" class="btn-text-short">${includeFemales ? 'إخفاء البنات' : 'إظهار البنات'}</span>
@@ -382,9 +387,9 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
         <span class="btn-text-full">طي الكل</span>
         <span class="btn-text-short">طي</span>
       </button>
-      <button class="btn btn-primary" onclick="resetCamera()" title="توسيط الشجرة">
+      <button class="btn btn-primary" onclick="resetCamera()" title="احتواء وتوسيط الشجرة">
         <span>🎯</span>
-        <span class="btn-text-full">توسيط الجد</span>
+        <span class="btn-text-full">توسيط الشجرة</span>
         <span class="btn-text-short">توسيط</span>
       </button>
       <button class="btn" onclick="zoomStep(0.2)" title="تكبير">+</button>
@@ -392,11 +397,10 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
     </div>
   </div>
 
-  <!-- Interactive Pan/Zoom Canvas Viewport -->
-  <div id="viewport">
+  <div id="viewport" dir="ltr">
     <div id="transform-layer">
       <svg id="svg-layer"></svg>
-      <div id="tree-container"></div>
+      <div id="tree-container" dir="rtl"></div>
     </div>
   </div>
 
@@ -405,15 +409,23 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
   </div>
 
   <script>
-    // Embedded Family Dataset
     const familyData = ${JSON.stringify(familyList, null, 2)};
     const rootId = "${rootPerson.id}";
-    const displayMode = "${mode}";
-
-    // Default gender visibility based on export selection
+    const rootIds = ${JSON.stringify(selectedRoots.map((r) => r.id))};
+    const rootIdSet = new Set(rootIds);
+    let displayMode = "${mode}";
     let showFemales = ${includeFemales ? 'true' : 'false'};
 
-    // Map by ID & Parent -> Children Index
+    const GEN_PALETTE = [
+      { bg: 'linear-gradient(135deg, #093829 0%, #0F4C3A 100%)', border: '#D4AF37', text: '#FFFFFF', badge: '#FDE68A' },
+      { bg: '#ECFDF5', border: '#059669', text: '#064E3B', badge: '#047857' },
+      { bg: '#FFFBEB', border: '#D97706', text: '#78350F', badge: '#B45309' },
+      { bg: '#EFF6FF', border: '#2563EB', text: '#1E3A8A', badge: '#1D4ED8' },
+      { bg: '#F5F3FF', border: '#7C3AED', text: '#4C1D95', badge: '#6D28D9' },
+      { bg: '#ECFEFF', border: '#0891B2', text: '#164E63', badge: '#0E7490' },
+      { bg: '#FFF1F2', border: '#E11D48', text: '#881337', badge: '#BE123C' }
+    ];
+
     const personMap = new Map();
     const childrenMap = new Map();
 
@@ -428,6 +440,16 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
     function getVisibleKids(personId) {
       const allKids = childrenMap.get(personId) || [];
       return showFemales ? allKids : allKids.filter(k => k.gender === 'male');
+    }
+
+    function toggleDisplayMode() {
+      displayMode = displayMode === 'classic_vertical' ? 'classic' : 'classic_vertical';
+      const modeTxt = document.getElementById('toggle-mode-text');
+      if (modeTxt) {
+        modeTxt.textContent = displayMode === 'classic_vertical' ? 'هرمي صفوف' : 'هرمي عمود';
+      }
+      renderTree();
+      setTimeout(resetCamera, 60);
     }
 
     function toggleFemales() {
@@ -448,15 +470,13 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
         if (sub) sub.textContent = 'عرض الذكور فقط افتراضياً · اضغط «إظهار البنات» لعرض الإناث';
       }
       renderTree();
+      setTimeout(resetCamera, 60);
     }
 
-    // Tracking collapsed nodes (Nodes whose direct children are hidden)
     const collapsedSet = new Set();
-
-    // Camera transform state
     let camera = { x: 0, y: 0, zoom: 1 };
     let isDragging = false;
-    let dragStart = { x: 0, y: 0, camX: 0, camY: 0 };
+    let dragStart = { eX: 0, eY: 0, cX: 0, cY: 0 };
 
     const transformLayer = document.getElementById('transform-layer');
     const viewport = document.getElementById('viewport');
@@ -470,8 +490,14 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
     function resetCamera() {
       const vW = window.innerWidth;
       const vH = window.innerHeight;
-      const cW = transformLayer.offsetWidth || 800;
-      camera = { x: (vW - cW) / 2, y: vH < 640 ? 70 : 110, zoom: 1 };
+      const cW = transformLayer.scrollWidth || transformLayer.offsetWidth || 1200;
+
+      const fitZoom = vW < 768 ? Math.min(0.85, Math.max(0.28, (vW - 24) / Math.max(400, cW))) : 1;
+      camera = {
+        x: (vW - cW * fitZoom) / 2,
+        y: vH < 640 ? 60 : 90,
+        zoom: fitZoom
+      };
       applyTransform();
     }
 
@@ -496,14 +522,8 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
         const cardX = cardRect.left + cardRect.width / 2;
         const cardY = cardRect.top + cardRect.height / 2;
 
-        const targetX = vW / 2;
-        const targetY = vH / 2; // Center exactly in middle of screen on both mobile & desktop!
-
-        const dx = targetX - cardX;
-        const dy = targetY - cardY;
-
-        camera.x += dx;
-        camera.y += dy;
+        camera.x += (vW / 2) - cardX;
+        camera.y += (vH / 2) - cardY;
 
         transformLayer.style.transition = 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
         applyTransform();
@@ -514,7 +534,6 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
       }, 60);
     }
 
-    // Toggle node direct children
     function toggleNode(personId, event) {
       if (event) event.stopPropagation();
       const kids = getVisibleKids(personId);
@@ -550,11 +569,10 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
       setTimeout(resetCamera, 60);
     }
 
-    // Build Recursive HTML DOM Nodes
     function buildNodeDom(person, depth) {
       const kids = getVisibleKids(person.id);
       const isCollapsed = collapsedSet.has(person.id);
-      const isRoot = person.id === rootId;
+      const isRoot = rootIdSet.has(person.id) || depth === 1;
 
       const groupDiv = document.createElement('div');
       groupDiv.className = 'node-group';
@@ -562,6 +580,11 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
 
       const cardDiv = document.createElement('div');
       cardDiv.className = 'node-card' + (isRoot ? ' root-card' : person.gender === 'female' ? ' female-card' : '');
+      if (displayMode === 'classic_vertical') {
+        const pal = GEN_PALETTE[(depth - 1) % GEN_PALETTE.length];
+        cardDiv.style.background = pal.bg;
+        cardDiv.style.borderColor = pal.border;
+      }
       cardDiv.onclick = (e) => toggleNode(person.id, e);
 
       const genLabel = isRoot ? 'الأصل الراسخ' : 'الجيل ' + depth;
@@ -586,7 +609,8 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
 
       if (kids.length > 0) {
         const childrenDiv = document.createElement('div');
-        childrenDiv.className = 'children-container' + (isCollapsed ? ' collapsed' : '');
+        const allLeafKids = displayMode === 'classic_vertical' && kids.length > 1 && kids.every(k => getVisibleKids(k.id).length === 0);
+        childrenDiv.className = 'children-container' + (allLeafKids ? ' vertical-stack' : '') + (isCollapsed ? ' collapsed' : '');
 
         kids.forEach(kid => {
           childrenDiv.appendChild(buildNodeDom(kid, depth + 1));
@@ -603,9 +627,7 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
       const containerRect = transformLayer.getBoundingClientRect();
       const zoom = camera.zoom;
 
-      // Draw SVG lines for active uncollapsed children
       function connectRecursive(parentGroup) {
-        const parentId = parentGroup.dataset.id;
         const kidsContainer = parentGroup.querySelector(':scope > .children-container');
         if (!kidsContainer || kidsContainer.classList.contains('collapsed')) return;
 
@@ -623,19 +645,10 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
 
           const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           const midY = (pY + kY) / 2;
-          if (displayMode === 'organic') {
-            const ctrlY1 = pY + (kY - pY) * 0.45;
-            const ctrlY2 = pY + (kY - pY) * 0.55;
-            const d = \`M \${pX} \${pY} C \${pX} \${ctrlY1}, \${kX} \${ctrlY2}, \${kX} \${kY}\`;
-            path.setAttribute('d', d);
-            path.setAttribute('stroke', parentId === rootId ? '#5C3A21' : '#064E3B');
-            path.setAttribute('stroke-width', parentId === rootId ? '5' : '3.5');
-          } else {
-            const d = \`M \${pX} \${pY} L \${pX} \${midY} L \${kX} \${midY} L \${kX} \${kY}\`;
-            path.setAttribute('d', d);
-            path.setAttribute('stroke', '#0F4C3A');
-            path.setAttribute('stroke-width', '3');
-          }
+          const d = \`M \${pX} \${pY} L \${pX} \${midY} L \${kX} \${midY} L \${kX} \${kY}\`;
+          path.setAttribute('d', d);
+          path.setAttribute('stroke', '#0F4C3A');
+          path.setAttribute('stroke-width', '3');
           path.setAttribute('fill', 'none');
           path.setAttribute('stroke-linecap', 'round');
           path.setAttribute('stroke-linejoin', 'round');
@@ -645,24 +658,29 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
         });
       }
 
-      const rootGroup = treeContainer.querySelector('.node-group');
-      if (rootGroup) {
-        connectRecursive(rootGroup);
-      }
+      const rootGroups = treeContainer.querySelectorAll(':scope > .node-group');
+      rootGroups.forEach(rg => connectRecursive(rg));
     }
 
     function renderTree() {
       treeContainer.innerHTML = '';
-      const rootPerson = personMap.get(rootId);
-      if (rootPerson) {
-        treeContainer.appendChild(buildNodeDom(rootPerson, 1));
-      }
+      svgLayer.innerHTML = '';
 
-      // Re-layout SVG paths after DOM renders
+      treeContainer.style.display = 'flex';
+      treeContainer.style.flexDirection = displayMode === 'classic_vertical' && rootIds.length > 1 ? 'row' : 'column';
+      treeContainer.style.alignItems = displayMode === 'classic_vertical' && rootIds.length > 1 ? 'flex-start' : 'center';
+      treeContainer.style.gap = '72px';
+
+      rootIds.forEach(rid => {
+        const rp = personMap.get(rid);
+        if (rp) {
+          treeContainer.appendChild(buildNodeDom(rp, 1));
+        }
+      });
+
       requestAnimationFrame(() => {
-        const rect = transformLayer.getBoundingClientRect();
-        svgLayer.setAttribute('width', transformLayer.offsetWidth);
-        svgLayer.setAttribute('height', transformLayer.offsetHeight);
+        svgLayer.setAttribute('width', transformLayer.scrollWidth || transformLayer.offsetWidth);
+        svgLayer.setAttribute('height', transformLayer.scrollHeight || transformLayer.offsetHeight);
         drawConnectors();
       });
     }
@@ -766,7 +784,6 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
       }, 50);
     }
 
-    // Setup Touch & Mouse Pan / Zoom
     viewport.addEventListener('mousedown', (e) => {
       if (e.target.closest('button, input')) return;
       isDragging = true;
@@ -797,7 +814,6 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
       applyTransform();
     }, { passive: false });
 
-    // Touch Support
     let lastTouchDist = 0;
     viewport.addEventListener('touchstart', (e) => {
       if (e.touches.length === 1) {
@@ -833,7 +849,6 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
 
     viewport.addEventListener('touchend', () => { isDragging = false; });
 
-    // Initial render
     window.addEventListener('DOMContentLoaded', () => {
       renderTree();
       setTimeout(resetCamera, 100);
@@ -847,23 +862,11 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
   return { blob, filename: safeFilename, rootFirstName };
 }
 
-export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
+export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions): Promise<{
+  blob: Blob;
+  filename: string;
+}> {
   const { blob, filename } = generateTreeInteractiveHtmlBlob(options);
-  const file = new File([blob], filename, { type: 'text/html' });
-
-  // 1. Try Native Web Share API first (send file only without text)
-  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-    try {
-      await navigator.share({
-        files: [file]
-      });
-      return;
-    } catch (err) {
-      // User dismissed share modal, proceed to download fallback
-    }
-  }
-
-  // 2. Fallback: Trigger direct file download
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -871,6 +874,6 @@ export async function exportTreeToInteractiveHtml(options: ExportHtmlOptions) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return { blob, filename };
 }
-

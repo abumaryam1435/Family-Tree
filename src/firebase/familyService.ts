@@ -184,17 +184,21 @@ export const familyFirebase = {
 
   // Add audit log
   async addAuditLog(actor: 'مستخدم' | 'المشرف', actionType: string, desc: string, targetId?: string, targetName?: string) {
-    const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const logData: AuditLog = {
-      id: logId,
-      actor,
-      actionType,
-      targetPersonId: targetId,
-      targetPersonName: targetName,
-      description: desc,
-      timestamp: new Date().toISOString()
-    };
-    await setDoc(doc(db, 'audit_logs', logId), logData).catch(() => {});
+    try {
+      const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const logData: AuditLog = {
+        id: logId,
+        actor,
+        actionType,
+        ...(targetId ? { targetPersonId: targetId } : {}),
+        ...(targetName ? { targetPersonName: targetName } : {}),
+        description: desc,
+        timestamp: new Date().toISOString()
+      };
+      await setDoc(doc(db, 'audit_logs', logId), logData);
+    } catch {
+      // Non-blocking audit log
+    }
   },
 
   // Add Person
@@ -727,10 +731,14 @@ export const familyFirebase = {
   // Settings & Passcode
   async toggleEditing(enabled: boolean): Promise<void> {
     const docRef = doc(db, 'settings', 'app_config');
-    await updateDoc(docRef, {
-      editingEnabled: enabled,
-      updatedAt: new Date().toISOString()
-    });
+    await setDoc(
+      docRef,
+      {
+        editingEnabled: enabled,
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
     await this.addAuditLog('المشرف', 'settings_change', enabled ? 'تفعيل وضع التعديل للجميع' : 'قفل التعديل للجميع');
   },
 
@@ -738,10 +746,15 @@ export const familyFirebase = {
     if (newPasscode.length < 4) throw new Error('الرمز يجب ألا يقل عن 4 خانات');
     const hash = await hashPasscode(newPasscode);
     const docRef = doc(db, 'settings', 'app_config');
-    await updateDoc(docRef, {
-      adminPasscodeHash: hash,
-      updatedAt: new Date().toISOString()
-    });
+    await setDoc(
+      docRef,
+      {
+        editingEnabled: false,
+        adminPasscodeHash: hash,
+        updatedAt: new Date().toISOString()
+      },
+      { merge: true }
+    );
     await this.addAuditLog('المشرف', 'settings_change', 'تعيين رمز سري جديد للمشرف');
   },
 
@@ -766,8 +779,8 @@ export const familyFirebase = {
     const req: ChangeRequest = {
       id,
       type: data.type,
-      targetPersonId: data.targetPersonId,
-      targetPersonName: data.targetPersonName,
+      ...(data.targetPersonId ? { targetPersonId: data.targetPersonId } : {}),
+      ...(data.targetPersonName ? { targetPersonName: data.targetPersonName } : {}),
       proposedData: {},
       requesterName: data.requesterName.trim() || 'فرد من العائلة',
       requesterNotes: data.requesterNotes.trim(),

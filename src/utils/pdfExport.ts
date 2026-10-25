@@ -1,6 +1,10 @@
 import { Person } from '../types/family';
 import { calculateKinship, getCoupleRelationship, KinshipInfo } from './kinship';
 import { extractGivenName, formatAppName, formatBranchName, formatNameWithLimit, formatQuadrupleName } from './nameUtils';
+import {
+  computeVerticalPyramidLayout,
+  getGenerationColorTheme
+} from './verticalPyramidLayout';
 
 /**
  * Pure TypeScript PDF-1.4 multi-page generator from High-DPI HTML5 Canvas pages.
@@ -95,15 +99,93 @@ function createPdfBlobFromJpegPages(
   return new Blob(chunks as any[], { type: 'application/pdf' });
 }
 
-function canvasToJpegBytes(canvas: HTMLCanvasElement, quality: number = 0.94): Uint8Array {
-  const dataUrl = canvas.toDataURL('image/jpeg', quality);
-  const base64 = dataUrl.split(',')[1] || '';
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
+function encodeCanvasToSafeJpegPage(
+  sourceCanvas: HTMLCanvasElement,
+  quality: number = 0.94,
+  pageWidthPt: number = 595.28,
+  pageHeightPt: number = 841.89
+): {
+  jpegBytes: Uint8Array;
+  widthPx: number;
+  heightPx: number;
+  pageWidthPt: number;
+  pageHeightPt: number;
+} {
+  // Mobile & desktop PDF decoders (iOS PDFKit, Android PdfRenderer, Chrome PDF)
+  // reliably decode /DCTDecode JPEG streams when both dimensions are <= 3508 px and area <= 8.8 MP.
+  const MAX_SAFE_DIM = 3508;
+  const MAX_SAFE_PIXELS = 8_800_000;
+
+  let targetCanvas = sourceCanvas;
+  const srcW = sourceCanvas.width || 1240;
+  const srcH = sourceCanvas.height || 1754;
+  const maxDimRatio = MAX_SAFE_DIM / Math.max(srcW, srcH);
+  const maxAreaRatio = Math.sqrt(MAX_SAFE_PIXELS / (srcW * srcH));
+  const downscale = Math.min(1, maxDimRatio, maxAreaRatio);
+
+  const tryEncode = (c: HTMLCanvasElement, q: number): Uint8Array => {
+    try {
+      const dataUrl = c.toDataURL('image/jpeg', q);
+      const base64 = dataUrl.split(',')[1] || '';
+      if (base64.length < 100) return new Uint8Array(0);
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes;
+    } catch {
+      return new Uint8Array(0);
+    }
+  };
+
+  if (downscale < 0.999) {
+    const safeW = Math.max(200, Math.round(srcW * downscale));
+    const safeH = Math.max(200, Math.round(srcH * downscale));
+    const scaled = document.createElement('canvas');
+    scaled.width = safeW;
+    scaled.height = safeH;
+    const sCtx = scaled.getContext('2d');
+    if (sCtx) {
+      sCtx.fillStyle = '#FCFBF7';
+      sCtx.fillRect(0, 0, safeW, safeH);
+      sCtx.imageSmoothingEnabled = true;
+      sCtx.imageSmoothingQuality = 'high';
+      sCtx.drawImage(sourceCanvas, 0, 0, safeW, safeH);
+      targetCanvas = scaled;
+    }
   }
-  return bytes;
+
+  let bytes = tryEncode(targetCanvas, quality);
+
+  // Fallback downscale if mobile browser rejected encoding at initial size
+  if (bytes.length < 200) {
+    const fallbackW = Math.min(1654, targetCanvas.width);
+    const fallbackH = Math.max(200, Math.round((targetCanvas.height / targetCanvas.width) * fallbackW));
+    const fbCanvas = document.createElement('canvas');
+    fbCanvas.width = fallbackW;
+    fbCanvas.height = fallbackH;
+    const fbCtx = fbCanvas.getContext('2d');
+    if (fbCtx) {
+      fbCtx.fillStyle = '#FCFBF7';
+      fbCtx.fillRect(0, 0, fallbackW, fallbackH);
+      fbCtx.drawImage(sourceCanvas, 0, 0, fallbackW, fallbackH);
+      targetCanvas = fbCanvas;
+      bytes = tryEncode(targetCanvas, 0.9);
+    }
+  }
+
+  return {
+    jpegBytes: bytes,
+    widthPx: targetCanvas.width,
+    heightPx: targetCanvas.height,
+    pageWidthPt,
+    pageHeightPt
+  };
+}
+
+function canvasToJpegBytes(canvas: HTMLCanvasElement, quality: number = 0.94): Uint8Array {
+  return encodeCanvasToSafeJpegPage(canvas, quality).jpegBytes;
 }
 
 function triggerBlobDownload(blob: Blob, filename: string) {
@@ -115,7 +197,7 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 function drawRoundedRect(
@@ -150,7 +232,7 @@ function truncateRtlText(ctx: CanvasRenderingContext2D, text: string, maxWidth: 
 }
 
 // ============================================================================
-// 1. EXPORT VISUAL FAMILY TREE TO PDF (Both Hierarchical & Organic Modes)
+// 1. EXPORT VISUAL FAMILY TREE TO PDF (Horizontal Rows & Vertical Column Modes)
 //    - Displays ONLY the First Name (الاسم الأول فقط) in every node box
 //    - Does NOT mention daughter's husband in PDF so the printed tree looks clean and distinctive
 // ============================================================================
@@ -167,15 +249,17 @@ interface TreeLayoutNode {
 
 export interface ExportTreePdfOptions {
   rootPerson: Person;
+  rootPersons?: Person[];
   getChildren: (personId: string) => Person[];
-  mode: 'classic' | 'organic';
-  organicDirection?: 'up' | 'down';
+  mode: 'classic' | 'classic_vertical';
   collapsedNodes?: Set<string>;
   orientation?: 'landscape' | 'portrait' | 'auto';
   paperSize?: 'a4' | 'a3' | 'panoramic' | 'auto';
   maximizeSpace?: boolean;
   unconstrained?: boolean;
   includeFemales?: boolean;
+  maxTargetDim?: number;
+  maxTargetPixels?: number;
 }
 
 export async function ensureCairoFontLoaded() {
@@ -207,16 +291,571 @@ export async function ensureCairoFontLoaded() {
   }
 }
 
-export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise<{
+export async function renderVerticalPyramidToCanvas(options: ExportTreePdfOptions): Promise<{
   canvas: HTMLCanvasElement;
   rootFirstName: string;
   isLandscape: boolean;
+  logicalW: number;
+  logicalH: number;
 }> {
   const {
     rootPerson,
     getChildren,
-    mode,
-    organicDirection = 'up',
+    collapsedNodes = new Set<string>(),
+    includeFemales = true,
+    maxTargetDim = 4096,
+    maxTargetPixels = 12_000_000
+  } = options;
+
+  await ensureCairoFontLoaded();
+
+  const layout = computeVerticalPyramidLayout({
+    rootPerson,
+    getChildren,
+    collapsedNodes,
+    includeFemales,
+    forScreen: false
+  });
+
+  const {
+    nodes,
+    links,
+    logicalW,
+    logicalH,
+    maxDepth,
+    totalNodes,
+    nodeW,
+    nodeH,
+    headerHeight,
+    legendHeight,
+    generationsList
+  } = layout;
+
+  const maxLogicalDim = Math.max(logicalW, logicalH);
+  const totalLogicalPixels = logicalW * logicalH;
+
+  const limitProfiles = [
+    { maxDim: maxTargetDim, maxPixels: maxTargetPixels, desiredScale: 2.0 },
+    { maxDim: Math.min(3508, maxTargetDim), maxPixels: Math.min(8_800_000, maxTargetPixels), desiredScale: 1.5 },
+    { maxDim: Math.min(2480, maxTargetDim), maxPixels: Math.min(5_000_000, maxTargetPixels), desiredScale: 1.15 },
+    { maxDim: 1800, maxPixels: 2_600_000, desiredScale: 0.85 }
+  ];
+
+  let canvas: HTMLCanvasElement | null = null;
+  let ctx: CanvasRenderingContext2D | null = null;
+  let scale = 1.0;
+
+  for (const profile of limitProfiles) {
+    const maxDimScale = profile.maxDim / maxLogicalDim;
+    const maxAreaScale = Math.sqrt(profile.maxPixels / totalLogicalPixels);
+    const candidateScale = Math.max(0.35, Math.min(profile.desiredScale, maxDimScale, maxAreaScale));
+
+    const testW = Math.max(100, Math.round(logicalW * candidateScale));
+    const testH = Math.max(100, Math.round(logicalH * candidateScale));
+
+    try {
+      const testCanvas = document.createElement('canvas');
+      testCanvas.width = testW;
+      testCanvas.height = testH;
+      const testCtx = testCanvas.getContext('2d');
+      if (testCtx) {
+        testCtx.fillStyle = '#000000';
+        testCtx.fillRect(testW - 2, testH - 2, 2, 2);
+        const pixel = testCtx.getImageData(testW - 1, testH - 1, 1, 1).data;
+        if (pixel[3] === 255) {
+          testCtx.clearRect(0, 0, testW, testH);
+          canvas = testCanvas;
+          ctx = testCtx;
+          scale = candidateScale;
+          break;
+        }
+      }
+    } catch {
+      // try next profile
+    }
+  }
+
+  if (!canvas || !ctx) {
+    throw new Error('تعذر حجز ذاكرة الرسم للتخطيط الهرمي العمودي.');
+  }
+
+  ctx.scale(scale, scale);
+  ctx.direction = 'rtl';
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  // 1. Portrait Sheet Background
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, logicalH);
+  bgGrad.addColorStop(0, '#FFFFFF');
+  bgGrad.addColorStop(0.55, '#FCFBF7');
+  bgGrad.addColorStop(1, '#F5EFE4');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, logicalW, logicalH);
+
+  // 2. Ornate Portrait Borders
+  ctx.strokeStyle = '#0F4C3A';
+  ctx.lineWidth = 8;
+  ctx.strokeRect(20, 20, logicalW - 40, logicalH - 40);
+  ctx.strokeStyle = '#D4AF37';
+  ctx.lineWidth = 3.2;
+  ctx.strokeRect(32, 32, logicalW - 64, logicalH - 64);
+
+  // 3. Header Banner
+  const bannerLeft = 48;
+  const bannerTop = 44;
+  const bannerW = logicalW - 96;
+  const bannerH = headerHeight - 48;
+
+  const hdrGrad = ctx.createLinearGradient(bannerLeft, bannerTop, bannerLeft + bannerW, bannerTop + bannerH);
+  hdrGrad.addColorStop(0, '#093829');
+  hdrGrad.addColorStop(0.5, '#0F4C3A');
+  hdrGrad.addColorStop(1, '#145E48');
+  ctx.fillStyle = hdrGrad;
+  drawRoundedRect(ctx, bannerLeft, bannerTop, bannerW, bannerH, 22);
+  ctx.fill();
+
+  ctx.strokeStyle = '#D4AF37';
+  ctx.lineWidth = 3.5;
+  drawRoundedRect(ctx, bannerLeft, bannerTop, bannerW, bannerH, 22);
+  ctx.stroke();
+
+  const rootFirstName = extractGivenName(rootPerson.fullName);
+  const fullRootTitle = formatAppName(rootPerson.fullName) || rootFirstName;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#FFFFFF';
+  const titleFontSz = Math.min(46, Math.max(28, Math.round(logicalW * 0.03)));
+  ctx.font = `900 ${titleFontSz}px Cairo, 'Segoe UI', Tahoma, sans-serif`;
+  ctx.fillText(`شجرة ${fullRootTitle}`, logicalW / 2, bannerTop + bannerH * 0.40);
+
+  ctx.fillStyle = '#FDE68A';
+  const subFontSz = Math.min(22, Math.max(15, Math.round(logicalW * 0.015)));
+  ctx.font = `bold ${subFontSz}px Cairo, 'Segoe UI', Tahoma, sans-serif`;
+  ctx.fillText(
+    `التخطيط الهرمي العمودي المدمج · كل جيل مميز بلون خاص (${totalNodes} فرداً · ${maxDepth} أجيال)`,
+    logicalW / 2,
+    bannerTop + bannerH * 0.76
+  );
+
+  // 4. Generation Color Legend Bar (`مفتاح ألوان الأجيال`)
+  const legendTop = bannerTop + bannerH + 14;
+  const legendBoxH = Math.max(52, legendHeight - 16);
+  ctx.fillStyle = '#F8FAFC';
+  drawRoundedRect(ctx, bannerLeft, legendTop, bannerW, legendBoxH, 16);
+  ctx.fill();
+  ctx.strokeStyle = '#CBD5E1';
+  ctx.lineWidth = 2;
+  drawRoundedRect(ctx, bannerLeft, legendTop, bannerW, legendBoxH, 16);
+  ctx.stroke();
+
+  const chipGap = 12;
+  const chipH = 34;
+  const chipW = Math.min(138, Math.max(88, Math.floor((bannerW - 180 - generationsList.length * chipGap) / Math.max(1, generationsList.length))));
+  const totalLegendContentW = generationsList.length * chipW + Math.max(0, generationsList.length - 1) * chipGap;
+  let curChipRight = (logicalW + totalLegendContentW) / 2;
+  const chipCenterY = legendTop + legendBoxH / 2;
+
+  for (const genTheme of generationsList) {
+    const chipLeft = curChipRight - chipW;
+    ctx.fillStyle = genTheme.badgeBg;
+    drawRoundedRect(ctx, chipLeft, chipCenterY - chipH / 2, chipW, chipH, 10);
+    ctx.fill();
+    ctx.strokeStyle = genTheme.border;
+    ctx.lineWidth = 1.5;
+    drawRoundedRect(ctx, chipLeft, chipCenterY - chipH / 2, chipW, chipH, 10);
+    ctx.stroke();
+
+    ctx.fillStyle = genTheme.badgeText;
+    ctx.font = `900 ${Math.min(16, Math.max(11, Math.round(chipW * 0.13)))}px Cairo, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(genTheme.depth === 1 ? 'الجيل 1 (الأصل)' : `الجيل ${genTheme.depth}`, chipLeft + chipW / 2, chipCenterY);
+
+    curChipRight = chipLeft - chipGap;
+  }
+
+  // 5. Orthogonal Connector Lines (colored by parent's generation color)
+  for (const link of links) {
+    if (link.points.length < 2) continue;
+    ctx.strokeStyle = link.color;
+    ctx.lineWidth = 5.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(link.points[0].x, link.points[0].y);
+    for (let i = 1; i < link.points.length; i++) {
+      ctx.lineTo(link.points[i].x, link.points[i].y);
+    }
+    ctx.stroke();
+  }
+
+  // 6. Generation-Colored Cards
+  for (const node of nodes) {
+    const { person, depth, x, y, theme } = node;
+    const isRoot = depth === 1;
+    const left = x - nodeW / 2;
+    const top = y - nodeH / 2;
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(15, 23, 42, 0.14)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 4;
+
+    const cardGrad = ctx.createLinearGradient(left, top, left, top + nodeH);
+    cardGrad.addColorStop(0, theme.bgStart);
+    cardGrad.addColorStop(1, theme.bgEnd);
+    ctx.fillStyle = cardGrad;
+    drawRoundedRect(ctx, left, top, nodeW, nodeH, 18);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.lineWidth = isRoot ? 6 : 4;
+    ctx.strokeStyle = theme.border;
+    drawRoundedRect(ctx, left, top, nodeW, nodeH, 18);
+    ctx.stroke();
+
+    // Top Header Pill inside Card (Generation Badge + Gender Badge)
+    const badgeY = top + Math.round(nodeH * 0.21);
+    const dividerY = top + Math.round(nodeH * 0.36);
+
+    // Generation Pill on the Right
+    const genLabel = isRoot ? 'الأصل الراسخ' : `الجيل ${depth}`;
+    const pillFont = Math.min(18, Math.max(13, Math.floor(nodeH * 0.13)));
+    ctx.font = `900 ${pillFont}px Cairo, sans-serif`;
+    const pillW = Math.min(nodeW * 0.54, ctx.measureText(genLabel).width + 22);
+    const pillH = Math.round(nodeH * 0.22);
+    const pillLeft = left + nodeW - 14 - pillW;
+    const pillTop = badgeY - pillH / 2;
+
+    ctx.fillStyle = theme.badgeBg;
+    drawRoundedRect(ctx, pillLeft, pillTop, pillW, pillH, 8);
+    ctx.fill();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = theme.badgeText;
+    ctx.fillText(genLabel, pillLeft + pillW / 2, badgeY);
+
+    // Gender Label on the Left
+    const genderLabel = person.gender === 'male' ? 'ذكر' : 'أنثى';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = isRoot ? '#FDE68A' : person.gender === 'female' ? '#BE123C' : theme.subText;
+    ctx.font = `900 ${pillFont}px Cairo, sans-serif`;
+    ctx.fillText(genderLabel, left + 16, badgeY);
+
+    // Divider line
+    ctx.strokeStyle = theme.divider;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(left + 14, dividerY);
+    ctx.lineTo(left + nodeW - 14, dividerY);
+    ctx.stroke();
+
+    // Name Typography
+    const displayName = isRoot ? formatAppName(person.fullName) : extractGivenName(person.fullName);
+    const maxTextWidth = nodeW - 28;
+    const textCenterX = left + nodeW / 2;
+    const textCenterY = dividerY + (nodeH - (dividerY - top)) / 2;
+
+    let nameFontSize = Math.min(48, Math.floor(nodeH * 0.36));
+    ctx.font = `900 ${nameFontSize}px Cairo, 'Segoe UI', Tahoma, sans-serif`;
+    while (nameFontSize > 18 && ctx.measureText(displayName).width > maxTextWidth) {
+      nameFontSize -= 1.5;
+      ctx.font = `900 ${nameFontSize}px Cairo, 'Segoe UI', Tahoma, sans-serif`;
+    }
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = theme.nameText;
+    ctx.fillText(displayName, textCenterX, textCenterY);
+  }
+
+  // 7. Footer
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#0F172A';
+  ctx.font = `900 ${Math.max(16, Math.round(logicalW * 0.012))}px Cairo, sans-serif`;
+  ctx.fillText(
+    `شجرة ${fullRootTitle} — التخطيط الهرمي العمودي (كل جيل مميز بلون خاص)`,
+    logicalW / 2,
+    logicalH - 36
+  );
+
+  return {
+    canvas,
+    rootFirstName,
+    isLandscape: false,
+    logicalW,
+    logicalH
+  };
+}
+
+export async function renderCombinedTreesToCanvas(
+  options: ExportTreePdfOptions,
+  roots: Person[]
+): Promise<{
+  canvas: HTMLCanvasElement;
+  rootFirstName: string;
+  isLandscape: boolean;
+  logicalW: number;
+  logicalH: number;
+}> {
+  await ensureCairoFontLoaded();
+
+  // - 'classic' (هرمي أفقي - كل جيل في صف): تكديس عمودي (كل شجرة فوق الأخرى)
+  // - 'classic_vertical' (هرمي عمودي): اصطفاف كل هرم عمودي بجانب الآخر (جنب الآخر)
+  const isVerticalStack = options.mode === 'classic';
+  const GAP = 56;
+  const OUTER_PAD = 48;
+  const MASTER_HEADER_H = 180;
+
+  // Per-tree pixel cap so rendering multiple trees sequentially never exhausts browser GPU memory
+  const perTreeMaxDim = Math.max(1600, Math.min(2800, Math.floor(6800 / Math.sqrt(Math.max(1, roots.length)))));
+  const perTreeMaxPixels = Math.max(2_200_000, Math.floor(14_000_000 / Math.max(1, roots.length)));
+
+  // Render each selected tree with a safe per-tree memory budget
+  const subItems: {
+    canvas: HTMLCanvasElement;
+    root: Person;
+    logicalW: number;
+    logicalH: number;
+  }[] = [];
+
+  for (const r of roots) {
+    const res = await renderTreeToCanvas({
+      ...options,
+      rootPerson: r,
+      rootPersons: undefined,
+      maxTargetDim: perTreeMaxDim,
+      maxTargetPixels: perTreeMaxPixels
+    });
+    subItems.push({
+      canvas: res.canvas,
+      root: r,
+      logicalW: res.logicalW || res.canvas.width,
+      logicalH: res.logicalH || res.canvas.height
+    });
+  }
+
+  let rawMasterW = 0;
+  let rawMasterH = 0;
+
+  if (isVerticalStack) {
+    // Vertical stacking: each tree above the next using consistent logical dimensions
+    const maxSubW = Math.max(...subItems.map((s) => s.logicalW));
+    const sumSubH =
+      subItems.reduce((acc, s) => acc + s.logicalH, 0) +
+      Math.max(0, subItems.length - 1) * GAP;
+    rawMasterW = maxSubW + OUTER_PAD * 2;
+    rawMasterH = MASTER_HEADER_H + sumSubH + OUTER_PAD * 2;
+  } else {
+    // Side-by-side alignment (RTL: first tree on the right, next to its left)
+    const sumSubW =
+      subItems.reduce((acc, s) => acc + s.logicalW, 0) +
+      Math.max(0, subItems.length - 1) * GAP;
+    const maxSubH = Math.max(...subItems.map((s) => s.logicalH));
+    rawMasterW = sumSubW + OUTER_PAD * 2;
+    rawMasterH = MASTER_HEADER_H + maxSubH + OUTER_PAD * 2;
+  }
+
+  const maxRawDim = Math.max(rawMasterW, rawMasterH);
+  const totalRawPixels = rawMasterW * rawMasterH;
+
+  // Use universally supported PNG/JPEG canvas dimensions across mobile & desktop browsers
+  const limitProfiles = [
+    { maxDim: 6144, maxPixels: 18_000_000 },
+    { maxDim: 4096, maxPixels: 12_000_000 },
+    { maxDim: 3508, maxPixels: 8_800_000 },
+    { maxDim: 2480, maxPixels: 5_000_000 }
+  ];
+
+  let masterCanvas: HTMLCanvasElement | null = null;
+  let ctx: CanvasRenderingContext2D | null = null;
+  let scale = 1.0;
+
+  for (const profile of limitProfiles) {
+    const dimScale = profile.maxDim / maxRawDim;
+    const areaScale = Math.sqrt(profile.maxPixels / totalRawPixels);
+    const candidateScale = Math.min(1.5, dimScale, areaScale);
+
+    const testW = Math.max(200, Math.round(rawMasterW * candidateScale));
+    const testH = Math.max(200, Math.round(rawMasterH * candidateScale));
+
+    try {
+      const testCanvas = document.createElement('canvas');
+      testCanvas.width = testW;
+      testCanvas.height = testH;
+      const testCtx = testCanvas.getContext('2d');
+      if (testCtx) {
+        testCtx.fillStyle = '#000000';
+        testCtx.fillRect(testW - 2, testH - 2, 2, 2);
+        const pixel = testCtx.getImageData(testW - 1, testH - 1, 1, 1).data;
+        if (pixel[3] === 255) {
+          testCtx.clearRect(0, 0, testW, testH);
+          masterCanvas = testCanvas;
+          ctx = testCtx;
+          scale = candidateScale;
+          break;
+        }
+      }
+    } catch {
+      // try next profile
+    }
+  }
+
+  if (!masterCanvas || !ctx) {
+    throw new Error('تعذر حجز ذاكرة الرسم لتجميع الأشجار في صورة واحدة.');
+  }
+
+  ctx.scale(scale, scale);
+  ctx.direction = 'rtl';
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  // Background
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, rawMasterH);
+  bgGrad.addColorStop(0, '#FCFBF7');
+  bgGrad.addColorStop(0.5, '#F8F5EC');
+  bgGrad.addColorStop(1, '#EFE6D5');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, rawMasterW, rawMasterH);
+
+  // Outer Double Frame
+  ctx.strokeStyle = '#0F4C3A';
+  ctx.lineWidth = 10;
+  ctx.strokeRect(18, 18, rawMasterW - 36, rawMasterH - 36);
+  ctx.strokeStyle = '#D4AF37';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(32, 32, rawMasterW - 64, rawMasterH - 64);
+
+  // Master Unified Header Banner
+  const bannerX = OUTER_PAD;
+  const bannerY = 42;
+  const bannerW = rawMasterW - OUTER_PAD * 2;
+  const bannerH = MASTER_HEADER_H - 32;
+
+  ctx.fillStyle = '#0F4C3A';
+  drawRoundedRect(ctx, bannerX, bannerY, bannerW, bannerH, 22);
+  ctx.fill();
+  ctx.strokeStyle = '#D4AF37';
+  ctx.lineWidth = 4;
+  drawRoundedRect(ctx, bannerX, bannerY, bannerW, bannerH, 22);
+  ctx.stroke();
+
+  const treeNamesSummary = roots.map((r) => extractGivenName(r.fullName)).join(' · ');
+  const layoutDesc =
+    options.mode === 'classic'
+      ? 'التصميم الهرمي الأفقي (كل جيل في صف) — اصطفاف كل شجرة فوق الأخرى'
+      : 'التصميم الهرمي العمودي (كل جيل بلون) — اصطفاف كل هرم بجانب الآخر';
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = `900 ${Math.min(50, Math.max(28, Math.round(rawMasterW * 0.022)))}px Cairo, sans-serif`;
+  ctx.fillText(
+    `اللوحة المجمّعة لأشجار العائلة (${roots.length} أشجار): ${treeNamesSummary}`,
+    rawMasterW / 2,
+    bannerY + bannerH * 0.40
+  );
+
+  ctx.fillStyle = '#FDE68A';
+  ctx.font = `bold ${Math.min(26, Math.max(16, Math.round(rawMasterW * 0.012)))}px Cairo, sans-serif`;
+  ctx.fillText(
+    `${layoutDesc}   ·   تاريخ الإصدار: ${new Date().toLocaleDateString('ar-SA')} م`,
+    rawMasterW / 2,
+    bannerY + bannerH * 0.76
+  );
+
+  if (isVerticalStack) {
+    // Draw each tree stacked vertically (one above the other) and release sub-canvas memory immediately
+    let curY = MASTER_HEADER_H + OUTER_PAD;
+    for (let i = 0; i < subItems.length; i++) {
+      const item = subItems[i];
+      const drawX = (rawMasterW - item.logicalW) / 2;
+      ctx.drawImage(item.canvas, drawX, curY, item.logicalW, item.logicalH);
+      // Free sub-canvas backing store immediately
+      item.canvas.width = 1;
+      item.canvas.height = 1;
+
+      if (i < subItems.length - 1) {
+        const divY = curY + item.logicalH + GAP / 2;
+        ctx.strokeStyle = '#D4AF37';
+        ctx.lineWidth = 4;
+        ctx.setLineDash([18, 12]);
+        ctx.beginPath();
+        ctx.moveTo(OUTER_PAD + 50, divY);
+        ctx.lineTo(rawMasterW - OUTER_PAD - 50, divY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      curY += item.logicalH + GAP;
+    }
+  } else {
+    // Draw each vertical pyramid or botanical tree side-by-side from right to left (RTL)
+    let curRightX = rawMasterW - OUTER_PAD;
+    const contentTopY = MASTER_HEADER_H + OUTER_PAD;
+    const maxSubH = Math.max(...subItems.map((s) => s.logicalH));
+
+    for (let i = 0; i < subItems.length; i++) {
+      const item = subItems[i];
+      const drawX = curRightX - item.logicalW;
+      // For vertical pyramids (`classic_vertical`), roots are at the top so align tops at `contentTopY`!
+      const drawY = contentTopY;
+      ctx.drawImage(item.canvas, drawX, drawY, item.logicalW, item.logicalH);
+      // Free sub-canvas backing store immediately
+      item.canvas.width = 1;
+      item.canvas.height = 1;
+
+      if (i < subItems.length - 1) {
+        const divX = drawX - GAP / 2;
+        ctx.strokeStyle = '#D4AF37';
+        ctx.lineWidth = 4;
+        ctx.setLineDash([18, 12]);
+        ctx.beginPath();
+        ctx.moveTo(divX, contentTopY + 36);
+        ctx.lineTo(divX, contentTopY + maxSubH - 36);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      curRightX = drawX - GAP;
+    }
+  }
+
+  const combinedTitle =
+    roots.length === 1
+      ? extractGivenName(roots[0].fullName)
+      : `مجمعة_${roots.length}_أشجار_${roots
+          .slice(0, 3)
+          .map((r) => extractGivenName(r.fullName))
+          .join('_')}`;
+
+  return {
+    canvas: masterCanvas,
+    rootFirstName: combinedTitle,
+    isLandscape: rawMasterW > rawMasterH,
+    logicalW: rawMasterW,
+    logicalH: rawMasterH
+  };
+}
+
+export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise<{
+  canvas: HTMLCanvasElement;
+  rootFirstName: string;
+  isLandscape: boolean;
+  logicalW: number;
+  logicalH: number;
+}> {
+  if (options.rootPersons && options.rootPersons.length > 1) {
+    return renderCombinedTreesToCanvas(options, options.rootPersons);
+  }
+  if (options.mode === 'classic_vertical') {
+    return renderVerticalPyramidToCanvas(options);
+  }
+
+  const {
+    rootPerson,
+    getChildren,
     collapsedNodes = new Set<string>(),
     orientation = 'portrait',
     unconstrained = false
@@ -276,12 +915,11 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     H_GAP = 16;
   }
 
-  const isUpward = mode === 'organic' && organicDirection === 'up';
   const HEADER_H = 230;
   const FOOTER_H = 85;
   const SIDE_PAD = 90;
   const TOP_TREE_PAD = 80;
-  const BOTTOM_TREE_PAD = isUpward ? 175 : 85;
+  const BOTTOM_TREE_PAD = 85;
   const LEVEL_H = Math.max(255, Math.round(NODE_H * 1.82));
 
   // 3. Recursive Layout Builder (Every generation strictly on its single horizontal row)
@@ -338,9 +976,6 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   }[] = [];
 
   function getDepthCenterY(depth: number): number {
-    if (isUpward) {
-      return HEADER_H + TOP_TREE_PAD + (maxDepth - depth) * LEVEL_H + NODE_H / 2;
-    }
     return HEADER_H + TOP_TREE_PAD + (depth - 1) * LEVEL_H + NODE_H / 2;
   }
 
@@ -356,14 +991,14 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
       Math.max(0, node.childrenLayouts.length - 1) * H_GAP;
 
     let currentRight = leftX + (node.subtreeWidth + totalChildrenW) / 2;
-    const fromY = isUpward ? node.y - NODE_H / 2 : node.y + NODE_H / 2;
+    const fromY = node.y + NODE_H / 2;
 
     for (const ch of node.childrenLayouts) {
       const chLeft = currentRight - ch.subtreeWidth;
       currentRight = chLeft - H_GAP;
 
       assignCoords(ch, chLeft);
-      const toY = isUpward ? ch.y + NODE_H / 2 : ch.y - NODE_H / 2;
+      const toY = ch.y - NODE_H / 2;
       links.push({
         fromX: node.x,
         fromY,
@@ -407,11 +1042,14 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   const maxLogicalDim = Math.max(logicalW, logicalH);
   const totalLogicalPixels = logicalW * logicalH;
 
+  const targetMaxDim = options.maxTargetDim || 6144;
+  const targetMaxPixels = options.maxTargetPixels || 16_000_000;
+
   const limitProfiles = [
-    { maxDim: 20480, maxPixels: 50_000_000, desiredScale: 2.6 },
-    { maxDim: 16384, maxPixels: 42_000_000, desiredScale: 2.4 },
-    { maxDim: 12288, maxPixels: 34_000_000, desiredScale: 2.0 },
-    { maxDim: 8192, maxPixels: 22_000_000, desiredScale: 1.6 }
+    { maxDim: targetMaxDim, maxPixels: targetMaxPixels, desiredScale: 2.0 },
+    { maxDim: Math.min(4096, targetMaxDim), maxPixels: Math.min(12_000_000, targetMaxPixels), desiredScale: 1.5 },
+    { maxDim: Math.min(3072, targetMaxDim), maxPixels: Math.min(7_500_000, targetMaxPixels), desiredScale: 1.15 },
+    { maxDim: Math.min(2048, targetMaxDim), maxPixels: Math.min(3_800_000, targetMaxPixels), desiredScale: 0.85 }
   ];
 
   let canvas: HTMLCanvasElement | null = null;
@@ -506,84 +1144,19 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     bannerTop + 138
   );
 
-  // Organic Mode Trunk
-  if (mode === 'organic') {
-    const rx = rootLayout.x;
-    const ry = rootLayout.y;
-
-    if (isUpward) {
-      ctx.fillStyle = 'rgba(92, 58, 33, 0.2)';
-      ctx.beginPath();
-      ctx.ellipse(rx, ry + Math.round(NODE_H * 0.72), 260, 36, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#5C3A21';
-      ctx.beginPath();
-      ctx.moveTo(rx - 50, ry + Math.round(NODE_H * 0.72));
-      ctx.quadraticCurveTo(rx - 28, ry + 70, rx - 18, ry + NODE_H / 2);
-      ctx.lineTo(rx + 18, ry + NODE_H / 2);
-      ctx.quadraticCurveTo(rx + 28, ry + 70, rx + 50, ry + Math.round(NODE_H * 0.72));
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.strokeStyle = '#4A2C11';
-      ctx.lineCap = 'round';
-      ctx.lineWidth = 10;
-      ctx.beginPath();
-      ctx.moveTo(rx, ry + Math.round(NODE_H * 0.72));
-      ctx.quadraticCurveTo(rx - 4, ry + 110, rx, ry + 130);
-      ctx.stroke();
-
-      ctx.lineWidth = 7;
-      ctx.beginPath();
-      ctx.moveTo(rx + 24, ry + Math.round(NODE_H * 0.70));
-      ctx.quadraticCurveTo(rx + 80, ry + 110, rx + 160, ry + 130);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(rx - 24, ry + Math.round(NODE_H * 0.70));
-      ctx.quadraticCurveTo(rx - 80, ry + 110, rx - 160, ry + 130);
-      ctx.stroke();
-
-      ctx.fillStyle = '#4A2C11';
-      ctx.font = "900 22px Cairo, 'Segoe UI', Tahoma, sans-serif";
-      ctx.textAlign = 'center';
-      ctx.fillText('جذر الشجرة وأصلها الراسخ', rx, ry + Math.round(NODE_H * 0.72) + 28);
-    }
-  }
-
   // Standard Connecting Lines
   for (const link of links) {
-    if (mode === 'organic') {
-      const ctrlY1 = link.fromY + (link.toY - link.fromY) * 0.45;
-      const ctrlY2 = link.fromY + (link.toY - link.fromY) * 0.55;
-      const strokeW = Math.max(6, 15 - link.depth * 1.4);
-
-      ctx.strokeStyle =
-        link.depth === 1
-          ? '#5C3A21'
-          : link.childGender === 'female' && !link.childHasChildren
-          ? '#9F1239'
-          : '#064E3B';
-      ctx.lineWidth = strokeW;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(link.fromX, link.fromY);
-      ctx.bezierCurveTo(link.fromX, ctrlY1, link.toX, ctrlY2, link.toX, link.toY);
-      ctx.stroke();
-    } else {
-      const midY = (link.fromY + link.toY) / 2;
-      ctx.strokeStyle = '#064E3B';
-      ctx.lineWidth = 6.5;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      ctx.moveTo(link.fromX, link.fromY);
-      ctx.lineTo(link.fromX, midY);
-      ctx.lineTo(link.toX, midY);
-      ctx.lineTo(link.toX, link.toY);
-      ctx.stroke();
-    }
+    const midY = (link.fromY + link.toY) / 2;
+    ctx.strokeStyle = '#064E3B';
+    ctx.lineWidth = 6.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(link.fromX, link.fromY);
+    ctx.lineTo(link.fromX, midY);
+    ctx.lineTo(link.toX, midY);
+    ctx.lineTo(link.toX, link.toY);
+    ctx.stroke();
   }
 
   // Nodes Drawing (Ultra-Clear, High-Contrast Cards)
@@ -688,7 +1261,7 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     logicalH - 36
   );
 
-  return { canvas, rootFirstName, isLandscape };
+  return { canvas, rootFirstName, isLandscape, logicalW, logicalH };
 }
 
 /**
@@ -703,8 +1276,8 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
     rootPerson,
     getChildren,
     mode,
-    organicDirection = 'up',
-    collapsedNodes = new Set<string>()
+    collapsedNodes = new Set<string>(),
+    includeFemales = true
   } = options;
 
   await ensureCairoFontLoaded();
@@ -716,6 +1289,196 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;');
+
+  if (options.rootPersons && options.rootPersons.length > 1) {
+    const roots = options.rootPersons;
+    const isVerticalStack = mode === 'classic';
+    const GAP = 64;
+    const OUTER_PAD = 56;
+    const MASTER_HEADER_H = 190;
+
+    const subSvgs: { content: string; w: number; h: number }[] = [];
+    for (let i = 0; i < roots.length; i++) {
+      const subBlobRes = await generateTreeSvgBlob({
+        ...options,
+        rootPerson: roots[i],
+        rootPersons: undefined
+      });
+      const rawSvgText = await subBlobRes.blob.text();
+      // Prefix gradient IDs per tree so nested SVGs never collide
+      const scopedSvg = rawSvgText
+        .replace(/<\?xml[^>]*\?>\s*/i, '')
+        .replace(/id="(bgGrad|rootGrad)"/g, `id="$1_${i}"`)
+        .replace(/url\(#(bgGrad|rootGrad)\)/g, `url(#$1_${i})`);
+
+      const wMatch = scopedSvg.match(/width="(\d+)"/);
+      const hMatch = scopedSvg.match(/height="(\d+)"/);
+      const w = wMatch ? parseInt(wMatch[1], 10) : 1600;
+      const h = hMatch ? parseInt(hMatch[1], 10) : 2200;
+      subSvgs.push({ content: scopedSvg, w, h });
+    }
+
+    const masterW = isVerticalStack
+      ? Math.max(...subSvgs.map((s) => s.w)) + OUTER_PAD * 2
+      : subSvgs.reduce((acc, s) => acc + s.w, 0) + Math.max(0, subSvgs.length - 1) * GAP + OUTER_PAD * 2;
+
+    const masterH = isVerticalStack
+      ? MASTER_HEADER_H + subSvgs.reduce((acc, s) => acc + s.h, 0) + Math.max(0, subSvgs.length - 1) * GAP + OUTER_PAD * 2
+      : MASTER_HEADER_H + Math.max(...subSvgs.map((s) => s.h)) + OUTER_PAD * 2;
+
+    const treeNamesSummary = roots.map((r) => extractGivenName(r.fullName)).join(' · ');
+    const layoutDesc =
+      mode === 'classic'
+        ? 'التصميم الهرمي الأفقي (كل جيل في صف) — اصطفاف كل شجرة فوق الأخرى'
+        : 'التصميم الهرمي العمودي (كل جيل بلون) — اصطفاف كل هرم بجانب الآخر';
+
+    let combinedSvg = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    combinedSvg += `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${masterW} ${masterH}" width="${masterW}" height="${masterH}" dir="rtl">\n`;
+    combinedSvg += `<defs><style>@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;900&amp;display=swap'); text { font-family: 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif; dominant-baseline: central; }</style></defs>\n`;
+    combinedSvg += `<rect width="100%" height="100%" fill="#F8F5EC" />\n`;
+    combinedSvg += `<rect x="18" y="18" width="${masterW - 36}" height="${masterH - 36}" fill="none" stroke="#0F4C3A" stroke-width="10" />\n`;
+    combinedSvg += `<rect x="32" y="32" width="${masterW - 64}" height="${masterH - 64}" fill="none" stroke="#D4AF37" stroke-width="4" />\n`;
+
+    const bannerX = OUTER_PAD;
+    const bannerY = 46;
+    const bannerW = masterW - OUTER_PAD * 2;
+    const bannerH = MASTER_HEADER_H - 36;
+    combinedSvg += `<rect x="${bannerX}" y="${bannerY}" width="${bannerW}" height="${bannerH}" rx="24" fill="#0F4C3A" stroke="#D4AF37" stroke-width="4" />\n`;
+    combinedSvg += `<text x="${masterW / 2}" y="${bannerY + bannerH * 0.40}" text-anchor="middle" font-size="${Math.min(54, Math.max(32, Math.round(masterW * 0.024)))}" font-weight="900" fill="#FFFFFF">${escapeXml(`اللوحة المجمّعة لأشجار العائلة (${roots.length} أشجار): ${treeNamesSummary}`)}</text>\n`;
+    combinedSvg += `<text x="${masterW / 2}" y="${bannerY + bannerH * 0.76}" text-anchor="middle" font-size="${Math.min(28, Math.max(18, Math.round(masterW * 0.013)))}" font-weight="700" fill="#FDE68A">${escapeXml(layoutDesc)}</text>\n`;
+
+    if (isVerticalStack) {
+      let curY = MASTER_HEADER_H + OUTER_PAD;
+      for (let i = 0; i < subSvgs.length; i++) {
+        const s = subSvgs[i];
+        const drawX = Math.round((masterW - s.w) / 2);
+        combinedSvg += `<g transform="translate(${drawX}, ${curY})">${s.content}</g>\n`;
+        curY += s.h + GAP;
+      }
+    } else {
+      let curRightX = masterW - OUTER_PAD;
+      const contentTopY = MASTER_HEADER_H + OUTER_PAD;
+      for (let i = 0; i < subSvgs.length; i++) {
+        const s = subSvgs[i];
+        const drawX = curRightX - s.w;
+        const drawY = contentTopY;
+        combinedSvg += `<g transform="translate(${drawX}, ${drawY})">${s.content}</g>\n`;
+        curRightX = drawX - GAP;
+      }
+    }
+
+    combinedSvg += `</svg>`;
+    const combinedTitle = `مجمعة_${roots.length}_أشجار_${roots
+      .slice(0, 3)
+      .map((r) => extractGivenName(r.fullName))
+      .join('_')}`;
+    const blob = new Blob([combinedSvg], { type: 'image/svg+xml;charset=utf-8' });
+    const filename = `شجرة_العائلة_${combinedTitle}.svg`.replace(/[\\/:*?"<>|]/g, '_');
+    return { blob, filename, rootFirstName: combinedTitle };
+  }
+
+  if (mode === 'classic_vertical') {
+    const layout = computeVerticalPyramidLayout({
+      rootPerson,
+      getChildren,
+      collapsedNodes,
+      includeFemales,
+      forScreen: false
+    });
+    const {
+      nodes,
+      links,
+      logicalW,
+      logicalH,
+      maxDepth,
+      totalNodes,
+      nodeW,
+      nodeH,
+      headerHeight,
+      legendHeight,
+      generationsList
+    } = layout;
+
+    const rootFirstName = extractGivenName(rootPerson.fullName);
+    const fullRootTitle = formatAppName(rootPerson.fullName) || rootFirstName;
+
+    let svgStr = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+    svgStr += `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${logicalW} ${logicalH}" width="${logicalW}" height="${logicalH}" dir="rtl">\n`;
+    svgStr += `<defs>\n`;
+    svgStr += `  <style>\n`;
+    svgStr += `    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;900&amp;display=swap');\n`;
+    svgStr += `    text { font-family: 'Cairo', 'Segoe UI', Tahoma, Arial, sans-serif; dominant-baseline: central; }\n`;
+    svgStr += `  </style>\n`;
+    svgStr += `</defs>\n`;
+
+    svgStr += `<rect width="100%" height="100%" fill="#FCFBF7" />\n`;
+    svgStr += `<rect x="20" y="20" width="${logicalW - 40}" height="${logicalH - 40}" fill="none" stroke="#0F4C3A" stroke-width="8" />\n`;
+    svgStr += `<rect x="32" y="32" width="${logicalW - 64}" height="${logicalH - 64}" fill="none" stroke="#D4AF37" stroke-width="3.2" />\n`;
+
+    const bannerLeft = 48;
+    const bannerTop = 44;
+    const bannerW = logicalW - 96;
+    const bannerH = headerHeight - 48;
+    const titleFontSz = Math.min(46, Math.max(28, Math.round(logicalW * 0.03)));
+    const subFontSz = Math.min(22, Math.max(15, Math.round(logicalW * 0.015)));
+
+    svgStr += `<rect x="${bannerLeft}" y="${bannerTop}" width="${bannerW}" height="${bannerH}" rx="22" fill="#0F4C3A" stroke="#D4AF37" stroke-width="3.5" />\n`;
+    svgStr += `<text x="${logicalW / 2}" y="${bannerTop + bannerH * 0.40}" text-anchor="middle" font-size="${titleFontSz}" font-weight="900" fill="#FFFFFF">${escapeXml(`شجرة ${fullRootTitle}`)}</text>\n`;
+    svgStr += `<text x="${logicalW / 2}" y="${bannerTop + bannerH * 0.76}" text-anchor="middle" font-size="${subFontSz}" font-weight="700" fill="#FDE68A">${escapeXml(`التخطيط الهرمي العمودي المدمج · كل جيل مميز بلون خاص (${totalNodes} فرداً · ${maxDepth} أجيال)`)}</text>\n`;
+
+    // Generation Legend Bar
+    const legendTop = bannerTop + bannerH + 14;
+    const legendBoxH = Math.max(52, legendHeight - 16);
+    svgStr += `<rect x="${bannerLeft}" y="${legendTop}" width="${bannerW}" height="${legendBoxH}" rx="16" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="2" />\n`;
+
+    const chipGap = 12;
+    const chipH = 34;
+    const chipW = Math.min(138, Math.max(88, Math.floor((bannerW - 180 - generationsList.length * chipGap) / Math.max(1, generationsList.length))));
+    const totalLegendContentW = generationsList.length * chipW + Math.max(0, generationsList.length - 1) * chipGap;
+    let curChipRight = (logicalW + totalLegendContentW) / 2;
+    const chipCenterY = legendTop + legendBoxH / 2;
+
+    for (const genTheme of generationsList) {
+      const chipLeft = curChipRight - chipW;
+      svgStr += `<rect x="${chipLeft}" y="${chipCenterY - chipH / 2}" width="${chipW}" height="${chipH}" rx="10" fill="${genTheme.badgeBg}" stroke="${genTheme.border}" stroke-width="1.5" />\n`;
+      svgStr += `<text x="${chipLeft + chipW / 2}" y="${chipCenterY}" text-anchor="middle" font-size="${Math.min(16, Math.max(11, Math.round(chipW * 0.13)))}" font-weight="900" fill="${genTheme.badgeText}">${escapeXml(genTheme.depth === 1 ? 'الجيل 1 (الأصل)' : `الجيل ${genTheme.depth}`)}</text>\n`;
+      curChipRight = chipLeft - chipGap;
+    }
+
+    // Links
+    for (const l of links) {
+      svgStr += `<path d="${l.svgPath}" fill="none" stroke="${l.color}" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round" />\n`;
+    }
+
+    // Nodes
+    for (const node of nodes) {
+      const { person, depth, x, y, theme } = node;
+      const isRoot = depth === 1;
+      const left = x - nodeW / 2;
+      const top = y - nodeH / 2;
+      const badgeY = top + Math.round(nodeH * 0.21);
+      const dividerY = top + Math.round(nodeH * 0.36);
+      const textCenterY = dividerY + (nodeH - (dividerY - top)) / 2;
+      const displayName = isRoot ? formatAppName(person.fullName) : extractGivenName(person.fullName);
+      const nameFontSize = displayName.length > 14 ? 32 : displayName.length > 10 ? 38 : 44;
+
+      svgStr += `<g>\n`;
+      svgStr += `  <rect x="${left}" y="${top}" width="${nodeW}" height="${nodeH}" rx="18" fill="${theme.bgEnd}" stroke="${theme.border}" stroke-width="${isRoot ? 6 : 4}" />\n`;
+      svgStr += `  <rect x="${left + nodeW - 124}" y="${badgeY - 14}" width="110" height="28" rx="8" fill="${theme.badgeBg}" />\n`;
+      svgStr += `  <text x="${left + nodeW - 69}" y="${badgeY}" text-anchor="middle" font-size="15" font-weight="900" fill="${theme.badgeText}">${escapeXml(isRoot ? 'الأصل الراسخ' : `الجيل ${depth}`)}</text>\n`;
+      svgStr += `  <text x="${left + 18}" y="${badgeY}" text-anchor="end" font-size="15" font-weight="900" fill="${isRoot ? '#FDE68A' : person.gender === 'female' ? '#BE123C' : theme.subText}">${escapeXml(person.gender === 'male' ? 'ذكر' : 'أنثى')}</text>\n`;
+      svgStr += `  <line x1="${left + 14}" y1="${dividerY}" x2="${left + nodeW - 14}" y2="${dividerY}" stroke="${theme.divider}" stroke-width="1.8" />\n`;
+      svgStr += `  <text x="${left + nodeW / 2}" y="${textCenterY}" text-anchor="middle" font-size="${nameFontSize}" font-weight="900" fill="${theme.nameText}">${escapeXml(displayName)}</text>\n`;
+      svgStr += `</g>\n`;
+    }
+
+    svgStr += `<text x="${logicalW / 2}" y="${logicalH - 36}" text-anchor="middle" font-size="18" font-weight="900" fill="#0F172A">${escapeXml(`شجرة ${fullRootTitle} — التخطيط الهرمي العمودي (كل جيل مميز بلون خاص)`)}</text>\n`;
+    svgStr += `</svg>`;
+
+    const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+    const filename = `شجرة_هرمية_عمودية_${rootFirstName}.svg`.replace(/[\\/:*?"<>|]/g, '_');
+    return { blob, filename, rootFirstName };
+  }
 
   const visitedMeasure = new Set<string>();
   let maxDepth = 1;
@@ -737,12 +1500,11 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
   const NODE_W = 300;
   const NODE_H = 150;
   const H_GAP = 32;
-  const isUpward = mode === 'organic' && organicDirection === 'up';
   const HEADER_H = 230;
   const FOOTER_H = 85;
   const SIDE_PAD = 90;
   const TOP_TREE_PAD = 80;
-  const BOTTOM_TREE_PAD = isUpward ? 175 : 85;
+  const BOTTOM_TREE_PAD = 85;
   const LEVEL_H = 270;
 
   function buildLayout(person: Person, depth: number, visitedSet: Set<string>): TreeLayoutNode {
@@ -796,9 +1558,6 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
   }[] = [];
 
   function getDepthCenterY(depth: number): number {
-    if (isUpward) {
-      return HEADER_H + TOP_TREE_PAD + (maxDepth - depth) * LEVEL_H + NODE_H / 2;
-    }
     return HEADER_H + TOP_TREE_PAD + (depth - 1) * LEVEL_H + NODE_H / 2;
   }
 
@@ -813,14 +1572,14 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
         Math.max(0, node.childrenLayouts.length - 1) * H_GAP;
 
       let currentRight = leftX + (node.subtreeWidth + totalChildrenW) / 2;
-      const fromY = isUpward ? node.y - NODE_H / 2 : node.y + NODE_H / 2;
+      const fromY = node.y + NODE_H / 2;
 
       for (const ch of node.childrenLayouts) {
         const chLeft = currentRight - ch.subtreeWidth;
         assignCoords(ch, chLeft);
         currentRight = chLeft - H_GAP;
 
-        const toY = isUpward ? ch.y + NODE_H / 2 : ch.y - NODE_H / 2;
+        const toY = ch.y - NODE_H / 2;
         links.push({
           fromX: node.x,
           fromY,
@@ -878,33 +1637,10 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
   svgStr += `<text x="${logicalW / 2}" y="${bannerTop + 72}" text-anchor="middle" font-size="52" font-weight="900" fill="#FFFFFF">${escapeXml(`شجرة ${fullRootTitle}`)}</text>\n`;
   svgStr += `<text x="${logicalW / 2}" y="${bannerTop + 138}" text-anchor="middle" font-size="26" font-weight="900" fill="#FDE68A">${escapeXml(`إجمالي الأفراد: ${totalNodes} فرداً   ·   عدد الأجيال: ${maxDepth} أجيال   ·   تاريخ الإصدار: ${new Date().toLocaleDateString('ar-SA')}`)}</text>\n`;
 
-  // Organic Trunk if applicable
-  if (mode === 'organic' && isUpward) {
-    const rx = rootLayout.x;
-    const ry = rootLayout.y;
-    const baseY = ry + Math.round(NODE_H * 0.72);
-    svgStr += `<ellipse cx="${rx}" cy="${baseY}" rx="260" ry="36" fill="rgba(92, 58, 33, 0.2)" />\n`;
-    svgStr += `<path d="M ${rx - 50} ${baseY} Q ${rx - 28} ${ry + 70} ${rx - 18} ${ry + NODE_H / 2} L ${rx + 18} ${ry + NODE_H / 2} Q ${rx + 28} ${ry + 70} ${rx + 50} ${baseY} Z" fill="#5C3A21" />\n`;
-    svgStr += `<text x="${rx}" y="${baseY + 28}" text-anchor="middle" font-size="22" font-weight="900" fill="#4A2C11">جذر الشجرة وأصلها الراسخ</text>\n`;
-  }
-
   // Links
   links.forEach((l) => {
-    if (mode === 'organic') {
-      const ctrlY1 = l.fromY + (l.toY - l.fromY) * 0.45;
-      const ctrlY2 = l.fromY + (l.toY - l.fromY) * 0.55;
-      const strokeW = Math.max(6, 15 - l.depth * 1.4);
-      const strokeColor =
-        l.depth === 1
-          ? '#5C3A21'
-          : l.childGender === 'female' && !l.childHasChildren
-          ? '#9F1239'
-          : '#064E3B';
-      svgStr += `<path d="M ${l.fromX} ${l.fromY} C ${l.fromX} ${ctrlY1}, ${l.toX} ${ctrlY2}, ${l.toX} ${l.toY}" fill="none" stroke="${strokeColor}" stroke-width="${strokeW}" stroke-linecap="round" />\n`;
-    } else {
-      const midY = (l.fromY + l.toY) / 2;
-      svgStr += `<path d="M ${l.fromX} ${l.fromY} L ${l.fromX} ${midY} L ${l.toX} ${midY} L ${l.toX} ${l.toY}" fill="none" stroke="#064E3B" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round" />\n`;
-    }
+    const midY = (l.fromY + l.toY) / 2;
+    svgStr += `<path d="M ${l.fromX} ${l.fromY} L ${l.fromX} ${midY} L ${l.toX} ${midY} L ${l.toX} ${l.toY}" fill="none" stroke="#064E3B" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round" />\n`;
   });
 
   // Nodes
@@ -951,7 +1687,10 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
   return { blob, filename, rootFirstName };
 }
 
-export async function exportTreeToSvg(options: ExportTreePdfOptions) {
+export async function exportTreeToSvg(options: ExportTreePdfOptions): Promise<{
+  blob: Blob;
+  filename: string;
+}> {
   const { blob, filename } = await generateTreeSvgBlob(options);
   const url = URL.createObjectURL(blob);
 
@@ -961,7 +1700,8 @@ export async function exportTreeToSvg(options: ExportTreePdfOptions) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return { blob, filename };
 }
 
 /**
@@ -1103,7 +1843,13 @@ export async function generateTreePdfBlob(options: ExportTreePdfOptions): Promis
 
   await ensureCairoFontLoaded();
 
-  const rootFirstName = extractGivenName(rootPerson.fullName);
+  const rootFirstName =
+    options.rootPersons && options.rootPersons.length > 1
+      ? `مجمعة_${options.rootPersons.length}_أشجار_${options.rootPersons
+          .slice(0, 3)
+          .map((r) => extractGivenName(r.fullName))
+          .join('_')}`
+      : extractGivenName(rootPerson.fullName);
 
   // ============================================================================
   // 1. COLLECT SEQUENTIAL FATHER BLOCKS FOR A4 REVIEW
@@ -1201,7 +1947,13 @@ export async function generateTreePdfBlob(options: ExportTreePdfOptions): Promis
     }
   }
 
-  collectFathersRecursive(rootPerson, 1, []);
+  const rootsToTraverse =
+    options.rootPersons && options.rootPersons.length > 1
+      ? options.rootPersons
+      : [rootPerson];
+  for (const r of rootsToTraverse) {
+    collectFathersRecursive(r, 1, []);
+  }
 
   // Link each son who has branches to his assigned Father Block sequence number (#seq)
   for (const block of fatherBlocks) {
@@ -1285,6 +2037,19 @@ export async function generateTreePdfBlob(options: ExportTreePdfOptions): Promis
     pageWidthPt: number;
     pageHeightPt: number;
   }[] = [];
+
+  // When multiple trees are selected, include the full combined visual poster as Page 1!
+  if (options.rootPersons && options.rootPersons.length > 1) {
+    const { canvas: visualCanvas, isLandscape } = await renderTreeToCanvas({
+      ...options,
+      collapsedNodes: new Set<string>(),
+      orientation: 'portrait',
+      includeFemales
+    });
+    const pw = isLandscape ? 841.89 : 595.28;
+    const ph = isLandscape ? 595.28 : 841.89;
+    pdfPages.push(encodeCanvasToSafeJpegPage(visualCanvas, 0.95, pw, ph));
+  }
 
   // Render each A4 page onto an offscreen canvas
   for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
@@ -1710,9 +2475,51 @@ export async function generateTreePdfBlob(options: ExportTreePdfOptions): Promis
   return { blob: pdfBlob, filename, rootFirstName };
 }
 
-export async function exportTreeToPdf(options: ExportTreePdfOptions) {
+export async function exportTreeToPdf(options: ExportTreePdfOptions): Promise<{
+  blob: Blob;
+  filename: string;
+}> {
   const { blob, filename } = await generateTreePdfBlob(options);
   triggerBlobDownload(blob, filename);
+  return { blob, filename };
+}
+
+/**
+ * Generates a 1-page High-Resolution Visual Tree Poster PDF (single tree or combined multi-tree,
+ * preserving the exact aspect ratio of the rendered tree canvas).
+ */
+export async function generateVisualTreePosterPdfBlob(options: ExportTreePdfOptions): Promise<{
+  blob: Blob;
+  filename: string;
+  rootFirstName: string;
+}> {
+  const { canvas, rootFirstName } = await renderTreeToCanvas({
+    ...options,
+    collapsedNodes: options.collapsedNodes ?? new Set<string>(),
+    unconstrained: true,
+    orientation: 'portrait'
+  });
+
+  const w = Math.max(100, canvas.width);
+  const h = Math.max(100, canvas.height);
+  const baseShortSidePt = 841.89; // A3 / A4 crisp PDF points
+  const pageWidthPt = w >= h ? Math.round((w / h) * baseShortSidePt) : baseShortSidePt;
+  const pageHeightPt = h > w ? Math.round((h / w) * baseShortSidePt) : baseShortSidePt;
+
+  const pagePacket = encodeCanvasToSafeJpegPage(canvas, 0.95, pageWidthPt, pageHeightPt);
+  const pdfBlob = createPdfBlobFromJpegPages([pagePacket]);
+  const filename = `لوحة_شجرة_العائلة_${rootFirstName}.pdf`.replace(/[\\/:*?"<>|]/g, '_');
+
+  return { blob: pdfBlob, filename, rootFirstName };
+}
+
+export async function exportVisualTreePosterToPdf(options: ExportTreePdfOptions): Promise<{
+  blob: Blob;
+  filename: string;
+}> {
+  const { blob, filename } = await generateVisualTreePosterPdfBlob(options);
+  triggerBlobDownload(blob, filename);
+  return { blob, filename };
 }
 
 export async function generateTreePngBlob(options: ExportTreePdfOptions): Promise<{
@@ -1756,7 +2563,10 @@ export async function generateTreePngBlob(options: ExportTreePdfOptions): Promis
   return { blob, filename: safeName, rootFirstName };
 }
 
-export async function exportTreeToPng(options: ExportTreePdfOptions) {
+export async function exportTreeToPng(options: ExportTreePdfOptions): Promise<{
+  blob: Blob;
+  filename: string;
+}> {
   const { blob, filename } = await generateTreePngBlob(options);
   const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1765,7 +2575,8 @@ export async function exportTreeToPng(options: ExportTreePdfOptions) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 20000);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+  return { blob, filename };
 }
 
 // ============================================================================
