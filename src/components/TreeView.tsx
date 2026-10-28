@@ -1185,14 +1185,66 @@ export const TreeView: React.FC<TreeViewProps> = ({
     }, 4000);
   };
 
-  const handleWheel = (e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey) {
+  // References to keep fresh state in native listeners without recreating them
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
+  const positionRef = useRef(position);
+  positionRef.current = position;
+
+  const [isInteracting, setIsInteracting] = useState(false);
+  const touchStateRef = useRef<{
+    isPinching: boolean;
+    isDragging: boolean;
+    initialDistance: number;
+    initialScale: number;
+    initialPosition: { x: number; y: number };
+    initialCenter: { x: number; y: number };
+    dragStart: { x: number; y: number };
+    startTouchPos: { x: number; y: number };
+  }>({
+    isPinching: false,
+    isDragging: false,
+    initialDistance: 0,
+    initialScale: 0.85,
+    initialPosition: { x: 0, y: 0 },
+    initialCenter: { x: 0, y: 0 },
+    dragStart: { x: 0, y: 0 },
+    startTouchPos: { x: 0, y: 0 }
+  });
+  const preventClickRef = useRef(false);
+
+  // Suppress click events if the touch gesture moved or pinched
+  const handleClickCapture = (e: React.MouseEvent) => {
+    if (preventClickRef.current) {
+      e.stopPropagation();
       e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.08 : 0.08;
-      setScale((s) => Math.min(Math.max(0.2, s + delta), 2.2));
+      preventClickRef.current = false;
     }
   };
 
+  // Wheel zoom (mouse wheel + Ctrl / trackpad pinch) centered around cursor
+  const handleWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const zoomFactor = Math.exp(-e.deltaY * 0.005);
+      const newScale = Math.min(Math.max(0.18, scale * zoomFactor), 2.5);
+
+      const viewport = canvasViewportRef.current;
+      if (viewport) {
+        const rect = viewport.getBoundingClientRect();
+        const vx = rect.left + rect.width / 2;
+        const vy = rect.top;
+        const newX = e.clientX - vx - (newScale / scale) * (e.clientX - vx - position.x);
+        const newY = e.clientY - vy - (newScale / scale) * (e.clientY - vy - position.y);
+        setScale(Number(newScale.toFixed(3)));
+        setPosition({ x: Math.round(newX), y: Math.round(newY) });
+      } else {
+        setScale(Number(newScale.toFixed(3)));
+      }
+    }
+  };
+
+  // Mouse pan handlers for desktop
   const handleMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('#node-card, button, select, input')) return;
     setIsDragging(true);
@@ -1211,27 +1263,143 @@ export const TreeView: React.FC<TreeViewProps> = ({
     setIsDragging(false);
   };
 
-  // Touch support for smooth mobile panning
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 1) {
-      const touch = e.touches[0];
-      setIsDragging(true);
-      setDragStart({ x: touch.clientX - position.x, y: touch.clientY - position.y });
-    }
-  };
+  // Native non-passive touch listeners for mobile two-finger pinch-to-zoom and smooth panning
+  useEffect(() => {
+    const viewport = canvasViewportRef.current;
+    if (!viewport) return;
 
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!isDragging || e.touches.length !== 1) return;
-    const touch = e.touches[0];
-    setPosition({
-      x: touch.clientX - dragStart.x,
-      y: touch.clientY - dragStart.y
-    });
-  };
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length >= 2) {
+        // Two fingers -> Start pinch-to-zoom immediately!
+        e.preventDefault();
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const midX = (t1.clientX + t2.clientX) / 2;
+        const midY = (t1.clientY + t2.clientY) / 2;
 
-  const handleTouchEnd = () => {
-    setIsDragging(false);
-  };
+        touchStateRef.current = {
+          isPinching: true,
+          isDragging: false,
+          initialDistance: Math.max(dist, 10),
+          initialScale: scaleRef.current,
+          initialPosition: { ...positionRef.current },
+          initialCenter: { x: midX, y: midY },
+          dragStart: { x: 0, y: 0 },
+          startTouchPos: { x: midX, y: midY }
+        };
+        preventClickRef.current = true;
+        setIsInteracting(true);
+      } else if (e.touches.length === 1) {
+        // Single finger -> Start potential pan
+        const t = e.touches[0];
+        touchStateRef.current = {
+          isPinching: false,
+          isDragging: true,
+          initialDistance: 0,
+          initialScale: scaleRef.current,
+          initialPosition: { ...positionRef.current },
+          initialCenter: { x: 0, y: 0 },
+          dragStart: {
+            x: t.clientX - positionRef.current.x,
+            y: t.clientY - positionRef.current.y
+          },
+          startTouchPos: { x: t.clientX, y: t.clientY }
+        };
+        preventClickRef.current = false;
+        setIsInteracting(true);
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length >= 2) {
+        // Two fingers moving -> Zoom & pan centered on the fingers!
+        e.preventDefault();
+        preventClickRef.current = true;
+
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const midX = (t1.clientX + t2.clientX) / 2;
+        const midY = (t1.clientY + t2.clientY) / 2;
+
+        if (!touchStateRef.current.isPinching) {
+          touchStateRef.current.isPinching = true;
+          touchStateRef.current.isDragging = false;
+          touchStateRef.current.initialDistance = Math.max(dist, 10);
+          touchStateRef.current.initialScale = scaleRef.current;
+          touchStateRef.current.initialPosition = { ...positionRef.current };
+          touchStateRef.current.initialCenter = { x: midX, y: midY };
+          return;
+        }
+
+        const initialDist = touchStateRef.current.initialDistance;
+        const initialScale = touchStateRef.current.initialScale;
+        const factor = dist / initialDist;
+        const newScale = Math.min(Math.max(0.18, initialScale * factor), 2.5);
+
+        const rect = viewport.getBoundingClientRect();
+        const vx = rect.left + rect.width / 2;
+        const vy = rect.top;
+        const s0 = initialScale;
+        const p0 = touchStateRef.current.initialPosition;
+        const m0 = touchStateRef.current.initialCenter;
+
+        const newX = midX - vx - (newScale / s0) * (m0.x - vx - p0.x);
+        const newY = midY - vy - (newScale / s0) * (m0.y - vy - p0.y);
+
+        setScale(Number(newScale.toFixed(3)));
+        setPosition({ x: Math.round(newX), y: Math.round(newY) });
+      } else if (e.touches.length === 1 && touchStateRef.current.isDragging) {
+        const t = e.touches[0];
+        const moveDist = Math.hypot(
+          t.clientX - touchStateRef.current.startTouchPos.x,
+          t.clientY - touchStateRef.current.startTouchPos.y
+        );
+
+        if (moveDist > 6) {
+          preventClickRef.current = true;
+        }
+
+        // Prevent browser page bounce/pull while panning the tree
+        e.preventDefault();
+
+        const newX = t.clientX - touchStateRef.current.dragStart.x;
+        const newY = t.clientY - touchStateRef.current.dragStart.y;
+        setPosition({ x: Math.round(newX), y: Math.round(newY) });
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        // One finger lifted: seamlessly continue single-finger pan with remaining finger
+        const t = e.touches[0];
+        touchStateRef.current.isPinching = false;
+        touchStateRef.current.isDragging = true;
+        touchStateRef.current.dragStart = {
+          x: t.clientX - positionRef.current.x,
+          y: t.clientY - positionRef.current.y
+        };
+        touchStateRef.current.startTouchPos = { x: t.clientX, y: t.clientY };
+      } else if (e.touches.length === 0) {
+        touchStateRef.current.isPinching = false;
+        touchStateRef.current.isDragging = false;
+        setIsInteracting(false);
+      }
+    };
+
+    viewport.addEventListener('touchstart', onTouchStart, { passive: false });
+    viewport.addEventListener('touchmove', onTouchMove, { passive: false });
+    viewport.addEventListener('touchend', onTouchEnd, { passive: false });
+    viewport.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+    return () => {
+      viewport.removeEventListener('touchstart', onTouchStart);
+      viewport.removeEventListener('touchmove', onTouchMove);
+      viewport.removeEventListener('touchend', onTouchEnd);
+      viewport.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, []);
 
   // Shared Multi-Tree Dropdown Menu Popup content
   const renderTreeDropdownMenu = () => {
@@ -1753,7 +1921,9 @@ export const TreeView: React.FC<TreeViewProps> = ({
       {/* Interactive Tree Canvas */}
       <div
         ref={canvasViewportRef}
-        className={`flex-1 overflow-hidden cursor-grab active:cursor-grabbing select-none relative flex justify-center items-start ${
+        onClickCapture={handleClickCapture}
+        style={{ touchAction: 'none' }}
+        className={`flex-1 overflow-hidden cursor-grab active:cursor-grabbing select-none relative flex justify-center items-start touch-none ${
           treeMode === 'classic_vertical'
             ? 'bg-gradient-to-b from-[#FFFFFF] via-[#FCFBF7] to-[#F5EFE4]'
             : 'bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:20px_20px] bg-stone-50/70'
@@ -1763,15 +1933,12 @@ export const TreeView: React.FC<TreeViewProps> = ({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
       >
         <div
           style={{
             transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
             transformOrigin: 'top center',
-            transition: isDragging ? 'none' : 'transform 0.15s ease-out'
+            transition: isDragging || isInteracting ? 'none' : 'transform 0.15s ease-out'
           }}
           className="min-w-max min-h-max p-6 sm:p-16 flex flex-col items-center justify-center"
         >
