@@ -283,18 +283,19 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
     .node-card.female-card { border-color: #BE123C; background: #FFF1F2; }
     .node-card.highlighted { border-color: #F59E0B; animation: pulse 1s infinite alternate; }
     
-    .node-badges { display: flex; justify-content: space-between; font-size: 9px; font-weight: 700; margin-bottom: 4px; }
+    .node-badges { display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 800; margin-bottom: 3px; }
     .node-gen { color: #475569; }
     .node-card.root-card .node-gen { color: #FDE68A; }
     .node-gender-male { color: #047857; }
     .node-gender-female { color: #BE123C; }
     .node-card.root-card .node-gender-male { color: #FDE68A; }
     
-    .node-divider { height: 1px; background: rgba(0,0,0,0.1); margin: 3px 0 5px 0; }
-    .node-card.root-card .node-divider { background: rgba(253, 230, 138, 0.3); }
+    .node-divider { height: 1px; background: rgba(0,0,0,0.12); margin: 2px 0 4px 0; }
+    .node-card.root-card .node-divider { background: rgba(253, 230, 138, 0.35); }
 
     .node-name {
-      font-size: 21px;
+      font-size: 26px;
+      line-height: 1.2;
       font-weight: 900;
       color: #000000;
       white-space: nowrap;

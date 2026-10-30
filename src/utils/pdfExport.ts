@@ -111,10 +111,9 @@ function encodeCanvasToSafeJpegPage(
   pageWidthPt: number;
   pageHeightPt: number;
 } {
-  // Mobile & desktop PDF decoders (iOS PDFKit, Android PdfRenderer, Chrome PDF)
-  // reliably decode /DCTDecode JPEG streams when both dimensions are <= 3508 px and area <= 8.8 MP.
-  const MAX_SAFE_DIM = 3508;
-  const MAX_SAFE_PIXELS = 8_800_000;
+  // High-DPI JPEG stream limit for crisp vector-like text in PDF viewers
+  const MAX_SAFE_DIM = 5400;
+  const MAX_SAFE_PIXELS = 16_500_000;
 
   let targetCanvas = sourceCanvas;
   const srcW = sourceCanvas.width || 1240;
@@ -260,9 +259,21 @@ export interface ExportTreePdfOptions {
   includeFemales?: boolean;
   maxTargetDim?: number;
   maxTargetPixels?: number;
+  targetAspectRatio?: number;
+  tileViewport?: {
+    col: number;
+    row: number;
+    cols: number;
+    rows: number;
+    tileWidthPx: number;
+    tileHeightPx: number;
+  };
 }
 
+let cairoFontReadyCache = false;
+
 export async function ensureCairoFontLoaded() {
+  if (cairoFontReadyCache) return;
   const div = document.createElement('div');
   div.style.fontFamily = "'Cairo', 'Segoe UI', Tahoma, sans-serif";
   div.style.fontWeight = '900';
@@ -276,11 +287,12 @@ export async function ensureCairoFontLoaded() {
   try {
     if (document.fonts) {
       await Promise.all([
-        document.fonts.load("400 20px Cairo"),
-        document.fonts.load("700 24px Cairo"),
-        document.fonts.load("900 48px Cairo")
+        document.fonts.load('400 20px Cairo'),
+        document.fonts.load('700 24px Cairo'),
+        document.fonts.load('900 64px Cairo')
       ]);
       await document.fonts.ready;
+      cairoFontReadyCache = true;
     }
   } catch (e) {
     console.warn('Font loading notice:', e);
@@ -289,6 +301,141 @@ export async function ensureCairoFontLoaded() {
       div.parentNode.removeChild(div);
     }
   }
+}
+
+function applyTargetAspectRatioToVerticalPyramid(
+  layout: ReturnType<typeof computeVerticalPyramidLayout>,
+  targetAspectRatio?: number
+) {
+  if (!targetAspectRatio || targetAspectRatio <= 0.05) {
+    return layout;
+  }
+
+  let {
+    nodes,
+    links,
+    logicalW,
+    logicalH,
+    nodeW,
+    nodeH,
+    headerHeight,
+    legendHeight,
+    footerHeight
+  } = layout;
+
+  const currentAspect = logicalW / Math.max(1, logicalH);
+  const treeTopY = headerHeight + legendHeight + 20;
+
+  if (currentAspect > targetAspectRatio * 1.005) {
+    // Expand vertically so the vertical pyramid fills 100% of the page height from top to bottom
+    const targetH = Math.round(logicalW / targetAspectRatio);
+    const newTreeBottomY = targetH - footerHeight - 20;
+
+    let oldMinY = Infinity;
+    let oldMaxY = -Infinity;
+    for (const n of nodes) {
+      if (n.y < oldMinY) oldMinY = n.y;
+      if (n.y > oldMaxY) oldMaxY = n.y;
+    }
+
+    const oldSpanY = Math.max(1, oldMaxY - oldMinY);
+    const availTreeH = Math.max(nodeH, newTreeBottomY - treeTopY);
+    if (oldMaxY > oldMinY) {
+      const vFactor = Math.max(1, (availTreeH - nodeH) / oldSpanY);
+      nodeH = Math.min(
+        Math.round(nodeW * 0.76),
+        Math.round(nodeH * Math.min(1.48, Math.sqrt(vFactor)))
+      );
+      const newMinY = treeTopY + nodeH / 2;
+      const newMaxY = Math.max(newMinY, newTreeBottomY - nodeH / 2);
+      const mapY = (y: number) =>
+        newMinY + ((y - oldMinY) / oldSpanY) * (newMaxY - newMinY);
+
+      const nodeById = new Map<string, (typeof nodes)[0]>();
+      for (const n of nodes) {
+        n.y = mapY(n.y);
+        n.height = nodeH;
+        nodeById.set(n.person.id, n);
+      }
+
+      for (const l of links) {
+        for (const pt of l.points) {
+          pt.y = mapY(pt.y);
+        }
+        const pNode = nodeById.get(l.parentId);
+        const cNode = nodeById.get(l.childId);
+        if (pNode && l.points.length >= 2) {
+          l.points[0].y = pNode.y + nodeH / 2;
+        }
+        if (cNode && l.points.length >= 2) {
+          l.points[l.points.length - 1].y = cNode.y - nodeH / 2;
+        }
+        l.svgPath = l.points
+          .map((pt, idx) => `${idx === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`)
+          .join(' ');
+      }
+    } else if (nodes.length > 0) {
+      const centerY = (treeTopY + newTreeBottomY) / 2;
+      for (const n of nodes) n.y = centerY;
+    }
+
+    logicalH = targetH;
+  } else if (currentAspect < targetAspectRatio * 0.995) {
+    // Expand horizontally so the pyramid fills 100% of the page width from right to left
+    const targetW = Math.round(logicalH * targetAspectRatio);
+    const sidePad = 32;
+    const treeLeftX = sidePad;
+    const treeRightX = targetW - sidePad;
+
+    let oldMinX = Infinity;
+    let oldMaxX = -Infinity;
+    for (const n of nodes) {
+      if (n.x < oldMinX) oldMinX = n.x;
+      if (n.x > oldMaxX) oldMaxX = n.x;
+    }
+
+    const oldSpanX = Math.max(1, oldMaxX - oldMinX);
+    const availTreeW = Math.max(nodeW, treeRightX - treeLeftX);
+    if (oldMaxX > oldMinX) {
+      const hFactor = Math.max(1, (availTreeW - nodeW) / oldSpanX);
+      nodeW = Math.min(
+        Math.round(nodeW * 1.52),
+        Math.round(nodeW * Math.min(1.52, Math.sqrt(hFactor)))
+      );
+      const newMinX = treeLeftX + nodeW / 2;
+      const newMaxX = Math.max(newMinX, treeRightX - nodeW / 2);
+      const mapX = (x: number) =>
+        newMinX + ((x - oldMinX) / oldSpanX) * (newMaxX - newMinX);
+
+      for (const n of nodes) {
+        n.x = mapX(n.x);
+        n.width = nodeW;
+      }
+      for (const l of links) {
+        for (const pt of l.points) {
+          pt.x = mapX(pt.x);
+        }
+        l.svgPath = l.points
+          .map((pt, idx) => `${idx === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`)
+          .join(' ');
+      }
+    } else if (nodes.length > 0) {
+      const centerX = targetW / 2;
+      for (const n of nodes) n.x = centerX;
+    }
+
+    logicalW = targetW;
+  }
+
+  return {
+    ...layout,
+    nodes,
+    links,
+    logicalW,
+    logicalH,
+    nodeW,
+    nodeH
+  };
 }
 
 export async function renderVerticalPyramidToCanvas(options: ExportTreePdfOptions): Promise<{
@@ -303,19 +450,21 @@ export async function renderVerticalPyramidToCanvas(options: ExportTreePdfOption
     getChildren,
     collapsedNodes = new Set<string>(),
     includeFemales = true,
-    maxTargetDim = 4096,
-    maxTargetPixels = 12_000_000
+    maxTargetDim = 9600,
+    maxTargetPixels = 32_000_000
   } = options;
 
   await ensureCairoFontLoaded();
 
-  const layout = computeVerticalPyramidLayout({
+  const rawLayout = computeVerticalPyramidLayout({
     rootPerson,
     getChildren,
     collapsedNodes,
     includeFemales,
     forScreen: false
   });
+
+  const layout = applyTargetAspectRatioToVerticalPyramid(rawLayout, options.targetAspectRatio);
 
   const {
     nodes,
@@ -331,47 +480,56 @@ export async function renderVerticalPyramidToCanvas(options: ExportTreePdfOption
     generationsList
   } = layout;
 
-  const maxLogicalDim = Math.max(logicalW, logicalH);
-  const totalLogicalPixels = logicalW * logicalH;
-
-  const limitProfiles = [
-    { maxDim: maxTargetDim, maxPixels: maxTargetPixels, desiredScale: 2.0 },
-    { maxDim: Math.min(3508, maxTargetDim), maxPixels: Math.min(8_800_000, maxTargetPixels), desiredScale: 1.5 },
-    { maxDim: Math.min(2480, maxTargetDim), maxPixels: Math.min(5_000_000, maxTargetPixels), desiredScale: 1.15 },
-    { maxDim: 1800, maxPixels: 2_600_000, desiredScale: 0.85 }
-  ];
-
   let canvas: HTMLCanvasElement | null = null;
   let ctx: CanvasRenderingContext2D | null = null;
   let scale = 1.0;
 
-  for (const profile of limitProfiles) {
-    const maxDimScale = profile.maxDim / maxLogicalDim;
-    const maxAreaScale = Math.sqrt(profile.maxPixels / totalLogicalPixels);
-    const candidateScale = Math.max(0.35, Math.min(profile.desiredScale, maxDimScale, maxAreaScale));
+  if (options.tileViewport) {
+    const { tileWidthPx, tileHeightPx } = options.tileViewport;
+    canvas = document.createElement('canvas');
+    canvas.width = tileWidthPx;
+    canvas.height = tileHeightPx;
+    ctx = canvas.getContext('2d');
+  } else {
+    const maxLogicalDim = Math.max(logicalW, logicalH);
+    const totalLogicalPixels = logicalW * logicalH;
 
-    const testW = Math.max(100, Math.round(logicalW * candidateScale));
-    const testH = Math.max(100, Math.round(logicalH * candidateScale));
+    const limitProfiles = [
+      { maxDim: maxTargetDim, maxPixels: maxTargetPixels, desiredScale: 3.0 },
+      { maxDim: Math.min(7680, maxTargetDim), maxPixels: Math.min(24_000_000, maxTargetPixels), desiredScale: 2.5 },
+      { maxDim: Math.min(5400, maxTargetDim), maxPixels: Math.min(16_500_000, maxTargetPixels), desiredScale: 2.0 },
+      { maxDim: Math.min(3800, maxTargetDim), maxPixels: Math.min(10_500_000, maxTargetPixels), desiredScale: 1.5 },
+      { maxDim: 2480, maxPixels: 5_500_000, desiredScale: 1.15 }
+    ];
 
-    try {
-      const testCanvas = document.createElement('canvas');
-      testCanvas.width = testW;
-      testCanvas.height = testH;
-      const testCtx = testCanvas.getContext('2d');
-      if (testCtx) {
-        testCtx.fillStyle = '#000000';
-        testCtx.fillRect(testW - 2, testH - 2, 2, 2);
-        const pixel = testCtx.getImageData(testW - 1, testH - 1, 1, 1).data;
-        if (pixel[3] === 255) {
-          testCtx.clearRect(0, 0, testW, testH);
-          canvas = testCanvas;
-          ctx = testCtx;
-          scale = candidateScale;
-          break;
+    for (const profile of limitProfiles) {
+      const maxDimScale = profile.maxDim / maxLogicalDim;
+      const maxAreaScale = Math.sqrt(profile.maxPixels / totalLogicalPixels);
+      const candidateScale = Math.max(0.35, Math.min(profile.desiredScale, maxDimScale, maxAreaScale));
+
+      const testW = Math.max(100, Math.round(logicalW * candidateScale));
+      const testH = Math.max(100, Math.round(logicalH * candidateScale));
+
+      try {
+        const testCanvas = document.createElement('canvas');
+        testCanvas.width = testW;
+        testCanvas.height = testH;
+        const testCtx = testCanvas.getContext('2d');
+        if (testCtx) {
+          testCtx.fillStyle = '#000000';
+          testCtx.fillRect(testW - 2, testH - 2, 2, 2);
+          const pixel = testCtx.getImageData(testW - 1, testH - 1, 1, 1).data;
+          if (pixel[3] === 255) {
+            testCtx.clearRect(0, 0, testW, testH);
+            canvas = testCanvas;
+            ctx = testCtx;
+            scale = candidateScale;
+            break;
+          }
         }
+      } catch {
+        // try next profile
       }
-    } catch {
-      // try next profile
     }
   }
 
@@ -379,7 +537,16 @@ export async function renderVerticalPyramidToCanvas(options: ExportTreePdfOption
     throw new Error('تعذر حجز ذاكرة الرسم للتخطيط الهرمي العمودي.');
   }
 
-  ctx.scale(scale, scale);
+  if (options.tileViewport) {
+    const { col, row, cols, rows, tileWidthPx, tileHeightPx } = options.tileViewport;
+    const sliceW = logicalW / cols;
+    const sliceH = logicalH / rows;
+    ctx.scale(tileWidthPx / sliceW, tileHeightPx / sliceH);
+    ctx.translate(-col * sliceW, -row * sliceH);
+  } else {
+    ctx.scale(scale, scale);
+  }
+
   ctx.direction = 'rtl';
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
@@ -395,16 +562,16 @@ export async function renderVerticalPyramidToCanvas(options: ExportTreePdfOption
   // 2. Ornate Portrait Borders
   ctx.strokeStyle = '#0F4C3A';
   ctx.lineWidth = 8;
-  ctx.strokeRect(20, 20, logicalW - 40, logicalH - 40);
+  ctx.strokeRect(16, 16, logicalW - 32, logicalH - 32);
   ctx.strokeStyle = '#D4AF37';
   ctx.lineWidth = 3.2;
-  ctx.strokeRect(32, 32, logicalW - 64, logicalH - 64);
+  ctx.strokeRect(26, 26, logicalW - 52, logicalH - 52);
 
   // 3. Header Banner
-  const bannerLeft = 48;
-  const bannerTop = 44;
-  const bannerW = logicalW - 96;
-  const bannerH = headerHeight - 48;
+  const bannerLeft = 38;
+  const bannerTop = 34;
+  const bannerW = logicalW - 76;
+  const bannerH = headerHeight - 38;
 
   const hdrGrad = ctx.createLinearGradient(bannerLeft, bannerTop, bannerLeft + bannerW, bannerTop + bannerH);
   hdrGrad.addColorStop(0, '#093829');
@@ -425,12 +592,12 @@ export async function renderVerticalPyramidToCanvas(options: ExportTreePdfOption
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#FFFFFF';
-  const titleFontSz = Math.min(46, Math.max(28, Math.round(logicalW * 0.03)));
+  const titleFontSz = Math.min(48, Math.max(28, Math.round(logicalW * 0.032)));
   ctx.font = `900 ${titleFontSz}px Cairo, 'Segoe UI', Tahoma, sans-serif`;
   ctx.fillText(`شجرة ${fullRootTitle}`, logicalW / 2, bannerTop + bannerH * 0.40);
 
   ctx.fillStyle = '#FDE68A';
-  const subFontSz = Math.min(22, Math.max(15, Math.round(logicalW * 0.015)));
+  const subFontSz = Math.min(24, Math.max(15, Math.round(logicalW * 0.016)));
   ctx.font = `bold ${subFontSz}px Cairo, 'Segoe UI', Tahoma, sans-serif`;
   ctx.fillText(
     `التخطيط الهرمي العمودي المدمج · كل جيل مميز بلون خاص (${totalNodes} فرداً · ${maxDepth} أجيال)`,
@@ -439,14 +606,14 @@ export async function renderVerticalPyramidToCanvas(options: ExportTreePdfOption
   );
 
   // 4. Generation Color Legend Bar (`مفتاح ألوان الأجيال`)
-  const legendTop = bannerTop + bannerH + 14;
-  const legendBoxH = Math.max(52, legendHeight - 16);
+  const legendTop = bannerTop + bannerH + 10;
+  const legendBoxH = Math.max(48, legendHeight - 14);
   ctx.fillStyle = '#F8FAFC';
-  drawRoundedRect(ctx, bannerLeft, legendTop, bannerW, legendBoxH, 16);
+  drawRoundedRect(ctx, bannerLeft, legendTop, bannerW, legendBoxH, 14);
   ctx.fill();
   ctx.strokeStyle = '#CBD5E1';
   ctx.lineWidth = 2;
-  drawRoundedRect(ctx, bannerLeft, legendTop, bannerW, legendBoxH, 16);
+  drawRoundedRect(ctx, bannerLeft, legendTop, bannerW, legendBoxH, 14);
   ctx.stroke();
 
   const chipGap = 12;
@@ -479,7 +646,7 @@ export async function renderVerticalPyramidToCanvas(options: ExportTreePdfOption
   for (const link of links) {
     if (link.points.length < 2) continue;
     ctx.strokeStyle = link.color;
-    ctx.lineWidth = 5.2;
+    ctx.lineWidth = 5.5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -510,26 +677,26 @@ export async function renderVerticalPyramidToCanvas(options: ExportTreePdfOption
     ctx.fill();
     ctx.restore();
 
-    ctx.lineWidth = isRoot ? 6 : 4;
+    ctx.lineWidth = isRoot ? 6 : 4.2;
     ctx.strokeStyle = theme.border;
     drawRoundedRect(ctx, left, top, nodeW, nodeH, 18);
     ctx.stroke();
 
-    // Top Header Pill inside Card (Generation Badge + Gender Badge)
-    const badgeY = top + Math.round(nodeH * 0.21);
-    const dividerY = top + Math.round(nodeH * 0.36);
+    // Compact Top Header Strip inside Card (28% of card height so 72% is dedicated to the large name!)
+    const badgeY = top + Math.round(nodeH * 0.165);
+    const dividerY = top + Math.round(nodeH * 0.285);
 
     // Generation Pill on the Right
     const genLabel = isRoot ? 'الأصل الراسخ' : `الجيل ${depth}`;
-    const pillFont = Math.min(18, Math.max(13, Math.floor(nodeH * 0.13)));
+    const pillFont = Math.min(22, Math.max(15, Math.floor(nodeH * 0.135)));
     ctx.font = `900 ${pillFont}px Cairo, sans-serif`;
-    const pillW = Math.min(nodeW * 0.54, ctx.measureText(genLabel).width + 22);
-    const pillH = Math.round(nodeH * 0.22);
-    const pillLeft = left + nodeW - 14 - pillW;
+    const pillW = Math.min(nodeW * 0.56, ctx.measureText(genLabel).width + 20);
+    const pillH = Math.round(nodeH * 0.21);
+    const pillLeft = left + nodeW - 12 - pillW;
     const pillTop = badgeY - pillH / 2;
 
     ctx.fillStyle = theme.badgeBg;
-    drawRoundedRect(ctx, pillLeft, pillTop, pillW, pillH, 8);
+    drawRoundedRect(ctx, pillLeft, pillTop, pillW, pillH, 7);
     ctx.fill();
 
     ctx.textAlign = 'center';
@@ -537,30 +704,40 @@ export async function renderVerticalPyramidToCanvas(options: ExportTreePdfOption
     ctx.fillStyle = theme.badgeText;
     ctx.fillText(genLabel, pillLeft + pillW / 2, badgeY);
 
-    // Gender Label on the Left
+    // Gender Pill on the Left
     const genderLabel = person.gender === 'male' ? 'ذكر' : 'أنثى';
-    ctx.textAlign = 'left';
+    const genderW = Math.max(50, ctx.measureText(genderLabel).width + 18);
+    const genderLeft = left + 12;
+    ctx.fillStyle = isRoot
+      ? 'rgba(253, 230, 138, 0.18)'
+      : person.gender === 'female'
+      ? 'rgba(190, 18, 60, 0.10)'
+      : 'rgba(15, 23, 42, 0.06)';
+    drawRoundedRect(ctx, genderLeft, pillTop, genderW, pillH, 7);
+    ctx.fill();
+
+    ctx.textAlign = 'center';
     ctx.fillStyle = isRoot ? '#FDE68A' : person.gender === 'female' ? '#BE123C' : theme.subText;
     ctx.font = `900 ${pillFont}px Cairo, sans-serif`;
-    ctx.fillText(genderLabel, left + 16, badgeY);
+    ctx.fillText(genderLabel, genderLeft + genderW / 2, badgeY);
 
     // Divider line
     ctx.strokeStyle = theme.divider;
-    ctx.lineWidth = 1.8;
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(left + 14, dividerY);
-    ctx.lineTo(left + nodeW - 14, dividerY);
+    ctx.moveTo(left + 12, dividerY);
+    ctx.lineTo(left + nodeW - 12, dividerY);
     ctx.stroke();
 
-    // Name Typography
-    const displayName = isRoot ? formatAppName(person.fullName) : extractGivenName(person.fullName);
-    const maxTextWidth = nodeW - 28;
+    // High-Definition Crystal-Clear Large Name Typography (72% of card height)
+    const displayName = extractGivenName(person.fullName);
+    const maxTextWidth = nodeW - 14;
     const textCenterX = left + nodeW / 2;
     const textCenterY = dividerY + (nodeH - (dividerY - top)) / 2;
 
-    let nameFontSize = Math.min(48, Math.floor(nodeH * 0.42));
+    let nameFontSize = Math.min(82, Math.floor(nodeH * 0.56));
     ctx.font = `900 ${nameFontSize}px Cairo, 'Segoe UI', Tahoma, sans-serif`;
-    while (nameFontSize > 16 && ctx.measureText(displayName).width > maxTextWidth) {
+    while (nameFontSize > 24 && ctx.measureText(displayName).width > maxTextWidth) {
       nameFontSize -= 1;
       ctx.font = `900 ${nameFontSize}px Cairo, 'Segoe UI', Tahoma, sans-serif`;
     }
@@ -579,13 +756,13 @@ export async function renderVerticalPyramidToCanvas(options: ExportTreePdfOption
   ctx.fillText(
     `شجرة ${fullRootTitle} — التخطيط الهرمي العمودي (كل جيل مميز بلون خاص)`,
     logicalW / 2,
-    logicalH - 36
+    logicalH - 28
   );
 
   return {
     canvas,
     rootFirstName,
-    isLandscape: false,
+    isLandscape: logicalW > logicalH,
     logicalW,
     logicalH
   };
@@ -606,15 +783,21 @@ export async function renderCombinedTreesToCanvas(
   // - 'classic' (هرمي أفقي - كل جيل في صف): تكديس عمودي (كل شجرة فوق الأخرى)
   // - 'classic_vertical' (هرمي عمودي): اصطفاف كل هرم عمودي بجانب الآخر (جنب الآخر)
   const isVerticalStack = options.mode === 'classic';
-  const GAP = 56;
-  const OUTER_PAD = 48;
-  const MASTER_HEADER_H = 180;
+  const GAP = 44;
+  const OUTER_PAD = 36;
+  const MASTER_HEADER_H = 160;
 
-  // Per-tree pixel cap so rendering multiple trees sequentially never exhausts browser GPU memory
-  const perTreeMaxDim = Math.max(1600, Math.min(2800, Math.floor(6800 / Math.sqrt(Math.max(1, roots.length)))));
-  const perTreeMaxPixels = Math.max(2_200_000, Math.floor(14_000_000 / Math.max(1, roots.length)));
+  // Per-tree pixel cap so rendering multiple trees sequentially stays ultra-sharp
+  const perTreeMaxDim = Math.max(3200, Math.min(5400, Math.floor(9600 / Math.sqrt(Math.max(1, roots.length)))));
+  const perTreeMaxPixels = Math.max(6_500_000, Math.floor(28_000_000 / Math.max(1, roots.length)));
 
-  // Render each selected tree with a safe per-tree memory budget
+  const subTreeTargetAspect = options.targetAspectRatio
+    ? isVerticalStack
+      ? options.targetAspectRatio * roots.length * 1.05
+      : options.targetAspectRatio / Math.max(1, roots.length)
+    : undefined;
+
+  // Render each selected tree with a high-DPI budget
   const subItems: {
     canvas: HTMLCanvasElement;
     root: Person;
@@ -627,6 +810,8 @@ export async function renderCombinedTreesToCanvas(
       ...options,
       rootPerson: r,
       rootPersons: undefined,
+      targetAspectRatio: subTreeTargetAspect,
+      tileViewport: undefined,
       maxTargetDim: perTreeMaxDim,
       maxTargetPixels: perTreeMaxPixels
     });
@@ -662,12 +847,12 @@ export async function renderCombinedTreesToCanvas(
   const maxRawDim = Math.max(rawMasterW, rawMasterH);
   const totalRawPixels = rawMasterW * rawMasterH;
 
-  // Use universally supported PNG/JPEG canvas dimensions across mobile & desktop browsers
+  // Use high-resolution canvas dimensions for crisp combined trees
   const limitProfiles = [
+    { maxDim: 7680, maxPixels: 24_000_000 },
     { maxDim: 6144, maxPixels: 18_000_000 },
     { maxDim: 4096, maxPixels: 12_000_000 },
-    { maxDim: 3508, maxPixels: 8_800_000 },
-    { maxDim: 2480, maxPixels: 5_000_000 }
+    { maxDim: 3508, maxPixels: 8_800_000 }
   ];
 
   let masterCanvas: HTMLCanvasElement | null = null;
@@ -677,7 +862,7 @@ export async function renderCombinedTreesToCanvas(
   for (const profile of limitProfiles) {
     const dimScale = profile.maxDim / maxRawDim;
     const areaScale = Math.sqrt(profile.maxPixels / totalRawPixels);
-    const candidateScale = Math.min(1.5, dimScale, areaScale);
+    const candidateScale = Math.min(2.0, dimScale, areaScale);
 
     const testW = Math.max(200, Math.round(rawMasterW * candidateScale));
     const testH = Math.max(200, Math.round(rawMasterH * candidateScale));
@@ -889,38 +1074,39 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   const isLandscape = orientation === 'landscape';
 
   // 2. High-Definition Node Card Sizing (All cards of each generation on the exact same row)
-  let NODE_W = 320;
-  let NODE_H = 152;
-  let H_GAP = 32;
+  let NODE_W = 330;
+  let NODE_H = 156;
+  let H_GAP = 22;
 
   if (leafCount <= 12) {
-    NODE_W = 360;
-    NODE_H = 168;
-    H_GAP = 42;
+    NODE_W = 370;
+    NODE_H = 172;
+    H_GAP = 28;
   } else if (leafCount <= 25) {
-    NODE_W = 310;
-    NODE_H = 152;
-    H_GAP = 32;
+    NODE_W = 330;
+    NODE_H = 158;
+    H_GAP = 22;
   } else if (leafCount <= 45) {
-    NODE_W = 275;
-    NODE_H = 142;
-    H_GAP = 24;
+    NODE_W = 296;
+    NODE_H = 146;
+    H_GAP = 18;
   } else if (leafCount <= 75) {
-    NODE_W = 248;
-    NODE_H = 134;
-    H_GAP = 20;
+    NODE_W = 270;
+    NODE_H = 138;
+    H_GAP = 14;
   } else {
-    NODE_W = 228;
-    NODE_H = 128;
-    H_GAP = 16;
+    NODE_W = 248;
+    NODE_H = 132;
+    H_GAP = 12;
   }
 
-  const HEADER_H = 230;
-  const FOOTER_H = 85;
-  const SIDE_PAD = 90;
-  const TOP_TREE_PAD = 80;
-  const BOTTOM_TREE_PAD = 85;
-  const LEVEL_H = Math.max(255, Math.round(NODE_H * 1.82));
+  const isSplitFill = Boolean(options.targetAspectRatio && options.targetAspectRatio > 0.05);
+  const HEADER_H = isSplitFill ? 156 : 196;
+  const FOOTER_H = isSplitFill ? 46 : 58;
+  const SIDE_PAD = isSplitFill ? 28 : 48;
+  const TOP_TREE_PAD = isSplitFill ? 24 : 38;
+  const BOTTOM_TREE_PAD = isSplitFill ? 26 : 42;
+  const LEVEL_H = Math.max(236, Math.round(NODE_H * 1.68));
 
   // 3. Recursive Layout Builder (Every generation strictly on its single horizontal row)
   function buildLayout(person: Person, depth: number, visitedSet: Set<string>): TreeLayoutNode {
@@ -1011,7 +1197,7 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     }
   }
 
-  const initialLogicalW = Math.max(1800, rootLayout.subtreeWidth + SIDE_PAD * 2);
+  const initialLogicalW = Math.max(isSplitFill ? 820 : 1120, rootLayout.subtreeWidth + SIDE_PAD * 2);
   assignCoords(rootLayout, (initialLogicalW - rootLayout.subtreeWidth) / 2);
 
   // 4. Verify Vertical & Horizontal Bounds
@@ -1033,57 +1219,131 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     maxNodeBottom += shiftDown;
   }
 
-  const logicalW = initialLogicalW;
-  const logicalH = Math.max(920, Math.ceil(maxNodeBottom + BOTTOM_TREE_PAD + FOOTER_H));
+  let logicalW = initialLogicalW;
+  let logicalH = Math.ceil(maxNodeBottom + BOTTOM_TREE_PAD + FOOTER_H);
+
+  // If targetAspectRatio is specified (Split Poster mode), expand the tree to fill 100% of every page from top to bottom!
+  if (options.targetAspectRatio && options.targetAspectRatio > 0.05) {
+    const targetAspect = options.targetAspectRatio;
+    const currentAspect = logicalW / Math.max(1, logicalH);
+
+    if (currentAspect > targetAspect * 1.005) {
+      logicalH = Math.round(logicalW / targetAspect);
+      const treeAreaTop = HEADER_H + TOP_TREE_PAD;
+      const treeAreaBottom = logicalH - FOOTER_H - BOTTOM_TREE_PAD;
+      const availTreeH = Math.max(NODE_H, treeAreaBottom - treeAreaTop);
+
+      NODE_H = Math.max(
+        NODE_H,
+        Math.min(
+          Math.round(NODE_W * 0.78),
+          Math.floor((availTreeH / Math.max(1, maxDepth)) * 0.70)
+        )
+      );
+
+      const minCenterY = treeAreaTop + NODE_H / 2;
+      const maxCenterY = Math.max(minCenterY, treeAreaBottom - NODE_H / 2);
+
+      for (const n of flatNodes) {
+        n.y =
+          maxDepth <= 1
+            ? (minCenterY + maxCenterY) / 2
+            : minCenterY + ((n.depth - 1) / (maxDepth - 1)) * (maxCenterY - minCenterY);
+      }
+      for (const l of links) {
+        const parentY =
+          maxDepth <= 1
+            ? (minCenterY + maxCenterY) / 2
+            : minCenterY + ((l.depth - 1) / (maxDepth - 1)) * (maxCenterY - minCenterY);
+        const childY =
+          maxDepth <= 1
+            ? (minCenterY + maxCenterY) / 2
+            : minCenterY + (l.depth / (maxDepth - 1)) * (maxCenterY - minCenterY);
+        l.fromY = parentY + NODE_H / 2;
+        l.toY = childY - NODE_H / 2;
+      }
+    } else if (currentAspect < targetAspect * 0.995) {
+      logicalW = Math.round(logicalH * targetAspect);
+      let oldMinX = Infinity;
+      let oldMaxX = -Infinity;
+      for (const n of flatNodes) {
+        if (n.x < oldMinX) oldMinX = n.x;
+        if (n.x > oldMaxX) oldMaxX = n.x;
+      }
+      if (oldMaxX > oldMinX) {
+        const oldSpanX = oldMaxX - oldMinX;
+        const availW = Math.max(NODE_W, logicalW - SIDE_PAD * 2);
+        const hFactor = Math.max(1, (availW - NODE_W) / oldSpanX);
+        NODE_W = Math.min(Math.round(NODE_W * 1.48), Math.round(NODE_W * Math.sqrt(hFactor)));
+        const newMinX = SIDE_PAD + NODE_W / 2;
+        const newMaxX = Math.max(newMinX, logicalW - SIDE_PAD - NODE_W / 2);
+        const mapX = (x: number) =>
+          newMinX + ((x - oldMinX) / oldSpanX) * (newMaxX - newMinX);
+        for (const n of flatNodes) n.x = mapX(n.x);
+        for (const l of links) {
+          l.fromX = mapX(l.fromX);
+          l.toX = mapX(l.toX);
+        }
+      } else {
+        for (const n of flatNodes) n.x = logicalW / 2;
+      }
+    }
+  }
 
   // 5. High-Resolution Canvas Allocation with Hardware Backing-Store Verification
-  //    Because all cards of a generation sit on a single row, logicalH is compact,
-  //    allowing wide high-DPI canvases up to 16,384 px / 20,480 px with crystal-clear text.
-  const maxLogicalDim = Math.max(logicalW, logicalH);
-  const totalLogicalPixels = logicalW * logicalH;
-
-  const targetMaxDim = options.maxTargetDim || 6144;
-  const targetMaxPixels = options.maxTargetPixels || 16_000_000;
-
-  const limitProfiles = [
-    { maxDim: targetMaxDim, maxPixels: targetMaxPixels, desiredScale: 2.0 },
-    { maxDim: Math.min(4096, targetMaxDim), maxPixels: Math.min(12_000_000, targetMaxPixels), desiredScale: 1.5 },
-    { maxDim: Math.min(3072, targetMaxDim), maxPixels: Math.min(7_500_000, targetMaxPixels), desiredScale: 1.15 },
-    { maxDim: Math.min(2048, targetMaxDim), maxPixels: Math.min(3_800_000, targetMaxPixels), desiredScale: 0.85 }
-  ];
-
   let canvas: HTMLCanvasElement | null = null;
   let ctx: CanvasRenderingContext2D | null = null;
   let scale = 1.5;
 
-  for (const profile of limitProfiles) {
-    const maxDimScale = profile.maxDim / maxLogicalDim;
-    const maxAreaScale = Math.sqrt(profile.maxPixels / totalLogicalPixels);
-    const candidateScale = Math.max(0.35, Math.min(profile.desiredScale, maxDimScale, maxAreaScale));
+  if (options.tileViewport) {
+    const { tileWidthPx, tileHeightPx } = options.tileViewport;
+    canvas = document.createElement('canvas');
+    canvas.width = tileWidthPx;
+    canvas.height = tileHeightPx;
+    ctx = canvas.getContext('2d');
+  } else {
+    const maxLogicalDim = Math.max(logicalW, logicalH);
+    const totalLogicalPixels = logicalW * logicalH;
 
-    const testW = Math.max(100, Math.round(logicalW * candidateScale));
-    const testH = Math.max(100, Math.round(logicalH * candidateScale));
+    const targetMaxDim = options.maxTargetDim || 9600;
+    const targetMaxPixels = options.maxTargetPixels || 32_000_000;
 
-    try {
-      const testCanvas = document.createElement('canvas');
-      testCanvas.width = testW;
-      testCanvas.height = testH;
-      const testCtx = testCanvas.getContext('2d');
-      if (testCtx) {
-        // Verify GPU backing store is genuinely allocated at the far corner
-        testCtx.fillStyle = '#000000';
-        testCtx.fillRect(testW - 2, testH - 2, 2, 2);
-        const pixel = testCtx.getImageData(testW - 1, testH - 1, 1, 1).data;
-        if (pixel[3] === 255) {
-          testCtx.clearRect(0, 0, testW, testH);
-          canvas = testCanvas;
-          ctx = testCtx;
-          scale = candidateScale;
-          break;
+    const limitProfiles = [
+      { maxDim: targetMaxDim, maxPixels: targetMaxPixels, desiredScale: 3.0 },
+      { maxDim: Math.min(7680, targetMaxDim), maxPixels: Math.min(24_000_000, targetMaxPixels), desiredScale: 2.5 },
+      { maxDim: Math.min(5400, targetMaxDim), maxPixels: Math.min(16_500_000, targetMaxPixels), desiredScale: 2.0 },
+      { maxDim: Math.min(3800, targetMaxDim), maxPixels: Math.min(10_500_000, targetMaxPixels), desiredScale: 1.5 },
+      { maxDim: Math.min(2480, targetMaxDim), maxPixels: Math.min(5_500_000, targetMaxPixels), desiredScale: 1.15 }
+    ];
+
+    for (const profile of limitProfiles) {
+      const maxDimScale = profile.maxDim / maxLogicalDim;
+      const maxAreaScale = Math.sqrt(profile.maxPixels / totalLogicalPixels);
+      const candidateScale = Math.max(0.35, Math.min(profile.desiredScale, maxDimScale, maxAreaScale));
+
+      const testW = Math.max(100, Math.round(logicalW * candidateScale));
+      const testH = Math.max(100, Math.round(logicalH * candidateScale));
+
+      try {
+        const testCanvas = document.createElement('canvas');
+        testCanvas.width = testW;
+        testCanvas.height = testH;
+        const testCtx = testCanvas.getContext('2d');
+        if (testCtx) {
+          testCtx.fillStyle = '#000000';
+          testCtx.fillRect(testW - 2, testH - 2, 2, 2);
+          const pixel = testCtx.getImageData(testW - 1, testH - 1, 1, 1).data;
+          if (pixel[3] === 255) {
+            testCtx.clearRect(0, 0, testW, testH);
+            canvas = testCanvas;
+            ctx = testCtx;
+            scale = candidateScale;
+            break;
+          }
         }
+      } catch (e) {
+        // Try next profile down
       }
-    } catch (e) {
-      // Try next profile down
     }
   }
 
@@ -1091,7 +1351,16 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     throw new Error('تعذر حجز ذاكرة الرسم في المتصفح لكبر حجم الشجرة.');
   }
 
-  ctx.scale(scale, scale);
+  if (options.tileViewport) {
+    const { col, row, cols, rows, tileWidthPx, tileHeightPx } = options.tileViewport;
+    const sliceW = logicalW / cols;
+    const sliceH = logicalH / rows;
+    ctx.scale(tileWidthPx / sliceW, tileHeightPx / sliceH);
+    ctx.translate(-col * sliceW, -row * sliceH);
+  } else {
+    ctx.scale(scale, scale);
+  }
+
   ctx.direction = 'rtl';
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
@@ -1107,15 +1376,15 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   // Borders
   ctx.strokeStyle = '#064E3B';
   ctx.lineWidth = unconstrained ? 10 : 8;
-  ctx.strokeRect(20, 20, logicalW - 40, logicalH - 40);
+  ctx.strokeRect(16, 16, logicalW - 32, logicalH - 32);
   ctx.strokeStyle = '#D97706';
   ctx.lineWidth = unconstrained ? 4 : 3.5;
-  ctx.strokeRect(32, 32, logicalW - 64, logicalH - 64);
+  ctx.strokeRect(26, 26, logicalW - 52, logicalH - 52);
 
   // Header Banner
-  const bannerLeft = 50;
-  const bannerTop = 42;
-  const bannerW = logicalW - 100;
+  const bannerLeft = 38;
+  const bannerTop = 34;
+  const bannerW = logicalW - 76;
   const bannerH = HEADER_H - 36;
 
   ctx.fillStyle = '#064E3B';
@@ -1133,15 +1402,17 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#FFFFFF';
-  ctx.font = "900 52px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif";
-  ctx.fillText(`شجرة ${fullRootTitle}`, logicalW / 2, bannerTop + 72);
+  const hdrTitleFont = Math.min(52, Math.max(32, Math.round(bannerH * 0.36)));
+  ctx.font = `900 ${hdrTitleFont}px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif`;
+  ctx.fillText(`شجرة ${fullRootTitle}`, logicalW / 2, bannerTop + bannerH * 0.40);
 
   ctx.fillStyle = '#FDE68A';
-  ctx.font = "900 26px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif";
+  const hdrSubFont = Math.min(26, Math.max(17, Math.round(bannerH * 0.18)));
+  ctx.font = `900 ${hdrSubFont}px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif`;
   ctx.fillText(
     `إجمالي الأفراد: ${totalNodes} فرداً   ·   عدد الأجيال: ${maxDepth} أجيال   ·   تاريخ الإصدار: ${new Date().toLocaleDateString('ar-SA')}`,
     logicalW / 2,
-    bannerTop + 138
+    bannerTop + bannerH * 0.76
   );
 
   // Standard Connecting Lines
@@ -1195,42 +1466,40 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     drawRoundedRect(ctx, left, top, NODE_W, NODE_H, 20);
     ctx.stroke();
 
-    // Badges: Generation & Gender
+    // Compact Top Header Strip inside Card (28% of card height so 72% is dedicated to the large name!)
     const genLabel = isRoot ? 'الأصل الراسخ' : `الجيل ${depth}`;
     const genderLabel = person.gender === 'male' ? 'ذكر' : 'أنثى';
-    const badgeFont = Math.min(24, Math.max(15, Math.floor(NODE_H * 0.155)));
+    const badgeFont = Math.min(24, Math.max(15, Math.floor(NODE_H * 0.145)));
     ctx.font = `900 ${badgeFont}px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif`;
     ctx.textBaseline = 'middle';
 
-    const badgeY = top + Math.round(NODE_H * 0.20);
-    const dividerY = top + Math.round(NODE_H * 0.34);
+    const badgeY = top + Math.round(NODE_H * 0.165);
+    const dividerY = top + Math.round(NODE_H * 0.285);
 
     // Right Badge (Generation)
     ctx.textAlign = 'right';
     ctx.fillStyle = isRoot ? '#FDE68A' : '#0F4C3A';
-    ctx.fillText(genLabel, left + NODE_W - 20, badgeY);
+    ctx.fillText(genLabel, left + NODE_W - 16, badgeY);
 
     // Left Badge (Gender)
     ctx.textAlign = 'left';
     ctx.fillStyle = isRoot ? '#FDE68A' : person.gender === 'male' ? '#047857' : '#BE123C';
-    ctx.fillText(genderLabel, left + 20, badgeY);
+    ctx.fillText(genderLabel, left + 16, badgeY);
 
     // Inner dividing line
     ctx.strokeStyle = isRoot ? 'rgba(253, 230, 138, 0.5)' : 'rgba(15, 23, 42, 0.2)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(left + 16, dividerY);
-    ctx.lineTo(left + NODE_W - 16, dividerY);
+    ctx.moveTo(left + 12, dividerY);
+    ctx.lineTo(left + NODE_W - 12, dividerY);
     ctx.stroke();
 
     // ------------------------------------------------------------------------
-    // HIGH-DEFINITION CRYSTAL CLEAR NAME TYPOGRAPHY
+    // HIGH-DEFINITION CRYSTAL CLEAR NAME TYPOGRAPHY (72% of Card Height)
     // ------------------------------------------------------------------------
-    const displayName = isRoot
-      ? formatAppName(person.fullName)
-      : extractGivenName(person.fullName);
+    const displayName = extractGivenName(person.fullName);
 
-    const maxTextWidth = NODE_W - 32;
+    const maxTextWidth = NODE_W - 14;
     const textCenterX = left + NODE_W / 2;
     const cardContentHeight = NODE_H - (dividerY - top);
     const textCenterY = dividerY + cardContentHeight / 2;
@@ -1238,11 +1507,11 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    let nameFontSize = Math.min(62, Math.floor(NODE_H * 0.41));
+    let nameFontSize = Math.min(86, Math.floor(NODE_H * 0.56));
     ctx.font = `900 ${nameFontSize}px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif`;
 
-    while (nameFontSize > 22 && ctx.measureText(displayName).width > maxTextWidth) {
-      nameFontSize -= 2;
+    while (nameFontSize > 24 && ctx.measureText(displayName).width > maxTextWidth) {
+      nameFontSize -= 1;
       ctx.font = `900 ${nameFontSize}px Cairo, 'Segoe UI', Tahoma, Arial, sans-serif`;
     }
 
@@ -1254,11 +1523,11 @@ export async function renderTreeToCanvas(options: ExportTreePdfOptions): Promise
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#0F172A';
-  ctx.font = "900 22px Cairo, 'Segoe UI', Tahoma, sans-serif";
+  ctx.font = "900 20px Cairo, 'Segoe UI', Tahoma, sans-serif";
   ctx.fillText(
     `شجرة ${fullRootTitle}`,
     logicalW / 2,
-    logicalH - 36
+    logicalH - 24
   );
 
   return { canvas, rootFirstName, isLandscape, logicalW, logicalH };
@@ -1293,16 +1562,23 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
   if (options.rootPersons && options.rootPersons.length > 1) {
     const roots = options.rootPersons;
     const isVerticalStack = mode === 'classic';
-    const GAP = 64;
-    const OUTER_PAD = 56;
-    const MASTER_HEADER_H = 190;
+    const GAP = 48;
+    const OUTER_PAD = 40;
+    const MASTER_HEADER_H = 168;
+
+    const subTreeTargetAspect = options.targetAspectRatio
+      ? isVerticalStack
+        ? options.targetAspectRatio * roots.length * 1.05
+        : options.targetAspectRatio / Math.max(1, roots.length)
+      : undefined;
 
     const subSvgs: { content: string; w: number; h: number }[] = [];
     for (let i = 0; i < roots.length; i++) {
       const subBlobRes = await generateTreeSvgBlob({
         ...options,
         rootPerson: roots[i],
-        rootPersons: undefined
+        rootPersons: undefined,
+        targetAspectRatio: subTreeTargetAspect
       });
       const rawSvgText = await subBlobRes.blob.text();
       // Prefix gradient IDs per tree so nested SVGs never collide
@@ -1340,9 +1616,9 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
     combinedSvg += `<rect x="32" y="32" width="${masterW - 64}" height="${masterH - 64}" fill="none" stroke="#D4AF37" stroke-width="4" />\n`;
 
     const bannerX = OUTER_PAD;
-    const bannerY = 46;
+    const bannerY = 40;
     const bannerW = masterW - OUTER_PAD * 2;
-    const bannerH = MASTER_HEADER_H - 36;
+    const bannerH = MASTER_HEADER_H - 32;
     combinedSvg += `<rect x="${bannerX}" y="${bannerY}" width="${bannerW}" height="${bannerH}" rx="24" fill="#0F4C3A" stroke="#D4AF37" stroke-width="4" />\n`;
     combinedSvg += `<text x="${masterW / 2}" y="${bannerY + bannerH * 0.40}" text-anchor="middle" font-size="${Math.min(54, Math.max(32, Math.round(masterW * 0.024)))}" font-weight="900" fill="#FFFFFF">${escapeXml(`اللوحة المجمّعة لأشجار العائلة (${roots.length} أشجار): ${treeNamesSummary}`)}</text>\n`;
     combinedSvg += `<text x="${masterW / 2}" y="${bannerY + bannerH * 0.76}" text-anchor="middle" font-size="${Math.min(28, Math.max(18, Math.round(masterW * 0.013)))}" font-weight="700" fill="#FDE68A">${escapeXml(layoutDesc)}</text>\n`;
@@ -1378,13 +1654,14 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
   }
 
   if (mode === 'classic_vertical') {
-    const layout = computeVerticalPyramidLayout({
+    const rawLayout = computeVerticalPyramidLayout({
       rootPerson,
       getChildren,
       collapsedNodes,
       includeFemales,
       forScreen: false
     });
+    const layout = applyTargetAspectRatioToVerticalPyramid(rawLayout, options.targetAspectRatio);
     const {
       nodes,
       links,
@@ -1412,24 +1689,24 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
     svgStr += `</defs>\n`;
 
     svgStr += `<rect width="100%" height="100%" fill="#FCFBF7" />\n`;
-    svgStr += `<rect x="20" y="20" width="${logicalW - 40}" height="${logicalH - 40}" fill="none" stroke="#0F4C3A" stroke-width="8" />\n`;
-    svgStr += `<rect x="32" y="32" width="${logicalW - 64}" height="${logicalH - 64}" fill="none" stroke="#D4AF37" stroke-width="3.2" />\n`;
+    svgStr += `<rect x="16" y="16" width="${logicalW - 32}" height="${logicalH - 32}" fill="none" stroke="#0F4C3A" stroke-width="8" />\n`;
+    svgStr += `<rect x="26" y="26" width="${logicalW - 52}" height="${logicalH - 52}" fill="none" stroke="#D4AF37" stroke-width="3.2" />\n`;
 
-    const bannerLeft = 48;
-    const bannerTop = 44;
-    const bannerW = logicalW - 96;
-    const bannerH = headerHeight - 48;
-    const titleFontSz = Math.min(46, Math.max(28, Math.round(logicalW * 0.03)));
-    const subFontSz = Math.min(22, Math.max(15, Math.round(logicalW * 0.015)));
+    const bannerLeft = 38;
+    const bannerTop = 34;
+    const bannerW = logicalW - 76;
+    const bannerH = headerHeight - 38;
+    const titleFontSz = Math.min(48, Math.max(28, Math.round(logicalW * 0.032)));
+    const subFontSz = Math.min(24, Math.max(15, Math.round(logicalW * 0.016)));
 
     svgStr += `<rect x="${bannerLeft}" y="${bannerTop}" width="${bannerW}" height="${bannerH}" rx="22" fill="#0F4C3A" stroke="#D4AF37" stroke-width="3.5" />\n`;
     svgStr += `<text x="${logicalW / 2}" y="${bannerTop + bannerH * 0.40}" text-anchor="middle" font-size="${titleFontSz}" font-weight="900" fill="#FFFFFF">${escapeXml(`شجرة ${fullRootTitle}`)}</text>\n`;
     svgStr += `<text x="${logicalW / 2}" y="${bannerTop + bannerH * 0.76}" text-anchor="middle" font-size="${subFontSz}" font-weight="700" fill="#FDE68A">${escapeXml(`التخطيط الهرمي العمودي المدمج · كل جيل مميز بلون خاص (${totalNodes} فرداً · ${maxDepth} أجيال)`)}</text>\n`;
 
     // Generation Legend Bar
-    const legendTop = bannerTop + bannerH + 14;
-    const legendBoxH = Math.max(52, legendHeight - 16);
-    svgStr += `<rect x="${bannerLeft}" y="${legendTop}" width="${bannerW}" height="${legendBoxH}" rx="16" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="2" />\n`;
+    const legendTop = bannerTop + bannerH + 10;
+    const legendBoxH = Math.max(48, legendHeight - 14);
+    svgStr += `<rect x="${bannerLeft}" y="${legendTop}" width="${bannerW}" height="${legendBoxH}" rx="14" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="2" />\n`;
 
     const chipGap = 12;
     const chipH = 34;
@@ -1447,7 +1724,7 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
 
     // Links
     for (const l of links) {
-      svgStr += `<path d="${l.svgPath}" fill="none" stroke="${l.color}" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round" />\n`;
+      svgStr += `<path d="${l.svgPath}" fill="none" stroke="${l.color}" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" />\n`;
     }
 
     // Nodes
@@ -1456,23 +1733,51 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
       const isRoot = depth === 1;
       const left = x - nodeW / 2;
       const top = y - nodeH / 2;
-      const badgeY = top + Math.round(nodeH * 0.21);
-      const dividerY = top + Math.round(nodeH * 0.36);
+      const badgeY = top + Math.round(nodeH * 0.165);
+      const dividerY = top + Math.round(nodeH * 0.285);
       const textCenterY = dividerY + (nodeH - (dividerY - top)) / 2;
-      const displayName = isRoot ? formatAppName(person.fullName) : extractGivenName(person.fullName);
-      const nameFontSize = displayName.length > 14 ? 32 : displayName.length > 10 ? 38 : 44;
+      const displayName = extractGivenName(person.fullName);
+      const nameFontSize =
+        displayName.length > 14
+          ? Math.round(nodeH * 0.36)
+          : displayName.length > 10
+          ? Math.round(nodeH * 0.44)
+          : Math.min(82, Math.round(nodeH * 0.54));
+
+      const genLabel = isRoot ? 'الأصل الراسخ' : `الجيل ${depth}`;
+      const genderLabel = person.gender === 'male' ? 'ذكر' : 'أنثى';
+      const genPillW = isRoot ? 124 : 96;
+      const genPillH = Math.round(nodeH * 0.21);
+      const genPillX = left + nodeW - 12 - genPillW;
+      const genPillY = badgeY - genPillH / 2;
+
+      const genderPillW = 58;
+      const genderPillH = genPillH;
+      const genderPillX = left + 12;
+      const genderPillY = badgeY - genderPillH / 2;
+      const genderTextColor = isRoot
+        ? '#FDE68A'
+        : person.gender === 'female'
+        ? '#BE123C'
+        : theme.subText;
+      const genderBgColor = isRoot
+        ? 'rgba(253, 230, 138, 0.16)'
+        : person.gender === 'female'
+        ? 'rgba(190, 18, 60, 0.10)'
+        : 'rgba(15, 23, 42, 0.06)';
 
       svgStr += `<g>\n`;
-      svgStr += `  <rect x="${left}" y="${top}" width="${nodeW}" height="${nodeH}" rx="18" fill="${theme.bgEnd}" stroke="${theme.border}" stroke-width="${isRoot ? 6 : 4}" />\n`;
-      svgStr += `  <rect x="${left + nodeW - 124}" y="${badgeY - 14}" width="110" height="28" rx="8" fill="${theme.badgeBg}" />\n`;
-      svgStr += `  <text x="${left + nodeW - 69}" y="${badgeY}" text-anchor="middle" font-size="15" font-weight="900" fill="${theme.badgeText}">${escapeXml(isRoot ? 'الأصل الراسخ' : `الجيل ${depth}`)}</text>\n`;
-      svgStr += `  <text x="${left + 18}" y="${badgeY}" text-anchor="end" font-size="15" font-weight="900" fill="${isRoot ? '#FDE68A' : person.gender === 'female' ? '#BE123C' : theme.subText}">${escapeXml(person.gender === 'male' ? 'ذكر' : 'أنثى')}</text>\n`;
-      svgStr += `  <line x1="${left + 14}" y1="${dividerY}" x2="${left + nodeW - 14}" y2="${dividerY}" stroke="${theme.divider}" stroke-width="1.8" />\n`;
+      svgStr += `  <rect x="${left}" y="${top}" width="${nodeW}" height="${nodeH}" rx="18" fill="${theme.bgEnd}" stroke="${theme.border}" stroke-width="${isRoot ? 6 : 4.2}" />\n`;
+      svgStr += `  <rect x="${genPillX}" y="${genPillY}" width="${genPillW}" height="${genPillH}" rx="7" fill="${theme.badgeBg}" />\n`;
+      svgStr += `  <text x="${genPillX + genPillW / 2}" y="${badgeY}" text-anchor="middle" font-size="16" font-weight="900" fill="${theme.badgeText}">${escapeXml(genLabel)}</text>\n`;
+      svgStr += `  <rect x="${genderPillX}" y="${genderPillY}" width="${genderPillW}" height="${genderPillH}" rx="7" fill="${genderBgColor}" />\n`;
+      svgStr += `  <text x="${genderPillX + genderPillW / 2}" y="${badgeY}" text-anchor="middle" font-size="16" font-weight="900" fill="${genderTextColor}">${escapeXml(genderLabel)}</text>\n`;
+      svgStr += `  <line x1="${left + 12}" y1="${dividerY}" x2="${left + nodeW - 12}" y2="${dividerY}" stroke="${theme.divider}" stroke-width="1.8" />\n`;
       svgStr += `  <text x="${left + nodeW / 2}" y="${textCenterY}" text-anchor="middle" font-size="${nameFontSize}" font-weight="900" fill="${theme.nameText}">${escapeXml(displayName)}</text>\n`;
       svgStr += `</g>\n`;
     }
 
-    svgStr += `<text x="${logicalW / 2}" y="${logicalH - 36}" text-anchor="middle" font-size="18" font-weight="900" fill="#0F172A">${escapeXml(`شجرة ${fullRootTitle} — التخطيط الهرمي العمودي (كل جيل مميز بلون خاص)`)}</text>\n`;
+    svgStr += `<text x="${logicalW / 2}" y="${logicalH - 28}" text-anchor="middle" font-size="18" font-weight="900" fill="#0F172A">${escapeXml(`شجرة ${fullRootTitle} — التخطيط الهرمي العمودي (كل جيل مميز بلون خاص)`)}</text>\n`;
     svgStr += `</svg>`;
 
     const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
@@ -1497,15 +1802,16 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
   }
   measureTree(rootPerson, 1);
 
-  const NODE_W = 300;
-  const NODE_H = 150;
-  const H_GAP = 32;
-  const HEADER_H = 230;
-  const FOOTER_H = 85;
-  const SIDE_PAD = 90;
-  const TOP_TREE_PAD = 80;
-  const BOTTOM_TREE_PAD = 85;
-  const LEVEL_H = 270;
+  const isSplitFillSvg = Boolean(options.targetAspectRatio && options.targetAspectRatio > 0.05);
+  let NODE_W = 310;
+  let NODE_H = 152;
+  const H_GAP = 20;
+  const HEADER_H = isSplitFillSvg ? 156 : 196;
+  const FOOTER_H = isSplitFillSvg ? 46 : 58;
+  const SIDE_PAD = isSplitFillSvg ? 28 : 48;
+  const TOP_TREE_PAD = isSplitFillSvg ? 24 : 38;
+  const BOTTOM_TREE_PAD = isSplitFillSvg ? 26 : 42;
+  const LEVEL_H = 248;
 
   function buildLayout(person: Person, depth: number, visitedSet: Set<string>): TreeLayoutNode {
     visitedSet.add(person.id);
@@ -1593,14 +1899,81 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
     }
   }
 
-  const logicalW = Math.max(1800, rootLayout.subtreeWidth + SIDE_PAD * 2);
+  let logicalW = Math.max(isSplitFillSvg ? 820 : 1120, rootLayout.subtreeWidth + SIDE_PAD * 2);
   assignCoords(rootLayout, (logicalW - rootLayout.subtreeWidth) / 2);
 
   let maxNodeBottom = 0;
   for (const n of flatNodes) {
     if (n.y + NODE_H / 2 > maxNodeBottom) maxNodeBottom = n.y + NODE_H / 2;
   }
-  const logicalH = Math.max(920, Math.ceil(maxNodeBottom + BOTTOM_TREE_PAD + FOOTER_H));
+  let logicalH = Math.ceil(maxNodeBottom + BOTTOM_TREE_PAD + FOOTER_H);
+
+  if (options.targetAspectRatio && options.targetAspectRatio > 0.05) {
+    const targetAspect = options.targetAspectRatio;
+    const currentAspect = logicalW / Math.max(1, logicalH);
+
+    if (currentAspect > targetAspect * 1.005) {
+      logicalH = Math.round(logicalW / targetAspect);
+      const treeAreaTop = HEADER_H + TOP_TREE_PAD;
+      const treeAreaBottom = logicalH - FOOTER_H - BOTTOM_TREE_PAD;
+      const availTreeH = Math.max(NODE_H, treeAreaBottom - treeAreaTop);
+
+      NODE_H = Math.max(
+        NODE_H,
+        Math.min(
+          Math.round(NODE_W * 0.78),
+          Math.floor((availTreeH / Math.max(1, maxDepth)) * 0.70)
+        )
+      );
+
+      const minCenterY = treeAreaTop + NODE_H / 2;
+      const maxCenterY = Math.max(minCenterY, treeAreaBottom - NODE_H / 2);
+
+      for (const n of flatNodes) {
+        n.y =
+          maxDepth <= 1
+            ? (minCenterY + maxCenterY) / 2
+            : minCenterY + ((n.depth - 1) / (maxDepth - 1)) * (maxCenterY - minCenterY);
+      }
+      for (const l of links) {
+        const parentY =
+          maxDepth <= 1
+            ? (minCenterY + maxCenterY) / 2
+            : minCenterY + ((l.depth - 1) / (maxDepth - 1)) * (maxCenterY - minCenterY);
+        const childY =
+          maxDepth <= 1
+            ? (minCenterY + maxCenterY) / 2
+            : minCenterY + (l.depth / (maxDepth - 1)) * (maxCenterY - minCenterY);
+        l.fromY = parentY + NODE_H / 2;
+        l.toY = childY - NODE_H / 2;
+      }
+    } else if (currentAspect < targetAspect * 0.995) {
+      logicalW = Math.round(logicalH * targetAspect);
+      let oldMinX = Infinity;
+      let oldMaxX = -Infinity;
+      for (const n of flatNodes) {
+        if (n.x < oldMinX) oldMinX = n.x;
+        if (n.x > oldMaxX) oldMaxX = n.x;
+      }
+      if (oldMaxX > oldMinX) {
+        const oldSpanX = oldMaxX - oldMinX;
+        const availW = Math.max(NODE_W, logicalW - SIDE_PAD * 2);
+        const hFactor = Math.max(1, (availW - NODE_W) / oldSpanX);
+        NODE_W = Math.min(Math.round(NODE_W * 1.48), Math.round(NODE_W * Math.sqrt(hFactor)));
+        const newMinX = SIDE_PAD + NODE_W / 2;
+        const newMaxX = Math.max(newMinX, logicalW - SIDE_PAD - NODE_W / 2);
+        const mapX = (x: number) =>
+          newMinX + ((x - oldMinX) / oldSpanX) * (newMaxX - newMinX);
+        for (const n of flatNodes) n.x = mapX(n.x);
+        for (const l of links) {
+          l.fromX = mapX(l.fromX);
+          l.toX = mapX(l.toX);
+        }
+      } else {
+        for (const n of flatNodes) n.x = logicalW / 2;
+      }
+    }
+  }
 
   const rootFirstName = extractGivenName(rootPerson.fullName);
   const fullRootTitle = formatAppName(rootPerson.fullName) || rootFirstName;
@@ -1625,17 +1998,19 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
 
   // Background & Borders
   svgStr += `<rect width="100%" height="100%" fill="url(#bgGrad)" />\n`;
-  svgStr += `<rect x="20" y="20" width="${logicalW - 40}" height="${logicalH - 40}" fill="none" stroke="#064E3B" stroke-width="10" />\n`;
-  svgStr += `<rect x="32" y="32" width="${logicalW - 64}" height="${logicalH - 64}" fill="none" stroke="#D97706" stroke-width="4" />\n`;
+  svgStr += `<rect x="16" y="16" width="${logicalW - 32}" height="${logicalH - 32}" fill="none" stroke="#064E3B" stroke-width="10" />\n`;
+  svgStr += `<rect x="26" y="26" width="${logicalW - 52}" height="${logicalH - 52}" fill="none" stroke="#D97706" stroke-width="4" />\n`;
 
   // Header Banner
-  const bannerLeft = 50;
-  const bannerTop = 42;
-  const bannerW = logicalW - 100;
+  const bannerLeft = 38;
+  const bannerTop = 34;
+  const bannerW = logicalW - 76;
   const bannerH = HEADER_H - 36;
+  const hdrTitleFont = Math.min(52, Math.max(32, Math.round(bannerH * 0.36)));
+  const hdrSubFont = Math.min(26, Math.max(17, Math.round(bannerH * 0.18)));
   svgStr += `<rect x="${bannerLeft}" y="${bannerTop}" width="${bannerW}" height="${bannerH}" rx="22" fill="#064E3B" stroke="#D97706" stroke-width="4" />\n`;
-  svgStr += `<text x="${logicalW / 2}" y="${bannerTop + 72}" text-anchor="middle" font-size="52" font-weight="900" fill="#FFFFFF">${escapeXml(`شجرة ${fullRootTitle}`)}</text>\n`;
-  svgStr += `<text x="${logicalW / 2}" y="${bannerTop + 138}" text-anchor="middle" font-size="26" font-weight="900" fill="#FDE68A">${escapeXml(`إجمالي الأفراد: ${totalNodes} فرداً   ·   عدد الأجيال: ${maxDepth} أجيال   ·   تاريخ الإصدار: ${new Date().toLocaleDateString('ar-SA')}`)}</text>\n`;
+  svgStr += `<text x="${logicalW / 2}" y="${bannerTop + bannerH * 0.40}" text-anchor="middle" font-size="${hdrTitleFont}" font-weight="900" fill="#FFFFFF">${escapeXml(`شجرة ${fullRootTitle}`)}</text>\n`;
+  svgStr += `<text x="${logicalW / 2}" y="${bannerTop + bannerH * 0.76}" text-anchor="middle" font-size="${hdrSubFont}" font-weight="900" fill="#FDE68A">${escapeXml(`إجمالي الأفراد: ${totalNodes} فرداً   ·   عدد الأجيال: ${maxDepth} أجيال   ·   تاريخ الإصدار: ${new Date().toLocaleDateString('ar-SA')}`)}</text>\n`;
 
   // Links
   links.forEach((l) => {
@@ -1654,32 +2029,54 @@ export async function generateTreeSvgBlob(options: ExportTreePdfOptions): Promis
     const stroke = isRoot ? '#D4AF37' : person.gender === 'male' ? '#064E3B' : '#BE123C';
     const strokeW = isRoot ? 6.5 : 4.5;
 
-    const badgeY = top + Math.round(NODE_H * 0.20);
-    const dividerY = top + Math.round(NODE_H * 0.34);
+    const badgeY = top + Math.round(NODE_H * 0.165);
+    const dividerY = top + Math.round(NODE_H * 0.285);
     const cardContentHeight = NODE_H - (dividerY - top);
     const textCenterY = dividerY + cardContentHeight / 2;
 
-    svgStr += `<g>\n`;
-    svgStr += `  <rect x="${left}" y="${top}" width="${NODE_W}" height="${NODE_H}" rx="20" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}" />\n`;
-
     const genLabel = isRoot ? 'الأصل الراسخ' : `الجيل ${depth}`;
     const genderLabel = person.gender === 'male' ? 'ذكر' : 'أنثى';
-    const genColor = isRoot ? '#FDE68A' : '#0F4C3A';
+    const genColor = isRoot ? '#FDE68A' : '#064E3B';
     const genderColor = isRoot ? '#FDE68A' : person.gender === 'male' ? '#047857' : '#BE123C';
 
-    svgStr += `  <text x="${left + NODE_W - 20}" y="${badgeY}" text-anchor="start" font-size="22" font-weight="900" fill="${genColor}">${escapeXml(genLabel)}</text>\n`;
-    svgStr += `  <text x="${left + 20}" y="${badgeY}" text-anchor="end" font-size="22" font-weight="900" fill="${genderColor}">${escapeXml(genderLabel)}</text>\n`;
-    svgStr += `  <line x1="${left + 16}" y1="${dividerY}" x2="${left + NODE_W - 16}" y2="${dividerY}" stroke="${isRoot ? 'rgba(253,230,138,0.5)' : 'rgba(15,23,42,0.2)'}" stroke-width="2" />\n`;
+    const genPillW = isRoot ? 132 : 102;
+    const genPillH = Math.round(NODE_H * 0.21);
+    const genPillX = left + NODE_W - 14 - genPillW;
+    const genPillY = badgeY - genPillH / 2;
+    const genPillBg = isRoot ? 'rgba(253, 230, 138, 0.16)' : '#ECFDF5';
 
-    const displayName = isRoot ? formatAppName(person.fullName) : extractGivenName(person.fullName);
+    const genderPillW = 62;
+    const genderPillH = genPillH;
+    const genderPillX = left + 14;
+    const genderPillY = badgeY - genderPillH / 2;
+    const genderPillBg = isRoot
+      ? 'rgba(253, 230, 138, 0.16)'
+      : person.gender === 'female'
+      ? '#FFE4E6'
+      : '#F0FDF4';
+
+    svgStr += `<g>\n`;
+    svgStr += `  <rect x="${left}" y="${top}" width="${NODE_W}" height="${NODE_H}" rx="20" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}" />\n`;
+    svgStr += `  <rect x="${genPillX}" y="${genPillY}" width="${genPillW}" height="${genPillH}" rx="7" fill="${genPillBg}" />\n`;
+    svgStr += `  <text x="${genPillX + genPillW / 2}" y="${badgeY}" text-anchor="middle" font-size="18" font-weight="900" fill="${genColor}">${escapeXml(genLabel)}</text>\n`;
+    svgStr += `  <rect x="${genderPillX}" y="${genderPillY}" width="${genderPillW}" height="${genderPillH}" rx="7" fill="${genderPillBg}" />\n`;
+    svgStr += `  <text x="${genderPillX + genderPillW / 2}" y="${badgeY}" text-anchor="middle" font-size="18" font-weight="900" fill="${genderColor}">${escapeXml(genderLabel)}</text>\n`;
+    svgStr += `  <line x1="${left + 12}" y1="${dividerY}" x2="${left + NODE_W - 12}" y2="${dividerY}" stroke="${isRoot ? 'rgba(253,230,138,0.5)' : 'rgba(15,23,42,0.2)'}" stroke-width="2" />\n`;
+
+    const displayName = extractGivenName(person.fullName);
     const textColor = isRoot ? '#FFFFFF' : '#000000';
-    const nameFontSize = displayName.length > 14 ? 36 : displayName.length > 10 ? 44 : 54;
+    const nameFontSize =
+      displayName.length > 14
+        ? Math.round(NODE_H * 0.36)
+        : displayName.length > 10
+        ? Math.round(NODE_H * 0.44)
+        : Math.min(86, Math.round(NODE_H * 0.55));
     svgStr += `  <text x="${left + NODE_W / 2}" y="${textCenterY}" text-anchor="middle" font-size="${nameFontSize}" font-weight="900" fill="${textColor}">${escapeXml(displayName)}</text>\n`;
     svgStr += `</g>\n`;
   });
 
   // Footer
-  svgStr += `<text x="${logicalW / 2}" y="${logicalH - 36}" text-anchor="middle" font-size="22" font-weight="900" fill="#0F172A">${escapeXml(`شجرة ${fullRootTitle}`)}</text>\n`;
+  svgStr += `<text x="${logicalW / 2}" y="${logicalH - 24}" text-anchor="middle" font-size="20" font-weight="900" fill="#0F172A">${escapeXml(`شجرة ${fullRootTitle}`)}</text>\n`;
   svgStr += `</svg>`;
 
   const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
@@ -1713,10 +2110,12 @@ export async function exportTiledTreePdf(
   gridCols: number = 2,
   gridRows: number = 2
 ) {
-  // 1. Render master canvas with huge unconstrained card sizes
+  // 1. Render master canvas with huge unconstrained card sizes & high-DPI limit
   const { canvas: masterCanvas, rootFirstName } = await renderTreeToCanvas({
     ...options,
-    unconstrained: true
+    unconstrained: true,
+    maxTargetDim: 7680,
+    maxTargetPixels: 24_000_000
   });
 
   const totalPages = gridCols * gridRows;
@@ -1732,8 +2131,14 @@ export async function exportTiledTreePdf(
   const tileHeightPx = Math.floor(masterCanvas.height / gridRows);
 
   const isLandscape = tileWidthPx >= tileHeightPx;
-  const pageWidthPt = isLandscape ? 1190.55 : 841.89;
-  const pageHeightPt = isLandscape ? 841.89 : 1190.55;
+  // Match exact PDF page aspect ratio to the tile so each section fills 100% of the page from top to bottom!
+  const baseShortPt = 841.89;
+  const pageWidthPt = isLandscape
+    ? Number(((tileWidthPx / Math.max(1, tileHeightPx)) * baseShortPt).toFixed(2))
+    : baseShortPt;
+  const pageHeightPt = isLandscape
+    ? baseShortPt
+    : Number(((tileHeightPx / Math.max(1, tileWidthPx)) * baseShortPt).toFixed(2));
 
   let pageIndex = 1;
 
@@ -1762,39 +2167,71 @@ export async function exportTiledTreePdf(
         tileHeightPx
       );
 
-      // Section naming helper for Arabic RTL layout
-      let hLabel = '';
-      if (gridCols === 1) hLabel = '';
-      else if (c === gridCols - 1) hLabel = 'الأيمن';
-      else if (c === 0) hLabel = 'الأيسر';
-      else hLabel = 'الأوسط';
+      const pageLabel = `ورقة ${pageIndex} من ${totalPages}`;
 
-      let vLabel = '';
-      if (gridRows === 1) vLabel = '';
-      else if (r === 0) vLabel = 'العلوي';
-      else if (r === gridRows - 1) vLabel = 'السفلي';
-      else vLabel = 'الأوسط';
-
-      const sectionStr = [hLabel, vLabel].filter(Boolean).join(' ') || 'الكامل';
-      const pageLabel = `صفحة (${pageIndex} من ${totalPages}) — القسم ${sectionStr}`;
-
-      // Draw page numbering & alignment guide banner on top right
+      ctx.save();
       ctx.direction = 'rtl';
-      ctx.font = 'bold 24px Cairo, sans-serif';
-      ctx.textAlign = 'right';
+      const fontSize = Math.max(12, Math.min(15, Math.round(Math.min(tileWidthPx, tileHeightPx) * 0.0065)));
+      ctx.font = `bold ${fontSize}px Cairo, sans-serif`;
+      const badgeW = Math.ceil(ctx.measureText(pageLabel).width + 18);
+      const badgeH = fontSize + 8;
+      const edgePad = 3;
 
-      const textW = ctx.measureText(pageLabel).width + 36;
-      ctx.fillStyle = '#064E3B';
-      drawRoundedRect(ctx, tileWidthPx - textW - 20, 16, textW, 46, 12);
+      const candidates: { x: number; y: number }[] = [
+        { x: edgePad, y: tileHeightPx - badgeH - edgePad },
+        { x: tileWidthPx - badgeW - edgePad, y: tileHeightPx - badgeH - edgePad },
+        { x: edgePad, y: edgePad },
+        { x: tileWidthPx - badgeW - edgePad, y: edgePad },
+        { x: Math.round((tileWidthPx - badgeW) / 2), y: tileHeightPx - badgeH - edgePad },
+        { x: Math.round((tileWidthPx - badgeW) / 2), y: edgePad }
+      ];
+
+      let bestPos = candidates[0];
+      let lowestPenalty = Number.POSITIVE_INFINITY;
+
+      for (const cand of candidates) {
+        const checkPad = 10;
+        const sx = Math.max(0, cand.x - checkPad);
+        const sy = Math.max(0, cand.y - checkPad);
+        const sw = Math.min(tileWidthPx - sx, badgeW + checkPad * 2);
+        const sh = Math.min(tileHeightPx - sy, badgeH + checkPad * 2);
+        try {
+          const imgData = ctx.getImageData(sx, sy, sw, sh).data;
+          let penalty = 0;
+          for (let i = 0; i < imgData.length; i += 16) {
+            const red = imgData[i];
+            const green = imgData[i + 1];
+            const blue = imgData[i + 2];
+            if (red < 120 && green < 120 && blue < 120) {
+              penalty += 50;
+            } else if (red < 232 || green < 226 || blue < 215) {
+              penalty += 4;
+            }
+          }
+          if (penalty < lowestPenalty) {
+            lowestPenalty = penalty;
+            bestPos = cand;
+            if (penalty === 0) break;
+          }
+        } catch {
+          // Ignore
+        }
+      }
+
+      ctx.fillStyle = 'rgba(252, 251, 247, 0.86)';
+      drawRoundedRect(ctx, bestPos.x, bestPos.y, badgeW, badgeH, 5);
       ctx.fill();
 
-      ctx.strokeStyle = '#D97706';
-      ctx.lineWidth = 2.5;
-      drawRoundedRect(ctx, tileWidthPx - textW - 20, 16, textW, 46, 12);
+      ctx.strokeStyle = 'rgba(212, 175, 55, 0.55)';
+      ctx.lineWidth = 1;
+      drawRoundedRect(ctx, bestPos.x, bestPos.y, badgeW, badgeH, 5);
       ctx.stroke();
 
-      ctx.fillStyle = '#FDE68A';
-      ctx.fillText(pageLabel, tileWidthPx - 38, 48);
+      ctx.fillStyle = 'rgba(15, 76, 58, 0.80)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(pageLabel, bestPos.x + badgeW / 2, bestPos.y + badgeH / 2 + 1);
+      ctx.restore();
 
       // Draw assembly alignment guide lines on connecting edges
       ctx.strokeStyle = 'rgba(217, 119, 6, 0.6)';

@@ -277,14 +277,13 @@ export function computeVerticalPyramidLayout(options: {
   measure(rootPerson, 1);
 
   // 2. Card sizing adapted to screen vs print export and family size
-  // Slightly reduced card dimensions to eliminate excess empty space
-  const NODE_W = forScreen ? 208 : totalNodes <= 20 ? 256 : totalNodes <= 55 ? 232 : 216;
-  const NODE_H = forScreen ? 88 : totalNodes <= 20 ? 112 : totalNodes <= 55 ? 102 : 94;
+  const NODE_W = forScreen ? 214 : totalNodes <= 20 ? 324 : totalNodes <= 55 ? 296 : 272;
+  const NODE_H = forScreen ? 94 : totalNodes <= 20 ? 148 : totalNodes <= 55 ? 136 : 126;
 
-  const SPINE_CORRIDOR = forScreen ? 28 : 34; // Clear corridor around the vertical spine line
-  const V_PARENT_TO_CHILDREN = forScreen ? 28 : 36; // Vertical gap from parent card bottom to first child tier
-  const V_TIER_GAP = forScreen ? 26 : 32; // Vertical gap between stacked subtrees in the same column
-  const BRANCH_DROP = forScreen ? 14 : 16; // Distance above child's top edge where horizontal branch turns down
+  const SPINE_CORRIDOR = forScreen ? 24 : 24; // Compact corridor around the vertical spine line
+  const V_PARENT_TO_CHILDREN = forScreen ? 24 : 24; // Compact vertical gap from parent card bottom to first child tier
+  const V_TIER_GAP = forScreen ? 20 : 20; // Compact vertical gap between stacked subtrees in the same column
+  const BRANCH_DROP = forScreen ? 12 : 12; // Distance above child's top edge where horizontal branch turns down
 
   // Maximum combined width for pairing two subtrees side-by-side before switching to single-column stacking
   // This keeps the entire family tree in a clean vertical portrait proportion!
@@ -740,25 +739,22 @@ export function computeVerticalPyramidLayout(options: {
 
   const rootBox = buildSubtree(rootPerson, 1);
 
-  const HEADER_H = forScreen ? 0 : 210;
-  const LEGEND_H = forScreen ? 56 : 74;
-  const FOOTER_H = forScreen ? 0 : 75;
-  const SIDE_PAD = forScreen ? 36 : 80;
-  const TOP_PAD = forScreen ? 20 : 45;
-  const BOTTOM_PAD = forScreen ? 28 : 55;
+  const HEADER_H = forScreen ? 0 : 184;
+  const LEGEND_H = forScreen ? 56 : 64;
+  const FOOTER_H = forScreen ? 0 : 54;
+  const SIDE_PAD = forScreen ? 36 : 46;
+  const TOP_PAD = forScreen ? 20 : 28;
+  const BOTTOM_PAD = forScreen ? 28 : 34;
 
   const treeContentW = rootBox.width;
   const treeContentH = rootBox.height;
 
-  // For export, ensure a clean Portrait sheet minimum width & height
-  const minExportW = forScreen ? treeContentW + SIDE_PAD * 2 : Math.max(1320, treeContentW + SIDE_PAD * 2);
+  // Tightly fit the tree width and height so cards fill the sheet from top to bottom
+  const minExportW = forScreen ? treeContentW + SIDE_PAD * 2 : Math.max(920, treeContentW + SIDE_PAD * 2);
   const logicalW = Math.ceil(Math.max(minExportW, treeContentW + SIDE_PAD * 2));
   const treeTopY = HEADER_H + LEGEND_H + TOP_PAD;
   const rawLogicalH = Math.ceil(treeTopY + treeContentH + BOTTOM_PAD + FOOTER_H);
-  // Keep export portrait-proportioned (height >= width * 1.15 when possible)
-  const logicalH = forScreen
-    ? rawLogicalH
-    : Math.max(rawLogicalH, Math.min(Math.round(logicalW * 1.35), rawLogicalH + 240));
+  const logicalH = rawLogicalH;
 
   const treeOffsetX = (logicalW - treeContentW) / 2;
   const treeOffsetY = treeTopY;

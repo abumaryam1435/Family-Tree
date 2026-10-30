@@ -39,6 +39,7 @@ import {
 } from '../utils/pdfExport';
 import { exportTreeToInteractiveHtml } from '../utils/htmlExport';
 import { BulkZipExportModal } from './BulkZipExportModal';
+import { SplitPosterExportModal } from './SplitPosterExportModal';
 import { computeVerticalPyramidLayout } from '../utils/verticalPyramidLayout';
 import {
   extractGivenName,
@@ -161,9 +162,7 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
           const isFocused = focusedId === person.id;
           const left = x - nodeW / 2;
           const top = y - nodeH / 2;
-          const displayName = isRoot
-            ? formatAppName(person.fullName)
-            : extractGivenName(person.fullName);
+          const displayName = extractGivenName(person.fullName);
 
           return (
             <div
@@ -184,7 +183,7 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
                   onSelectPerson(person);
                 }
               }}
-              className={`absolute rounded-2xl shadow-md hover:shadow-xl cursor-pointer transition-transform hover:-translate-y-0.5 flex flex-col justify-between p-1.5 sm:p-2 select-none ${
+              className={`absolute rounded-2xl shadow-md hover:shadow-xl cursor-pointer transition-transform hover:-translate-y-0.5 flex flex-col justify-between px-1.5 pt-1 pb-1.5 select-none ${
                 isFocused ? 'ring-4 ring-amber-400 scale-105 z-30' : 'z-10'
               }`}
               dir="rtl"
@@ -194,13 +193,13 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
                 className="flex items-center justify-between border-b pb-0.5"
                 style={{ borderColor: theme.divider }}
               >
-                <div className="flex items-center gap-1 sm:gap-1.5">
+                <div className="flex items-center gap-1">
                   <span
                     style={{
                       backgroundColor: theme.badgeBg,
                       color: theme.badgeText
                     }}
-                    className="px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black leading-none"
+                    className="px-1.5 py-0.5 rounded-md text-[9px] font-black leading-none"
                   >
                     {isRoot ? 'الأصل الراسخ' : `الجيل ${depth}`}
                   </span>
@@ -211,7 +210,7 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
                       e.stopPropagation();
                       onSelectPerson(person);
                     }}
-                    className="px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black flex items-center gap-0.5 shadow-2xs transition-all hover:scale-105"
+                    className="px-1.5 py-0.5 rounded-md text-[9px] font-black flex items-center gap-0.5 shadow-2xs transition-all hover:scale-105"
                     style={{
                       backgroundColor: isRoot ? 'rgba(253, 230, 138, 0.25)' : 'rgba(0, 0, 0, 0.08)',
                       color: isRoot ? '#FDE68A' : theme.nameText,
@@ -219,7 +218,7 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
                     }}
                     title="عرض بيانات وتفاصيل الشخص"
                   >
-                    <Info size={10} />
+                    <Info size={9} />
                     <span>تفاصيل</span>
                   </button>
                 </div>
@@ -232,20 +231,20 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
                       ? '#BE123C'
                       : theme.subText
                   }}
-                  className="text-[9px] sm:text-[10px] font-black leading-none"
+                  className="text-[9px] font-black leading-none"
                 >
                   {person.gender === 'male' ? 'ذكر' : 'أنثى'}
                 </span>
               </div>
 
-              {/* Center Name: Prominently large, bold and clearly filling the card */}
-              <div className="flex-1 flex items-center justify-center text-center px-1">
+              {/* Center Name: Extra-large, bold and filling the card */}
+              <div className="flex-1 flex items-center justify-center text-center px-0.5">
                 <span
                   style={{ color: theme.nameText }}
-                  className={`font-black leading-tight line-clamp-2 ${
-                    isRoot
-                      ? 'text-xl sm:text-2xl md:text-3xl tracking-wide'
-                      : 'text-lg sm:text-2xl md:text-[25px]'
+                  className={`font-black leading-none tracking-tight line-clamp-1 ${
+                    displayName.length > 10
+                      ? 'text-2xl sm:text-[26px]'
+                      : 'text-[26px] sm:text-3xl md:text-[34px]'
                   }`}
                   title={person.fullName}
                 >
@@ -329,6 +328,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
 
   const maleChildren = children.filter((c) => c.gender === 'male').length;
   const femaleChildren = children.filter((c) => c.gender === 'female').length;
+  const displayName = extractGivenName(person.fullName);
 
   return (
     <div className="flex flex-col items-center relative">
@@ -345,15 +345,15 @@ const TreeNode: React.FC<TreeNodeProps> = ({
             }
           }}
           className={`
-            group relative flex flex-col items-center pt-2.5 pb-2 px-2.5 sm:px-3 rounded-xl sm:rounded-2xl cursor-pointer
+            group relative flex flex-col items-center pt-2.5 pb-1.5 px-2 sm:px-2.5 rounded-xl sm:rounded-2xl cursor-pointer
             transition-all duration-300 hover:-translate-y-1 hover:shadow-xl
-            w-36 sm:w-48 text-center backdrop-blur-md
+            w-36 sm:w-44 text-center backdrop-blur-md
             ${
               isRoot
                 ? 'bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-950 text-white shadow-xl shadow-emerald-900/30 border-2 border-amber-400/80 ring-4 ring-amber-400/20'
                 : person.gender === 'male'
-                ? 'bg-white/95 text-slate-800 border-2 border-emerald-700/20 shadow-md hover:border-emerald-600'
-                : 'bg-rose-50/95 text-slate-800 border-2 border-rose-300 shadow-md hover:border-rose-400'
+                ? 'bg-white/95 text-slate-900 border-2 border-emerald-700/25 shadow-md hover:border-emerald-600'
+                : 'bg-rose-50/95 text-slate-900 border-2 border-rose-300 shadow-md hover:border-rose-400'
             }
             ${isFocused ? 'ring-4 ring-amber-500 scale-105 shadow-2xl z-30' : ''}
           `}
@@ -361,7 +361,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
           {/* Generation Badge */}
           <div
             className={`
-              absolute -top-2.5 right-2 sm:right-3 px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold tracking-wider uppercase shadow-xs
+              absolute -top-2.5 right-1.5 sm:right-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase shadow-xs
               ${
                 isRoot
                   ? 'bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-black border border-amber-200'
@@ -377,7 +377,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
           {/* Gender Badge */}
           <div
             className={`
-              absolute -top-2.5 left-2 sm:left-3 px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold shadow-xs
+              absolute -top-2.5 left-1.5 sm:left-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold shadow-xs
               ${
                 isRoot
                   ? 'bg-emerald-950/90 text-amber-300 border border-amber-400/40'
@@ -390,18 +390,22 @@ const TreeNode: React.FC<TreeNodeProps> = ({
             {person.gender === 'male' ? 'ذكر' : 'أنثى'}
           </div>
 
-          {/* Person Name: Prominently large, bold and filling the card */}
+          {/* Person Name: Extra-large, bold and filling the card */}
           <h3
-            className={`font-black mt-1 mb-0.5 line-clamp-2 leading-tight ${
-              isRoot ? 'text-amber-50 text-lg sm:text-2xl tracking-wide' : 'text-slate-900 text-base sm:text-xl'
+            className={`font-black mt-1 mb-1 leading-none tracking-tight line-clamp-1 w-full ${
+              isRoot ? 'text-amber-50' : 'text-slate-950'
+            } ${
+              displayName.length > 10
+                ? 'text-xl sm:text-2xl'
+                : 'text-2xl sm:text-3xl md:text-[32px]'
             }`}
             title={person.fullName}
           >
-            {isRoot ? formatNameWithLimit(person.fullName, 5) : extractGivenName(person.fullName)}
+            {displayName}
           </h3>
 
           {/* Details Button + Children Count Summary */}
-          <div className="mt-1 flex items-center justify-center gap-1.5">
+          <div className="mt-0.5 flex items-center justify-center gap-1">
             <button
               type="button"
               onClick={(e) => {
@@ -409,7 +413,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                 onSelect(person);
               }}
               className={`
-                px-1.5 py-0.5 rounded-lg text-[9px] sm:text-[10px] font-bold flex items-center gap-0.5 transition-all hover:scale-105 shadow-2xs
+                px-1.5 py-0.5 rounded-md text-[9px] font-bold flex items-center gap-0.5 transition-all hover:scale-105 shadow-2xs
                 ${
                   isRoot
                     ? 'bg-emerald-950/80 hover:bg-emerald-900 text-amber-300 border border-amber-400/40'
@@ -418,20 +422,20 @@ const TreeNode: React.FC<TreeNodeProps> = ({
               `}
               title="عرض بيانات وتفاصيل الشخص"
             >
-              <Info size={10} />
+              <Info size={9} />
               <span>تفاصيل</span>
             </button>
 
             {hasChildren && (
               <div
-                className={`flex items-center justify-center gap-1 px-1.5 py-0.5 rounded-lg text-[9px] sm:text-[10px] font-bold ${
+                className={`flex items-center justify-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold ${
                   isRoot
                     ? 'bg-emerald-950/70 text-amber-300 border border-amber-400/30'
                     : 'bg-slate-100 text-slate-700 border border-slate-200'
                 }`}
                 title={`عدد الأبناء (${maleChildren} ذكور${showFemales ? ` · ${femaleChildren} إناث` : ''})`}
               >
-                <Users size={10} />
+                <Users size={9} />
                 <span>{children.length}</span>
               </div>
             )}
@@ -598,6 +602,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
   const [isExportingTiled, setIsExportingTiled] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isBulkZipModalOpen, setIsBulkZipModalOpen] = useState(false);
+  const [isSplitPosterModalOpen, setIsSplitPosterModalOpen] = useState(false);
   const [pendingSingleExportType, setPendingSingleExportType] = useState<
     'png' | 'pdf_poster' | 'pdf_review' | 'html' | 'svg' | null
   >(null);
@@ -949,24 +954,36 @@ export const TreeView: React.FC<TreeViewProps> = ({
     isExportingTiled;
 
   // Shared Unified Export Dropdown Menu (for both Mobile and Desktop)
-  const renderExportDropdownMenu = () => {
+  const renderExportDropdownMenu = (positionMode: 'top' | 'bottom' = 'top') => {
     if (!showExportMenu) return null;
 
     return (
       <div
-        className="absolute left-0 top-full mt-1.5 w-72 sm:w-80 max-h-[82dvh] overflow-y-auto bg-white text-slate-800 rounded-2xl shadow-2xl border-2 border-amber-400 p-2.5 z-50 space-y-1.5"
-        dir="rtl"
+        style={{
+          touchAction: 'pan-y',
+          WebkitOverflowScrolling: 'touch'
+        }}
+        onTouchStart={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+        onWheel={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
+        className={`${
+          positionMode === 'bottom'
+            ? 'fixed inset-x-2.5 bottom-16 sm:absolute sm:inset-x-auto sm:left-0 sm:bottom-full sm:mb-2'
+            : 'fixed inset-x-2.5 top-28 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-1.5'
+        } sm:w-80 max-h-[68dvh] sm:max-h-[78dvh] overflow-y-auto overscroll-contain bg-white text-slate-800 rounded-2xl shadow-2xl border-2 border-amber-400 p-2.5 z-50 space-y-1.5`}
+        dir="rtl"
       >
-        <div className="flex items-center justify-between border-b border-slate-100 pb-1.5 px-1">
+        {/* Sticky Top Header inside Scrollable Menu */}
+        <div className="sticky -top-2.5 -mx-2.5 px-3 py-2 bg-white/95 backdrop-blur-xs flex items-center justify-between border-b border-slate-200 z-10">
           <span className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
             <FileDown size={15} className="text-amber-600" />
-            <span>خيارات التصدير والطباعة</span>
+            <span>خيارات التصدير والطباعة (مرر للأسفل ↡)</span>
           </span>
           <button
             type="button"
             onClick={() => setShowExportMenu(false)}
-            className="text-[11px] font-bold text-slate-400 hover:text-slate-700 px-1.5 py-0.5 rounded-lg"
+            className="text-[11px] font-bold text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded-lg"
           >
             إغلاق ✕
           </button>
@@ -997,11 +1014,38 @@ export const TreeView: React.FC<TreeViewProps> = ({
           </span>
         </button>
 
+        {/* 2. Prominent Split Poster Export Button right near the top so it's immediately visible & accessible when scrolling */}
+        <button
+          type="button"
+          onClick={() => {
+            setShowExportMenu(false);
+            setIsSplitPosterModalOpen(true);
+          }}
+          className="w-full text-right p-2.5 rounded-xl bg-gradient-to-l from-emerald-900 to-teal-900 hover:from-emerald-800 hover:to-teal-800 text-white border border-amber-400/70 shadow-xs flex items-center justify-between gap-2 transition-all"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-amber-400/20 border border-amber-300/40 flex items-center justify-center shrink-0">
+              <Printer size={16} className="text-amber-300" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-black text-amber-300 truncate">
+                تقسيم الشجرة لعدة أوراق متصلة (بدون هوامش)
+              </div>
+              <div className="text-[10px] text-emerald-100 truncate">
+                تحديد عدد الأوراق (3، 4، 5 أو تلقائي) · PDF / PNG / SVG
+              </div>
+            </div>
+          </div>
+          <span className="text-[10px] font-black bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full shrink-0">
+            مقسّم
+          </span>
+        </button>
+
         <div className="text-[10px] font-black text-slate-400 px-1.5 pt-1">
           تصدير مباشر (شجرة أو عدة أشجار):
         </div>
 
-        {/* 2. PNG High-Res Image */}
+        {/* 3. PNG High-Res Image */}
         <button
           type="button"
           onClick={handleExportPng}
@@ -1022,7 +1066,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
           </span>
         </button>
 
-        {/* 3. PDF Visual Tree Poster */}
+        {/* 4. PDF Visual Tree Poster */}
         <button
           type="button"
           onClick={handleExportPosterPdf}
@@ -1043,7 +1087,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
           </span>
         </button>
 
-        {/* 4. PDF A4 Review Register */}
+        {/* 5. PDF A4 Review Register */}
         <button
           type="button"
           onClick={handleExportPdf}
@@ -1064,7 +1108,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
           </span>
         </button>
 
-        {/* 5. Interactive HTML */}
+        {/* 6. Interactive HTML */}
         <button
           type="button"
           onClick={handleExportHtml}
@@ -1082,7 +1126,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
           </span>
         </button>
 
-        {/* 6. Vector SVG for Print Shops */}
+        {/* 7. Vector SVG for Print Shops */}
         <button
           type="button"
           onClick={handleExportSvg}
@@ -1103,12 +1147,13 @@ export const TreeView: React.FC<TreeViewProps> = ({
           </span>
         </button>
 
-        {/* 7. Multi-page Tiled Poster Print */}
-        <div className="border-t border-slate-100 pt-2 mt-1">
-          <div className="flex items-center gap-1.5 text-[10px] font-black text-emerald-950 px-1.5 mb-1.5">
+        {/* 8. Quick Multi-page Tiled Poster Print Presets */}
+        <div className="border-t border-slate-100 pt-2 mt-1 space-y-1.5 pb-1">
+          <div className="flex items-center gap-1.5 text-[10px] font-black text-emerald-950 px-1.5">
             <Printer size={13} className="text-emerald-700" />
-            <span>طباعة لوحة جدارية مقسمة (تُجمع جنباً إلى جنب):</span>
+            <span>اختصارات تقسيم سريعة (PDF):</span>
           </div>
+
           <div className="grid grid-cols-3 gap-1.5">
             <button
               type="button"
@@ -1117,7 +1162,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
               className="px-2 py-1.5 rounded-xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-400 text-center transition-colors disabled:opacity-50"
             >
               <div className="text-[11px] font-black text-slate-900">2 × 1</div>
-              <div className="text-[9px] text-slate-500 font-bold">ورقتان</div>
+              <div className="text-[9px] text-slate-500 font-bold">ورقتان PDF</div>
             </button>
             <button
               type="button"
@@ -1126,7 +1171,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
               className="px-2 py-1.5 rounded-xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-400 text-center transition-colors disabled:opacity-50"
             >
               <div className="text-[11px] font-black text-slate-900">2 × 2</div>
-              <div className="text-[9px] text-slate-500 font-bold">4 أوراق</div>
+              <div className="text-[9px] text-slate-500 font-bold">4 أوراق PDF</div>
             </button>
             <button
               type="button"
@@ -1135,7 +1180,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
               className="px-2 py-1.5 rounded-xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-400 text-center transition-colors disabled:opacity-50"
             >
               <div className="text-[11px] font-black text-slate-900">3 × 2</div>
-              <div className="text-[9px] text-slate-500 font-bold">6 أوراق</div>
+              <div className="text-[9px] text-slate-500 font-bold">6 أوراق PDF</div>
             </button>
           </div>
         </div>
@@ -1546,10 +1591,10 @@ export const TreeView: React.FC<TreeViewProps> = ({
           : 'h-[calc(100dvh-130px)] min-h-[420px] sm:h-[780px] rounded-2xl sm:rounded-3xl'
       }`}
     >
-      {/* Top Toolbar */}
+      {/* Top Toolbar (Sticky on scroll) */}
       <div
         ref={treeDropdownRef}
-        className="bg-emerald-950 text-white p-1.5 sm:p-3.5 border-b border-emerald-800/80 z-30 shadow-md"
+        className="sticky top-0 bg-emerald-950 text-white p-1.5 sm:p-3.5 border-b border-emerald-800/80 z-30 shadow-md"
       >
         {/* Mobile Ultra-Compact 2-Row Bar (< 640px) */}
         <div className="flex flex-col gap-1.5 sm:hidden">
@@ -1689,7 +1734,6 @@ export const TreeView: React.FC<TreeViewProps> = ({
                     className={`transition-transform ${showExportMenu ? 'rotate-180' : ''}`}
                   />
                 </button>
-                {renderExportDropdownMenu()}
               </div>
             </div>
           </div>
@@ -1854,14 +1898,22 @@ export const TreeView: React.FC<TreeViewProps> = ({
                   className={`transition-transform ${showExportMenu ? 'rotate-180' : ''}`}
                 />
               </button>
-              {renderExportDropdownMenu()}
             </div>
           </div>
         </div>
+
+        {/* Single Unified Export Dropdown Overlay (Accessible on both Mobile & Desktop) */}
+        <div className="relative">
+          {renderExportDropdownMenu()}
+        </div>
       </div>
 
-      {/* Floating Zoom & Screen Controls (+ / % / - / احتواء / ملء الشاشة / إعادة الضبط) */}
-      <div className="absolute bottom-3 left-3 sm:bottom-5 sm:left-5 z-20 flex items-center gap-1 bg-white/95 backdrop-blur-md p-1 sm:p-1.5 rounded-xl sm:rounded-2xl shadow-xl border border-slate-200/90">
+      {/* Floating Zoom & Screen Controls + Mobile Always-Visible Export Buttons */}
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+        className="absolute bottom-3 left-3 sm:bottom-5 sm:left-5 z-20 flex items-center gap-1 bg-white/95 backdrop-blur-md p-1 sm:p-1.5 rounded-xl sm:rounded-2xl shadow-xl border border-slate-200/90"
+      >
         <button
           onClick={() => setScale((s) => Math.min(s + 0.12, 2.2))}
           className="p-1.5 sm:p-2 hover:bg-slate-100 rounded-lg sm:rounded-xl text-slate-700 transition-colors"
@@ -1869,7 +1921,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
         >
           <ZoomIn size={16} />
         </button>
-        <span className="text-[10px] sm:text-xs font-bold text-slate-600 px-1.5 min-w-[38px] sm:min-w-[46px] text-center">
+        <span className="text-[10px] sm:text-xs font-bold text-slate-600 px-1 min-w-[34px] sm:min-w-[46px] text-center">
           {Math.round(scale * 100)}%
         </span>
         <button
@@ -1904,6 +1956,35 @@ export const TreeView: React.FC<TreeViewProps> = ({
           title="إعادة الضبط"
         >
           <RotateCcw size={15} />
+        </button>
+
+        {/* Quick Export & Split Export Buttons on Mobile (Always visible while scrolling) */}
+        <div className="w-px h-4 bg-slate-200 mx-0.5 sm:hidden" />
+        <button
+          type="button"
+          onClick={() => {
+            setIsTreeDropdownOpen(false);
+            setShowExportMenu((prev) => !prev);
+          }}
+          disabled={isAnyExportBusy}
+          className="sm:hidden px-2 py-1 rounded-lg text-[10px] font-black bg-amber-400 hover:bg-amber-300 text-slate-950 flex items-center gap-1 shadow-xs disabled:opacity-60"
+          title="فتح قائمة التصدير والطباعة"
+        >
+          <FileDown size={13} />
+          <span>تصدير</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setShowExportMenu(false);
+            setIsSplitPosterModalOpen(true);
+          }}
+          disabled={isAnyExportBusy}
+          className="sm:hidden px-2 py-1 rounded-lg text-[10px] font-black bg-emerald-900 hover:bg-emerald-800 text-amber-300 flex items-center gap-1 shadow-xs disabled:opacity-60"
+          title="تصدير بتقسيم الشجرة لعدة أوراق متصلة"
+        >
+          <Printer size={12} />
+          <span>تقسيم</span>
         </button>
       </div>
 
@@ -2153,6 +2234,18 @@ export const TreeView: React.FC<TreeViewProps> = ({
         getChildren={getChildren}
         initialMode={treeMode}
         initialShowFemales={showFemales}
+      />
+
+      {/* Customizable Multi-Sheet / Multi-Page Split Poster Export Modal */}
+      <SplitPosterExportModal
+        isOpen={isSplitPosterModalOpen}
+        onClose={() => setIsSplitPosterModalOpen(false)}
+        roots={roots}
+        initialSelectedRootIds={activeDisplayedRoots.map((r) => r.id)}
+        getChildren={getChildren}
+        initialMode={treeMode}
+        initialShowFemales={showFemales}
+        collapsedNodes={collapsedNodes}
       />
     </div>
   );

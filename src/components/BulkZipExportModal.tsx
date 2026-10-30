@@ -34,7 +34,7 @@ interface BulkZipExportModalProps {
   currentRootId?: string;
   getChildren: (personId: string) => Person[];
   getAllPersons?: () => Person[];
-  initialMode?: 'classic' | 'classic_vertical';
+  initialMode?: 'classic' | 'classic_vertical' | 'organic_tree';
   initialShowFemales?: boolean;
 }
 
