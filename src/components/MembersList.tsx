@@ -12,7 +12,8 @@ import {
   GitFork,
   Printer,
   ArrowUp,
-  FileDown
+  FileDown,
+  FileSpreadsheet
 } from 'lucide-react';
 import { Person } from '../types/family';
 import {
@@ -24,6 +25,7 @@ import {
   formatBranchName
 } from '../utils/nameUtils';
 import { exportMembersListToPdf } from '../utils/pdfExport';
+import { exportMembersListToExcel } from '../utils/excelExport';
 
 interface MembersListProps {
   persons: Person[];
@@ -104,26 +106,44 @@ export const MembersList: React.FC<MembersListProps> = ({
 
           <div className="grid grid-cols-1 sm:flex items-center gap-2 w-full sm:w-auto">
             {filteredPersons.length > 0 && (
-              <button
-                type="button"
-                disabled={isExportingPdf}
-                onClick={async () => {
-                  setIsExportingPdf(true);
-                  try {
-                    await exportMembersListToPdf({
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    exportMembersListToExcel({
                       persons: filteredPersons,
                       getPerson,
-                      getChildren
+                      getChildren,
+                      getAncestors
                     });
-                  } finally {
-                    setIsExportingPdf(false);
-                  }
-                }}
-                className="min-h-[42px] flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs bg-amber-50 hover:bg-amber-100 text-[#8C6D1F] border border-[#D4AF37]/50 cursor-pointer disabled:opacity-60"
-              >
-                <FileDown className="w-4 h-4 shrink-0" />
-                <span>{isExportingPdf ? 'جارٍ التصدير...' : 'تصدير القائمة PDF'}</span>
-              </button>
+                  }}
+                  className="min-h-[42px] flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs bg-green-50 hover:bg-green-100 text-green-900 border border-green-400 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-green-700 shrink-0" />
+                  <span>تصدير القائمة Excel (.xlsx)</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isExportingPdf}
+                  onClick={async () => {
+                    setIsExportingPdf(true);
+                    try {
+                      await exportMembersListToPdf({
+                        persons: filteredPersons,
+                        getPerson,
+                        getChildren
+                      });
+                    } finally {
+                      setIsExportingPdf(false);
+                    }
+                  }}
+                  className="min-h-[42px] flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs bg-amber-50 hover:bg-amber-100 text-[#8C6D1F] border border-[#D4AF37]/50 cursor-pointer disabled:opacity-60"
+                >
+                  <FileDown className="w-4 h-4 shrink-0" />
+                  <span>{isExportingPdf ? 'جارٍ التصدير...' : 'تصدير القائمة PDF'}</span>
+                </button>
+              </>
             )}
 
             {isAdmin && (

@@ -7,6 +7,7 @@ import {
   generateTreeSvgBlob
 } from './pdfExport';
 import { generateTreeInteractiveHtmlBlob } from './htmlExport';
+import { generateTreeExcelBlob } from './excelExport';
 
 // Precomputed CRC32 Table for standard ZIP archive creation
 const CRC32_TABLE = (() => {
@@ -126,7 +127,7 @@ export function buildZipArchiveBlob(entries: ZipEntryInput[]): Blob {
   });
 }
 
-export type BulkExportFormat = 'png' | 'pdf_poster' | 'pdf' | 'html' | 'svg';
+export type BulkExportFormat = 'png' | 'pdf_poster' | 'pdf' | 'xlsx' | 'html' | 'svg';
 export type BulkTreeModeChoice = 'classic' | 'classic_vertical' | 'both';
 export type BulkFemalesChoice = 'males_only' | 'with_females' | 'both';
 export type BulkGroupingChoice = 'separate' | 'combined' | 'both';
@@ -243,6 +244,8 @@ export async function generateBulkTreesZip(options: BulkZipExportOptions): Promi
       ? 'ملف PDF لوحة مصورة'
       : fmt === 'pdf'
       ? 'ملف PDF سجل مراجعة'
+      : fmt === 'xlsx'
+      ? 'ملف إكسل XLSX ملون'
       : fmt === 'html'
       ? 'ملف HTML تفاعلي'
       : 'ملف SVG للمطابع';
@@ -334,6 +337,16 @@ export async function generateBulkTreesZip(options: BulkZipExportOptions): Promi
             blob = res.blob;
             ext = 'pdf';
             fmtSuffix = 'سجل_مراجعة';
+          } else if (fmt === 'xlsx') {
+            const res = generateTreeExcelBlob({
+              rootPerson: targetRoot,
+              rootPersons: targetRoots,
+              getChildren: filteredGetChildren,
+              includeFemales
+            });
+            blob = res.blob;
+            ext = 'xlsx';
+            fmtSuffix = 'جدول_إكسل';
           } else if (fmt === 'html') {
             const res = generateTreeInteractiveHtmlBlob({
               rootPerson: targetRoot,

@@ -28,7 +28,8 @@ import {
   Maximize2,
   ChevronsDownUp,
   ChevronsUpDown,
-  Info
+  Info,
+  FileSpreadsheet
 } from 'lucide-react';
 import {
   exportTreeToPdf,
@@ -38,6 +39,7 @@ import {
   exportVisualTreePosterToPdf
 } from '../utils/pdfExport';
 import { exportTreeToInteractiveHtml } from '../utils/htmlExport';
+import { exportTreeToExcel } from '../utils/excelExport';
 import { BulkZipExportModal } from './BulkZipExportModal';
 import { SplitPosterExportModal } from './SplitPosterExportModal';
 import { computeVerticalPyramidLayout } from '../utils/verticalPyramidLayout';
@@ -604,7 +606,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
   const [isBulkZipModalOpen, setIsBulkZipModalOpen] = useState(false);
   const [isSplitPosterModalOpen, setIsSplitPosterModalOpen] = useState(false);
   const [pendingSingleExportType, setPendingSingleExportType] = useState<
-    'png' | 'pdf_poster' | 'pdf_review' | 'html' | 'svg' | null
+    'png' | 'pdf_poster' | 'pdf_review' | 'xlsx' | 'html' | 'svg' | null
   >(null);
   const [selectedExportRootIds, setSelectedExportRootIds] = useState<string[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -770,7 +772,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
   };
 
   const openSingleExportSelector = (
-    type: 'png' | 'pdf_poster' | 'pdf_review' | 'html' | 'svg'
+    type: 'png' | 'pdf_poster' | 'pdf_review' | 'xlsx' | 'html' | 'svg'
   ) => {
     setShowExportMenu(false);
     if (!currentRoot) return;
@@ -787,13 +789,29 @@ export const TreeView: React.FC<TreeViewProps> = ({
   };
 
   const executeSingleExport = async (
-    type: 'png' | 'pdf_poster' | 'pdf_review' | 'html' | 'svg',
+    type: 'png' | 'pdf_poster' | 'pdf_review' | 'xlsx' | 'html' | 'svg',
     chosenRoots: Person[]
   ) => {
     if (chosenRoots.length === 0) return;
     setPendingSingleExportType(null);
     const primaryRoot = chosenRoots[0];
     const multiRoots = chosenRoots.length > 1 ? chosenRoots : undefined;
+
+    if (type === 'xlsx') {
+      const filteredGetChildren = (personId: string) => {
+        const kids = getChildren(personId);
+        return showFemales ? kids : kids.filter((c) => c.gender === 'male');
+      };
+      exportTreeToExcel({
+        rootPerson: primaryRoot,
+        rootPersons: multiRoots,
+        getChildren: filteredGetChildren,
+        allPersons: allPeople,
+        includeFemales: showFemales,
+        collapsedNodes
+      });
+      return;
+    }
 
     if (type === 'html') {
       const filteredGetChildren = (personId: string) => {
@@ -914,6 +932,7 @@ export const TreeView: React.FC<TreeViewProps> = ({
   const handleExportPdf = () => openSingleExportSelector('pdf_review');
   const handleExportPosterPdf = () => openSingleExportSelector('pdf_poster');
   const handleExportPng = () => openSingleExportSelector('png');
+  const handleExportExcel = () => openSingleExportSelector('xlsx');
   const handleExportSvg = () => openSingleExportSelector('svg');
   const handleExportHtml = () => openSingleExportSelector('html');
 
@@ -1045,7 +1064,29 @@ export const TreeView: React.FC<TreeViewProps> = ({
           تصدير مباشر (شجرة أو عدة أشجار):
         </div>
 
-        {/* 3. PNG High-Res Image */}
+        {/* 3. Professional RTL Colored Excel (.xlsx) */}
+        <button
+          type="button"
+          onClick={handleExportExcel}
+          className="w-full text-right px-2.5 py-2 rounded-xl bg-green-50/70 hover:bg-green-100/80 border border-green-300 hover:border-green-500 flex items-center justify-between gap-2 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <FileSpreadsheet size={16} className="text-green-700 shrink-0" />
+            <div>
+              <div className="text-xs font-black text-slate-900">
+                ملف إكسل احترافي ملون (XLSX)
+              </div>
+              <div className="text-[10px] text-green-800 font-bold">
+                من اليمين لليسار · 4 أوراق عمل ملونة حسب الأجيال
+              </div>
+            </div>
+          </div>
+          <span className="text-[10px] font-black bg-green-700 text-white px-2 py-0.5 rounded-full shrink-0">
+            Excel
+          </span>
+        </button>
+
+        {/* 4. PNG High-Res Image */}
         <button
           type="button"
           onClick={handleExportPng}

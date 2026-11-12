@@ -8,6 +8,7 @@ import {
   Square,
   FileImage,
   FileText,
+  FileSpreadsheet,
   Globe,
   FileCode,
   Sparkles,
@@ -63,6 +64,7 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
     'png',
     'pdf_poster',
     'pdf',
+    'xlsx',
     'html',
     'svg'
   ]);
@@ -103,7 +105,7 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
     setDoneResult(null);
   };
 
-  const allFormats: BulkExportFormat[] = ['png', 'pdf_poster', 'pdf', 'html', 'svg'];
+  const allFormats: BulkExportFormat[] = ['png', 'pdf_poster', 'pdf', 'xlsx', 'html', 'svg'];
 
   const toggleFormat = (fmt: BulkExportFormat) => {
     setSelectedFormats((prev) =>
@@ -437,7 +439,7 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
               <div className="flex items-center gap-2">
                 <Archive size={18} className="text-indigo-700" />
                 <span className="text-xs sm:text-sm font-black text-slate-800">
-                  5. صيغ الملفات المطلوبة ({selectedFormats.length} من 5 صيغ)
+                  5. صيغ الملفات المطلوبة ({selectedFormats.length} من 6 صيغ)
                 </span>
               </div>
               <button
@@ -446,7 +448,7 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
                 onClick={selectAllFormats}
                 className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-100 hover:bg-indigo-200 text-indigo-900 transition-colors"
               >
-                تحديد جميع الصيغ (5 صيغ)
+                تحديد جميع الصيغ (6 صيغ)
               </button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -468,6 +470,12 @@ export const BulkZipExportModal: React.FC<BulkZipExportModalProps> = ({
                   title: 'ملف PDF (سجل مراجعة A4)',
                   sub: 'دفتر مراجعة وتدقيق متسلسل للآباء والأبناء',
                   icon: <FileText size={18} className="text-emerald-700" />
+                },
+                {
+                  id: 'xlsx' as BulkExportFormat,
+                  title: 'ملف إكسل احترافي ملون (XLSX)',
+                  sub: 'من اليمين لليسار · 4 أوراق عمل ملونة حسب الأجيال',
+                  icon: <FileSpreadsheet size={18} className="text-green-700" />
                 },
                 {
                   id: 'html' as BulkExportFormat,
