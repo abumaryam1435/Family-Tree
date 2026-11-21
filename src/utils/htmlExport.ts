@@ -35,6 +35,9 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
     gender: 'male' | 'female';
     fatherId?: string | null;
     motherId?: string | null;
+    husbandId?: string | null;
+    husbandName?: string;
+    excludedChildIds?: string[];
     notes?: string;
   }> = [];
 
@@ -49,6 +52,9 @@ export function generateTreeInteractiveHtmlBlob(options: ExportHtmlOptions): {
       gender: person.gender,
       fatherId: person.fatherId,
       motherId: person.motherId,
+      husbandId: person.husbandId || null,
+      husbandName: person.husbandName || '',
+      excludedChildIds: person.excludedChildIds || [],
       notes: person.notes
     });
 

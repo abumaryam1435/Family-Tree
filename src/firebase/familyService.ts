@@ -15,6 +15,10 @@ import {
   splitLineageChain,
   rebuildChildFullName
 } from '../utils/nameUtils';
+import {
+  sanitizePersonsForRestore,
+  saveLocalSafetyBackup
+} from '../utils/backupRecovery';
 
 // SubtleCrypto SHA-256 for browser-compatible passcode verification
 async function hashPasscode(passcode: string): Promise<string> {
@@ -798,12 +802,113 @@ export const familyFirebase = {
     await this.addAuditLog('المشرف', 'request_approved', `${decision === 'approved' ? 'قبول' : 'رفض'} طلب التعديل`);
   },
 
-  // Clear all data (Removes sample data and starts pristine clean)
+  // Create a live JSON backup snapshot directly from Firestore
+  async createBackupSnapshot(): Promise<{
+    version: number;
+    source: string;
+    exportedAt: string;
+    personsCount: number;
+    persons: Person[];
+    auditLogs: AuditLog[];
+    mergeOperations: MergeOperation[];
+    changeRequests: ChangeRequest[];
+  }> {
+    const [personsSnap, logsSnap, mergesSnap, reqsSnap] = await Promise.all([
+      getDocs(collection(db, 'persons')),
+      getDocs(collection(db, 'audit_logs')),
+      getDocs(collection(db, 'merge_operations')),
+      getDocs(collection(db, 'change_requests'))
+    ]);
+
+    const persons = personsSnap.docs.map(d => d.data() as Person);
+    const auditLogs = logsSnap.docs
+      .map(d => d.data() as AuditLog)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    const mergeOperations = mergesSnap.docs
+      .map(d => d.data() as MergeOperation)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    const changeRequests = reqsSnap.docs
+      .map(d => d.data() as ChangeRequest)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return {
+      version: 2,
+      source: 'firestore',
+      exportedAt: new Date().toISOString(),
+      personsCount: persons.length,
+      persons,
+      auditLogs,
+      mergeOperations,
+      changeRequests
+    };
+  },
+
+  // Restore persons directly into Firestore in safe chunks (<= 400 writes per batch)
+  async restorePersons(
+    rawPersons: any[],
+    options: { mode?: 'replace' | 'merge'; actor?: 'مستخدم' | 'المشرف'; sourceLabel?: string } = {}
+  ): Promise<{ restoredCount: number; warnings: string[] }> {
+    const { mode = 'replace', actor = 'المشرف', sourceLabel = 'نسخة احتياطية' } = options;
+    const { persons, warnings } = sanitizePersonsForRestore(rawPersons);
+
+    if (persons.length === 0) {
+      throw new Error('لم يتم العثور على أي أفراد صالحين للاستعادة.');
+    }
+
+    const BATCH_LIMIT = 400;
+
+    if (mode === 'replace') {
+      const existingSnap = await getDocs(collection(db, 'persons'));
+      const existingDocs = existingSnap.docs;
+      if (existingDocs.length > 0) {
+        saveLocalSafetyBackup(
+          existingDocs.map(d => d.data() as Person),
+          `نسخة تلقائية قبل: ${sourceLabel}`
+        );
+        for (let i = 0; i < existingDocs.length; i += BATCH_LIMIT) {
+          const batch = writeBatch(db);
+          const chunk = existingDocs.slice(i, i + BATCH_LIMIT);
+          chunk.forEach(d => batch.delete(d.ref));
+          await batch.commit();
+        }
+      }
+    }
+
+    for (let i = 0; i < persons.length; i += BATCH_LIMIT) {
+      const batch = writeBatch(db);
+      const chunk = persons.slice(i, i + BATCH_LIMIT);
+      for (const p of chunk) {
+        batch.set(doc(db, 'persons', p.id), p);
+      }
+      await batch.commit();
+    }
+
+    await this.addAuditLog(
+      actor,
+      'restore',
+      `استعادة ${persons.length} فرداً إلى شجرة العائلة من: ${sourceLabel}`
+    );
+
+    return { restoredCount: persons.length, warnings };
+  },
+
+  // Clear all data (Saves automatic local safety backup first, then deletes in safe batches)
   async clearAllData(): Promise<void> {
     const allPersons = await getDocs(collection(db, 'persons'));
-    const batch = writeBatch(db);
-    allPersons.forEach((d) => batch.delete(d.ref));
-    await batch.commit();
+    const docsList = allPersons.docs;
+    if (docsList.length > 0) {
+      saveLocalSafetyBackup(
+        docsList.map(d => d.data() as Person),
+        'نسخة تلقائية قبل تفريغ الشجرة'
+      );
+      const BATCH_LIMIT = 400;
+      for (let i = 0; i < docsList.length; i += BATCH_LIMIT) {
+        const batch = writeBatch(db);
+        const chunk = docsList.slice(i, i + BATCH_LIMIT);
+        chunk.forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+      }
+    }
     await this.addAuditLog('المشرف', 'delete', 'تفريغ كافة بيانات شجرة العائلة والبدء من الصفر');
   }
 };

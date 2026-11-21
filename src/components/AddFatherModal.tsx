@@ -75,7 +75,7 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
   // Optional intermediate ancestors when linking to an existing higher grandfather
   const [intermediateLevels, setIntermediateLevels] = useState<string[]>([]);
   const [splitCompoundName, setSplitCompoundName] = useState<boolean>(false);
-  const [keepCurrentFatherAsTop, setKeepCurrentFatherAsTop] = useState<boolean>(false);
+  const [keepCurrentFatherAsTop, setKeepCurrentFatherAsTop] = useState<boolean>(true);
 
   const [notes, setNotes] = useState<string>('');
   const [existingFatherId, setExistingFatherId] = useState<string>('');
@@ -89,6 +89,7 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
 
   useEffect(() => {
     setErrorMessage(null);
+    setKeepCurrentFatherAsTop(true);
   }, [person?.id, mode]);
 
   // Reset form when modal opens for a new target person
@@ -97,6 +98,7 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
       setAncestorLevels(['']);
       setIntermediateLevels([]);
       setSplitCompoundName(false);
+      setKeepCurrentFatherAsTop(true);
       setNotes('');
       setErrorMessage(null);
       setSuccessNotice(null);
@@ -551,40 +553,44 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
 
           {/* Current Father handling when in 'new' mode */}
           {currentFather && mode === 'new' && (
-            <div className="p-3 sm:p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-2.5">
+            <div className="p-3 sm:p-3.5 rounded-2xl bg-emerald-50/90 border border-emerald-200 text-xs text-emerald-950 space-y-2.5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <strong className="leading-snug break-words">
+                <strong className="leading-snug break-words text-[#0F4C3A]">
                   الأب المسجل حالياً لـ «{extractGivenName(person.fullName)}» هو: ({formatAppName(currentFather.fullName)})
                 </strong>
                 {onSelectTargetPerson && (
                   <button
                     type="button"
                     onClick={() => onSelectTargetPerson(currentFather)}
-                    className="min-h-[34px] px-3 py-1.5 rounded-xl bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-bold text-[11px] transition leading-snug break-words text-center"
+                    className="min-h-[34px] px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-100 text-[#0F4C3A] border border-emerald-200 font-bold text-[11px] transition leading-snug break-words text-center"
                   >
-                    الانتقال لإضافة جد فوق ({formatAppName(currentFather.fullName)})
+                    الانتقال لإضافة أب فوق ({formatAppName(currentFather.fullName)})
                   </button>
                 )}
               </div>
 
-              <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 pt-1">
-                <label className="flex items-start gap-2 cursor-pointer text-[11px] font-semibold">
-                  <input
-                    type="radio"
-                    checked={!keepCurrentFatherAsTop}
-                    onChange={() => setKeepCurrentFatherAsTop(false)}
-                    className="mt-0.5 text-[#0F4C3A]"
-                  />
-                  <span className="leading-snug">نقل الابن وفروعه ليكون تحت الجد الجديد مباشرة</span>
-                </label>
-                <label className="flex items-start gap-2 cursor-pointer text-[11px] font-semibold">
+              <div className="flex flex-col gap-2 pt-1">
+                <label className="flex items-start gap-2 cursor-pointer text-[11px] font-bold text-[#0F4C3A] p-2 rounded-xl bg-white border border-emerald-200">
                   <input
                     type="radio"
                     checked={keepCurrentFatherAsTop}
                     onChange={() => setKeepCurrentFatherAsTop(true)}
                     className="mt-0.5 text-[#0F4C3A]"
                   />
-                  <span className="leading-snug">إدراج الأب/الجد الجديد بين ({extractGivenName(person.fullName)}) وبين ({formatAppName(currentFather.fullName)})</span>
+                  <span className="leading-snug">
+                    إدراج الأب الجديد بين «{extractGivenName(person.fullName)}» وبين «{formatAppName(currentFather.fullName)}» بحيث يصبح ({formatAppName(currentFather.fullName)}) جداً له (الافتراضي)
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer text-[11px] font-semibold text-slate-600 px-2 py-1">
+                  <input
+                    type="radio"
+                    checked={!keepCurrentFatherAsTop}
+                    onChange={() => setKeepCurrentFatherAsTop(false)}
+                    className="mt-0.5 text-[#0F4C3A]"
+                  />
+                  <span className="leading-snug">
+                    فصل «{extractGivenName(person.fullName)}» وفروعه عن الأب السابق وإنشاء شجرة مستقلة تحت الأب الجديد
+                  </span>
                 </label>
               </div>
             </div>
@@ -831,7 +837,9 @@ export const AddFatherModal: React.FC<AddFatherModalProps> = ({
                 {simulationPreview.topAnchorName && (
                   <>
                     <span className="px-2.5 py-1 rounded-lg bg-[#5C3A21] text-white font-bold leading-snug break-words">
-                      الجد الأعلى: {simulationPreview.topAnchorName}
+                      {mode === 'new' && currentFather && keepCurrentFatherAsTop
+                        ? `الجد (الأب السابق): ${simulationPreview.topAnchorName}`
+                        : `الجد الأعلى: ${simulationPreview.topAnchorName}`}
                     </span>
                     <span className="text-slate-400 font-bold">⬅️</span>
                   </>

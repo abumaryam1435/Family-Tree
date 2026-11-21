@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Person } from '../types/family';
+import { Person, Gender } from '../types/family';
 import {
   ZoomIn,
   ZoomOut,
   RotateCcw,
   Plus,
+  Check,
+  X,
   Users,
   ChevronDown,
   ChevronUp,
@@ -57,6 +59,8 @@ export interface TreeViewProps {
   onSelectPerson: (id: string) => void;
   onOpenAddModalWithFather: (fatherId: string) => void;
   onOpenAddFather: (personId: string) => void;
+  onQuickAddChild?: (data: { fullName: string; gender: Gender; fatherId: string }) => Promise<void>;
+  onQuickInsertFather?: (personId: string, fatherName: string) => Promise<any>;
   onOpenMergeModal: (sourceId?: string) => void;
   onExecuteMerge?: (sourceId: string, targetId: string) => Promise<any>;
   onOpenEditPerson?: (person: Person) => void;
@@ -70,14 +74,33 @@ export interface TreeViewProps {
   getLineageString: (personId: string) => string;
 }
 
+interface QuickInlineAction {
+  type: 'insert_father' | 'add_child';
+  targetPerson: Person;
+  parentPerson?: Person | null;
+  anchorX: number;
+  anchorY: number;
+}
+
 interface VerticalPyramidTreeCanvasProps {
   rootPerson: Person;
   getChildren: (personId: string) => Person[];
   collapsedNodes: Set<string>;
   includeFemales: boolean;
   focusedId: string | null;
+  canEdit?: boolean;
+  activeInlineKey?: string | null;
   onSelectPerson: (person: Person) => void;
   onToggleCollapse: (id: string) => void;
+  onOpenQuickInsertFather?: (
+    person: Person,
+    parentPerson: Person | null,
+    e: React.MouseEvent<HTMLButtonElement>
+  ) => void;
+  onOpenQuickAddChild?: (
+    person: Person,
+    e: React.MouseEvent<HTMLButtonElement>
+  ) => void;
 }
 
 const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
@@ -86,8 +109,12 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
   collapsedNodes,
   includeFemales,
   focusedId,
+  canEdit = false,
+  activeInlineKey = null,
   onSelectPerson,
-  onToggleCollapse
+  onToggleCollapse,
+  onOpenQuickInsertFather,
+  onOpenQuickAddChild
 }) => {
   const layout = useMemo(
     () =>
@@ -96,9 +123,10 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
         getChildren,
         collapsedNodes,
         includeFemales,
-        forScreen: true
+        forScreen: true,
+        extraStemSpacing: canEdit
       }),
-    [rootPerson, getChildren, collapsedNodes, includeFemales]
+    [rootPerson, getChildren, collapsedNodes, includeFemales, canEdit]
   );
 
   const {
@@ -110,6 +138,12 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
     nodeH,
     generationsList
   } = layout;
+
+  const nodeByPersonId = useMemo(() => {
+    const map = new Map<string, (typeof nodes)[number]>();
+    for (const n of nodes) map.set(n.person.id, n);
+    return map;
+  }, [nodes]);
 
   return (
     <div className="flex flex-col items-center">
@@ -157,6 +191,65 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
             />
           ))}
         </svg>
+
+        {/* Admin Mode: + Buttons directly ON the line between each person and their father */}
+        {canEdit && onOpenQuickInsertFather && (
+          <>
+            {links.map((link) => {
+              const childNode = nodeByPersonId.get(link.childId);
+              const parentNode = nodeByPersonId.get(link.parentId);
+              if (!childNode || !parentNode || link.points.length < 2) return null;
+
+              let btnX = childNode.x;
+              let btnY = childNode.y - nodeH / 2 - 14;
+
+              if (link.points.length === 2) {
+                const p0 = link.points[0];
+                const p1 = link.points[1];
+                btnX = p1.x;
+                // Keep clear of parent's downward add-branch button (which sits near p0.y + 20)
+                btnY = Math.max(p0.y + 38, p1.y - 14);
+              } else if (link.points.length >= 4) {
+                const p1 = link.points[1];
+                const p2 = link.points[2];
+                const p3 = link.points[3];
+                if (Math.abs(p2.x - p1.x) >= 28) {
+                  btnX = (p1.x + p2.x) / 2;
+                  btnY = p1.y;
+                } else {
+                  btnX = p2.x;
+                  btnY = (p2.y + p3.y) / 2;
+                }
+              }
+
+              const key = `insert_father:${childNode.person.id}`;
+              const isActive = activeInlineKey === key;
+
+              return (
+                <button
+                  key={`add-between-${link.id}`}
+                  type="button"
+                  data-quick-inline-editor="true"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onClick={(e) => onOpenQuickInsertFather(childNode.person, parentNode.person, e)}
+                  style={{
+                    left: `${btnX}px`,
+                    top: `${btnY}px`
+                  }}
+                  className={`absolute -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-md transition-transform z-30 ${
+                    isActive
+                      ? 'bg-amber-500 text-white ring-4 ring-amber-400/50 scale-125'
+                      : 'bg-amber-400 hover:bg-amber-300 text-slate-950 hover:scale-125'
+                  }`}
+                  title={`إدراج أب سريع بين ${extractGivenName(childNode.person.fullName)} وأبيه ${extractGivenName(parentNode.person.fullName)}`}
+                >
+                  <Plus size={12} strokeWidth={3} />
+                </button>
+              );
+            })}
+          </>
+        )}
 
         {nodes.map((node) => {
           const { person, depth, x, y, theme, totalDirectChildren, isCollapsed } = node;
@@ -262,7 +355,7 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
                     e.stopPropagation();
                     onToggleCollapse(person.id);
                   }}
-                  className={`absolute -bottom-3 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full flex items-center justify-center shadow-md border transition-transform hover:scale-110 ${
+                  className={`absolute -bottom-3 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full flex items-center justify-center shadow-md border transition-transform hover:scale-110 z-20 ${
                     isCollapsed
                       ? 'bg-amber-500 text-white border-amber-200 animate-pulse'
                       : 'bg-white text-emerald-900 border-emerald-400'
@@ -274,6 +367,47 @@ const VerticalPyramidTreeCanvas: React.FC<VerticalPyramidTreeCanvasProps> = ({
                   }
                 >
                   {isCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+                </button>
+              )}
+
+              {/* Admin Mode: + Button above Root to quickly add an ancestor above */}
+              {canEdit && isRoot && onOpenQuickInsertFather && (
+                <button
+                  type="button"
+                  data-quick-inline-editor="true"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onClick={(e) => onOpenQuickInsertFather(person, null, e)}
+                  className={`absolute -top-6 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-md transition-transform z-30 ${
+                    activeInlineKey === `insert_father:${person.id}`
+                      ? 'bg-amber-500 text-white ring-4 ring-amber-400/50 scale-125'
+                      : 'bg-amber-400 hover:bg-amber-300 text-slate-950 hover:scale-125'
+                  }`}
+                  title={`إضافة أب أعلى سريع لـ ${extractGivenName(person.fullName)}`}
+                >
+                  <Plus size={12} strokeWidth={3} />
+                </button>
+              )}
+
+              {/* Admin Mode: + Button on the stem between this male person and their branches */}
+              {canEdit && person.gender === 'male' && onOpenQuickAddChild && (
+                <button
+                  type="button"
+                  data-quick-inline-editor="true"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onClick={(e) => onOpenQuickAddChild(person, e)}
+                  style={{
+                    bottom: totalDirectChildren > 0 ? '-30px' : '-14px'
+                  }}
+                  className={`absolute left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-md transition-transform z-30 ${
+                    activeInlineKey === `add_child:${person.id}`
+                      ? 'bg-emerald-500 text-white ring-4 ring-emerald-400/50 scale-125'
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-white hover:scale-125'
+                  }`}
+                  title={`إضافة فرع سريع لـ ${extractGivenName(person.fullName)}`}
+                >
+                  <Plus size={12} strokeWidth={3} />
                 </button>
               )}
             </div>
@@ -290,6 +424,16 @@ interface TreeNodeProps {
   onSelect: (person: Person) => void;
   onQuickAddChild: (fatherId: string) => void;
   onOpenAddFather: (personId: string) => void;
+  onOpenQuickInsertFather?: (
+    person: Person,
+    parentPerson: Person | null,
+    e: React.MouseEvent<HTMLButtonElement>
+  ) => void;
+  onOpenQuickInlineAddChild?: (
+    person: Person,
+    e: React.MouseEvent<HTMLButtonElement>
+  ) => void;
+  activeInlineKey?: string | null;
   canEdit?: boolean;
   depth?: number;
   isRoot?: boolean;
@@ -306,6 +450,9 @@ const TreeNode: React.FC<TreeNodeProps> = ({
   onSelect,
   onQuickAddChild,
   onOpenAddFather,
+  onOpenQuickInsertFather,
+  onOpenQuickInlineAddChild,
+  activeInlineKey = null,
   canEdit = false,
   depth = 1,
   isRoot = false,
@@ -334,6 +481,28 @@ const TreeNode: React.FC<TreeNodeProps> = ({
 
   return (
     <div className="flex flex-col items-center relative">
+      {/* Admin Mode: + Stem above Root Ancestor to quickly add an ancestor above */}
+      {canEdit && isRoot && onOpenQuickInsertFather && (
+        <div className="flex flex-col items-center mb-1">
+          <button
+            type="button"
+            data-quick-inline-editor="true"
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            onClick={(e) => onOpenQuickInsertFather(person, null, e)}
+            className={`w-6 h-6 rounded-full flex items-center justify-center border-2 border-white shadow-md transition-transform z-20 ${
+              activeInlineKey === `insert_father:${person.id}`
+                ? 'bg-amber-500 text-white ring-4 ring-amber-400/50 scale-125'
+                : 'bg-amber-400 hover:bg-amber-300 text-slate-950 hover:scale-115'
+            }`}
+            title={`إضافة أب أعلى سريع لـ ${extractGivenName(person.fullName)}`}
+          >
+            <Plus size={13} strokeWidth={3} />
+          </button>
+          <div className="w-0.5 h-3 bg-amber-400/70" />
+        </div>
+      )}
+
       {/* Node Card Container */}
       <div className="relative z-10 flex flex-col items-center">
         {/* Classic Mode Card */}
@@ -505,13 +674,60 @@ const TreeNode: React.FC<TreeNodeProps> = ({
             {isCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
           </button>
         )}
+        {/* Admin Mode: Quick Add Branch + stem for male nodes with no visible/expanded children */}
+        {canEdit &&
+          person.gender === 'male' &&
+          (!hasChildren || isCollapsed) &&
+          onOpenQuickInlineAddChild && (
+            <div className="flex flex-col items-center">
+              <div className="w-0.5 h-3 bg-emerald-600/75" />
+              <button
+                type="button"
+                data-quick-inline-editor="true"
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+                onClick={(e) => onOpenQuickInlineAddChild(person, e)}
+                className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center border-2 border-white shadow-md transition-transform z-20 ${
+                  activeInlineKey === `add_child:${person.id}`
+                    ? 'bg-emerald-500 text-white ring-4 ring-emerald-400/50 scale-125'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white hover:scale-120'
+                }`}
+                title={`إضافة فرع سريع لـ ${extractGivenName(person.fullName)}`}
+              >
+                <Plus size={12} strokeWidth={3} />
+              </button>
+            </div>
+          )}
       </div>
 
       {/* Children Branches */}
       {hasChildren && !isCollapsed && (
         <div className="flex flex-col items-center">
-          {/* Vertical Stem from Parent */}
-          <div className="w-0.5 sm:w-1 bg-gradient-to-b from-emerald-800 to-emerald-600 h-6 sm:h-10" />
+          {/* Vertical Stem from Parent (with inline + button in admin mode to add a branch directly) */}
+          <div
+            className={`relative flex items-center justify-center ${
+              canEdit ? 'h-10 sm:h-12' : 'h-6 sm:h-10'
+            }`}
+          >
+            <div className="w-0.5 sm:w-1 bg-gradient-to-b from-emerald-800 to-emerald-600 h-full" />
+            {canEdit && person.gender === 'male' && onOpenQuickInlineAddChild && (
+              <button
+                type="button"
+                data-quick-inline-editor="true"
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+                onClick={(e) => onOpenQuickInlineAddChild(person, e)}
+                className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center border-2 border-white shadow-md transition-transform z-20 ${
+                  activeInlineKey === `add_child:${person.id}`
+                    ? 'bg-emerald-500 text-white ring-4 ring-emerald-400/50 scale-125'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white hover:scale-120'
+                }`}
+                title={`إضافة فرع سريع لـ ${extractGivenName(person.fullName)}`}
+              >
+                <Plus size={12} strokeWidth={3} />
+              </button>
+            )}
+          </div>
 
           {/* Children Row */}
           <div className="flex items-start justify-center relative">
@@ -534,8 +750,31 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                     </>
                   )}
 
-                  {/* Vertical Drop Line to Child */}
-                  <div className="w-0.5 sm:w-1 bg-emerald-700 h-5 sm:h-8" />
+                  {/* Vertical Drop Line to Child (with inline + button in admin mode to insert a father between person & father) */}
+                  <div
+                    className={`relative flex items-center justify-center ${
+                      canEdit ? 'h-9 sm:h-11' : 'h-5 sm:h-8'
+                    }`}
+                  >
+                    <div className="w-0.5 sm:w-1 bg-emerald-700 h-full" />
+                    {canEdit && onOpenQuickInsertFather && (
+                      <button
+                        type="button"
+                        data-quick-inline-editor="true"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
+                        onClick={(e) => onOpenQuickInsertFather(child, person, e)}
+                        className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center border-2 border-white shadow-md transition-transform z-20 ${
+                          activeInlineKey === `insert_father:${child.id}`
+                            ? 'bg-amber-500 text-white ring-4 ring-amber-400/50 scale-125'
+                            : 'bg-amber-400 hover:bg-amber-300 text-slate-950 hover:scale-120'
+                        }`}
+                        title={`إدراج أب سريع بين ${extractGivenName(child.fullName)} وأبيه ${extractGivenName(person.fullName)}`}
+                      >
+                        <Plus size={12} strokeWidth={3} />
+                      </button>
+                    )}
+                  </div>
 
                   <TreeNode
                     person={child}
@@ -543,6 +782,9 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                     onSelect={onSelect}
                     onQuickAddChild={onQuickAddChild}
                     onOpenAddFather={onOpenAddFather}
+                    onOpenQuickInsertFather={onOpenQuickInsertFather}
+                    onOpenQuickInlineAddChild={onOpenQuickInlineAddChild}
+                    activeInlineKey={activeInlineKey}
                     canEdit={canEdit}
                     depth={depth + 1}
                     collapsedNodes={collapsedNodes}
@@ -569,6 +811,8 @@ export const TreeView: React.FC<TreeViewProps> = ({
   onSelectPerson,
   onOpenAddModalWithFather,
   onOpenAddFather,
+  onQuickAddChild,
+  onQuickInsertFather,
   onOpenMergeModal,
   editingEnabled,
   getChildren
@@ -611,10 +855,136 @@ export const TreeView: React.FC<TreeViewProps> = ({
   const [selectedExportRootIds, setSelectedExportRootIds] = useState<string[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  // Quick Inline Add / Insert state (Admin mode only)
+  const [quickInlineAction, setQuickInlineAction] = useState<QuickInlineAction | null>(null);
+  const [quickInlineName, setQuickInlineName] = useState('');
+  const [quickInlineGender, setQuickInlineGender] = useState<Gender>('male');
+  const [quickInlineSaving, setQuickInlineSaving] = useState(false);
+  const [quickInlineError, setQuickInlineError] = useState<string | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasViewportRef = useRef<HTMLDivElement>(null);
   const treeContentRef = useRef<HTMLDivElement>(null);
   const treeDropdownRef = useRef<HTMLDivElement>(null);
+  const quickInlineInputRef = useRef<HTMLInputElement>(null);
+
+  const activeInlineKey = quickInlineAction
+    ? `${quickInlineAction.type}:${quickInlineAction.targetPerson.id}`
+    : null;
+
+  useEffect(() => {
+    if (!canEdit) {
+      setQuickInlineAction(null);
+    }
+  }, [canEdit]);
+
+  useEffect(() => {
+    if (quickInlineAction) {
+      const timer = setTimeout(() => {
+        quickInlineInputRef.current?.focus();
+      }, 30);
+      return () => clearTimeout(timer);
+    }
+  }, [quickInlineAction]);
+
+  // Close quick inline editor on Escape or outside click
+  useEffect(() => {
+    if (!quickInlineAction) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setQuickInlineAction(null);
+      }
+    };
+    const handleOutsideMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.('[data-quick-inline-editor]')) return;
+      setQuickInlineAction(null);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleOutsideMouseDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleOutsideMouseDown);
+    };
+  }, [quickInlineAction]);
+
+  const openQuickInlineEditor = (
+    type: 'insert_father' | 'add_child',
+    targetPerson: Person,
+    e: React.MouseEvent<HTMLButtonElement>,
+    parentPerson?: Person | null
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (!canEdit) return;
+
+    const btnRect = e.currentTarget.getBoundingClientRect();
+    const containerRect = containerRef.current?.getBoundingClientRect();
+    const anchorX = containerRect
+      ? btnRect.left - containerRect.left + btnRect.width / 2
+      : 160;
+    const anchorY = containerRect
+      ? btnRect.top - containerRect.top + btnRect.height / 2
+      : 160;
+
+    setQuickInlineAction({
+      type,
+      targetPerson,
+      parentPerson: parentPerson ?? null,
+      anchorX,
+      anchorY
+    });
+    setQuickInlineName('');
+    setQuickInlineGender('male');
+    setQuickInlineError(null);
+  };
+
+  const handleConfirmQuickInline = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!quickInlineAction || quickInlineSaving) return;
+
+    const trimmed = quickInlineName.trim();
+    if (!trimmed) {
+      setQuickInlineError('يرجى كتابة الاسم أولاً');
+      quickInlineInputRef.current?.focus();
+      return;
+    }
+
+    setQuickInlineSaving(true);
+    setQuickInlineError(null);
+    try {
+      if (quickInlineAction.type === 'insert_father') {
+        if (onQuickInsertFather) {
+          await onQuickInsertFather(quickInlineAction.targetPerson.id, trimmed);
+        } else {
+          onOpenAddFather(quickInlineAction.targetPerson.id);
+        }
+      } else {
+        if (onQuickAddChild) {
+          await onQuickAddChild({
+            fullName: trimmed,
+            gender: quickInlineGender,
+            fatherId: quickInlineAction.targetPerson.id
+          });
+          // Ensure parent is expanded so the newly added branch is immediately visible
+          setCollapsedNodes((prev) => {
+            if (!prev.has(quickInlineAction.targetPerson.id)) return prev;
+            const next = new Set(prev);
+            next.delete(quickInlineAction.targetPerson.id);
+            return next;
+          });
+        } else {
+          onOpenAddModalWithFather(quickInlineAction.targetPerson.id);
+        }
+      }
+      setQuickInlineAction(null);
+      setQuickInlineName('');
+    } catch (err: any) {
+      setQuickInlineError(err?.message || 'حدث خطأ أثناء الحفظ');
+    } finally {
+      setQuickInlineSaving(false);
+    }
+  };
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -1332,7 +1702,13 @@ export const TreeView: React.FC<TreeViewProps> = ({
 
   // Mouse pan handlers for desktop
   const handleMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('#node-card, button, select, input')) return;
+    if (
+      (e.target as HTMLElement).closest(
+        '#node-card, button, select, input, [data-quick-inline-editor]'
+      )
+    ) {
+      return;
+    }
     setIsDragging(true);
     setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
   };
@@ -1355,6 +1731,9 @@ export const TreeView: React.FC<TreeViewProps> = ({
     if (!viewport) return;
 
     const onTouchStart = (e: TouchEvent) => {
+      if ((e.target as HTMLElement | null)?.closest?.('[data-quick-inline-editor]')) {
+        return;
+      }
       if (e.touches.length >= 2) {
         // Two fingers -> Start pinch-to-zoom immediately!
         e.preventDefault();
@@ -2074,8 +2453,16 @@ export const TreeView: React.FC<TreeViewProps> = ({
                     collapsedNodes={collapsedNodes}
                     includeFemales={showFemales}
                     focusedId={focusedId}
+                    canEdit={canEdit}
+                    activeInlineKey={activeInlineKey}
                     onSelectPerson={(person) => onSelectPerson(person.id)}
                     onToggleCollapse={toggleCollapse}
+                    onOpenQuickInsertFather={(person, parentPerson, e) =>
+                      openQuickInlineEditor('insert_father', person, e, parentPerson)
+                    }
+                    onOpenQuickAddChild={(person, e) =>
+                      openQuickInlineEditor('add_child', person, e)
+                    }
                   />
                 ) : (
                   /* Multiple Vertical Pyramids displayed side-by-side (جنباً إلى جنب) */
@@ -2097,8 +2484,16 @@ export const TreeView: React.FC<TreeViewProps> = ({
                           collapsedNodes={collapsedNodes}
                           includeFemales={showFemales}
                           focusedId={focusedId}
+                          canEdit={canEdit}
+                          activeInlineKey={activeInlineKey}
                           onSelectPerson={(person) => onSelectPerson(person.id)}
                           onToggleCollapse={toggleCollapse}
+                          onOpenQuickInsertFather={(person, parentPerson, e) =>
+                            openQuickInlineEditor('insert_father', person, e, parentPerson)
+                          }
+                          onOpenQuickAddChild={(person, e) =>
+                            openQuickInlineEditor('add_child', person, e)
+                          }
                         />
                       </div>
                     ))}
@@ -2111,6 +2506,13 @@ export const TreeView: React.FC<TreeViewProps> = ({
                   onSelect={(person) => onSelectPerson(person.id)}
                   onQuickAddChild={(fatherId) => onOpenAddModalWithFather(fatherId)}
                   onOpenAddFather={(personId) => onOpenAddFather(personId)}
+                  onOpenQuickInsertFather={(person, parentPerson, e) =>
+                    openQuickInlineEditor('insert_father', person, e, parentPerson)
+                  }
+                  onOpenQuickInlineAddChild={(person, e) =>
+                    openQuickInlineEditor('add_child', person, e)
+                  }
+                  activeInlineKey={activeInlineKey}
                   canEdit={canEdit}
                   isRoot={true}
                   collapsedNodes={collapsedNodes}
@@ -2138,6 +2540,13 @@ export const TreeView: React.FC<TreeViewProps> = ({
                         onSelect={(person) => onSelectPerson(person.id)}
                         onQuickAddChild={(fatherId) => onOpenAddModalWithFather(fatherId)}
                         onOpenAddFather={(personId) => onOpenAddFather(personId)}
+                        onOpenQuickInsertFather={(person, parentPerson, e) =>
+                          openQuickInlineEditor('insert_father', person, e, parentPerson)
+                        }
+                        onOpenQuickInlineAddChild={(person, e) =>
+                          openQuickInlineEditor('add_child', person, e)
+                        }
+                        activeInlineKey={activeInlineKey}
                         canEdit={canEdit}
                         isRoot={true}
                         collapsedNodes={collapsedNodes}
@@ -2152,6 +2561,168 @@ export const TreeView: React.FC<TreeViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Admin Edit Mode Quick Legend Chip (Bottom-Right on sm+) */}
+      {canEdit && (
+        <div
+          dir="rtl"
+          className="hidden sm:flex absolute bottom-5 right-5 z-20 items-center gap-3 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-xl shadow-md border border-slate-200 text-[11px] font-bold text-slate-700"
+        >
+          <span className="flex items-center gap-1.5">
+            <span className="w-4 h-4 rounded-full bg-amber-400 text-slate-950 inline-flex items-center justify-center border border-white shadow-xs">
+              <Plus size={10} strokeWidth={3} />
+            </span>
+            <span>إدراج أب بين الشخص وأبيه</span>
+          </span>
+          <span className="text-slate-300">|</span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-4 h-4 rounded-full bg-emerald-600 text-white inline-flex items-center justify-center border border-white shadow-xs">
+              <Plus size={10} strokeWidth={3} />
+            </span>
+            <span>إضافة فرع سريع</span>
+          </span>
+        </div>
+      )}
+
+      {/* Floating Direct Inline Input Popover (Appears immediately on + click, no Details modal) */}
+      {canEdit && quickInlineAction && (() => {
+        const containerW = containerRef.current?.clientWidth || 360;
+        const containerH = containerRef.current?.clientHeight || 520;
+        const popW = Math.min(310, Math.max(250, containerW - 24));
+        const popEstH = quickInlineAction.type === 'add_child' ? 144 : 116;
+
+        const left = Math.max(
+          12,
+          Math.min(quickInlineAction.anchorX - popW / 2, containerW - popW - 12)
+        );
+        const preferBelow = quickInlineAction.anchorY + 22 + popEstH <= containerH - 12;
+        const top = preferBelow
+          ? Math.max(64, quickInlineAction.anchorY + 20)
+          : Math.max(64, quickInlineAction.anchorY - popEstH - 18);
+
+        const isInsertFather = quickInlineAction.type === 'insert_father';
+        const targetGiven = extractGivenName(quickInlineAction.targetPerson.fullName);
+        const parentGiven = quickInlineAction.parentPerson
+          ? extractGivenName(quickInlineAction.parentPerson.fullName)
+          : null;
+
+        return (
+          <div
+            data-quick-inline-editor="true"
+            dir="rtl"
+            style={{
+              left: `${Math.round(left)}px`,
+              top: `${Math.round(top)}px`,
+              width: `${Math.round(popW)}px`
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className={`absolute z-40 bg-white rounded-2xl shadow-2xl border-2 p-3 space-y-2.5 ${
+              isInsertFather ? 'border-amber-400' : 'border-emerald-500'
+            }`}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span
+                  className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                    isInsertFather
+                      ? 'bg-amber-400 text-slate-950'
+                      : 'bg-emerald-600 text-white'
+                  }`}
+                >
+                  <Plus size={12} strokeWidth={3} />
+                </span>
+                <span className="text-xs font-black text-slate-900 truncate">
+                  {isInsertFather
+                    ? parentGiven
+                      ? `إدراج أب بين «${targetGiven}» و«${parentGiven}»`
+                      : `إضافة أب أعلى لـ «${targetGiven}»`
+                    : `إضافة فرع لـ «${targetGiven}»`}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuickInlineAction(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition shrink-0"
+                title="إغلاق"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            {/* Direct Input + Confirm Button */}
+            <form onSubmit={handleConfirmQuickInline} className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <input
+                  ref={quickInlineInputRef}
+                  type="text"
+                  maxLength={120}
+                  value={quickInlineName}
+                  onChange={(e) => {
+                    setQuickInlineName(e.target.value);
+                    if (quickInlineError) setQuickInlineError(null);
+                  }}
+                  placeholder={
+                    isInsertFather ? 'اكتب اسم الأب...' : 'اكتب اسم الابن أو الابنة...'
+                  }
+                  disabled={quickInlineSaving}
+                  className={`flex-1 min-w-0 h-9 px-3 rounded-xl border bg-slate-50 text-xs font-bold text-slate-900 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-2 ${
+                    isInsertFather
+                      ? 'border-amber-300 focus:ring-amber-400'
+                      : 'border-emerald-300 focus:ring-emerald-500'
+                  }`}
+                />
+                <button
+                  type="submit"
+                  disabled={quickInlineSaving || !quickInlineName.trim()}
+                  className={`h-9 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1 shrink-0 transition shadow-xs disabled:opacity-50 ${
+                    isInsertFather
+                      ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
+                      : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                  }`}
+                >
+                  <Check size={14} strokeWidth={3} />
+                  <span>{quickInlineSaving ? '...' : 'تأكيد'}</span>
+                </button>
+              </div>
+
+              {/* Compact Gender Toggle for Quick Add Branch */}
+              {!isInsertFather && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setQuickInlineGender('male')}
+                    className={`flex-1 h-7 rounded-lg text-[11px] font-bold border transition ${
+                      quickInlineGender === 'male'
+                        ? 'bg-emerald-700 text-white border-emerald-700'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    ابن (ذكر)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickInlineGender('female')}
+                    className={`flex-1 h-7 rounded-lg text-[11px] font-bold border transition ${
+                      quickInlineGender === 'female'
+                        ? 'bg-rose-600 text-white border-rose-600'
+                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    ابنة (أنثى)
+                  </button>
+                </div>
+              )}
+
+              {quickInlineError && (
+                <div className="text-[11px] font-bold text-red-600">{quickInlineError}</div>
+              )}
+            </form>
+          </div>
+        );
+      })()}
 
       {/* Single-File Multi-Tree Selection Modal */}
       {pendingSingleExportType && (

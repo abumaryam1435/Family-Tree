@@ -358,6 +358,15 @@ export default function App() {
                 onSelectPerson={(id) => setSelectedPersonId(id)}
                 onOpenAddModalWithFather={(fatherId) => handleOpenAdd(fatherId)}
                 onOpenAddFather={(personId) => handleOpenAddFather(personId)}
+                onQuickAddChild={handleQuickAddChild}
+                onQuickInsertFather={(personId, fatherName) =>
+                  handleExecuteAddFather(personId, {
+                    fullName: fatherName,
+                    keepCurrentFatherAsTop: true,
+                    updateDescendantsNames: true,
+                    splitCompoundName: false
+                  })
+                }
                 onOpenMergeModal={(id) => handleOpenMergeModal(id)}
                 onExecuteMerge={handleExecuteMerge}
                 onOpenEditPerson={(p) => {

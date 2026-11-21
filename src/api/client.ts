@@ -1,5 +1,6 @@
 import { Person, Gender, PersonWithRelations, AppSettings, AuditLog, MergeOperation, ChangeRequest } from '../types/family';
 import { familyFirebase } from '../firebase/familyService';
+import { triggerJsonBackupDownload } from '../utils/backupRecovery';
 
 const ADMIN_TOKEN_KEY = 'family_tree_admin_token';
 
@@ -289,23 +290,37 @@ export const apiClient = {
     await familyFirebase.resolveChangeRequest(id, decision);
   },
 
-  // Backup & Restore
-  getBackupDownloadUrl(): string {
-    return '/api/backup';
+  // Backup & Restore (Directly via Firestore — works on all hosting platforms including static/Netlify)
+  async downloadBackupJson(): Promise<{ filename: string; personsCount: number }> {
+    const snapshot = await familyFirebase.createBackupSnapshot();
+    const filename = triggerJsonBackupDownload(snapshot, 'family_tree_backup');
+    return { filename, personsCount: snapshot.personsCount };
   },
 
-  async restoreBackup(payload: any): Promise<{ restoredCount: number }> {
-    try {
-      return await this.request<{ success: boolean; data: { restoredCount: number }; message: string }>(
-        '/api/restore',
-        {
-          method: 'POST',
-          body: JSON.stringify(payload)
-        }
-      ).then(r => r.data);
-    } catch {
-      return { restoredCount: 0 };
+  async restoreBackup(
+    payload: any,
+    options: { mode?: 'replace' | 'merge'; sourceLabel?: string } = {}
+  ): Promise<{ restoredCount: number; warnings: string[] }> {
+    const rawPersons = Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload?.persons)
+      ? payload.persons
+      : Array.isArray(payload?.data?.persons)
+      ? payload.data.persons
+      : Array.isArray(payload?.familyData)
+      ? payload.familyData
+      : null;
+
+    if (!rawPersons || rawPersons.length === 0) {
+      throw new Error('لم يتم العثور على بيانات أفراد صالحة في النسخة الاحتياطية.');
     }
+
+    const actor = this.getAdminToken() ? 'المشرف' : 'مستخدم';
+    return await familyFirebase.restorePersons(rawPersons, {
+      mode: options.mode || 'replace',
+      actor,
+      sourceLabel: options.sourceLabel || 'نسخة احتياطية'
+    });
   },
 
   async resetSampleData(): Promise<void> {

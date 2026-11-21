@@ -245,13 +245,15 @@ export function computeVerticalPyramidLayout(options: {
   collapsedNodes?: Set<string>;
   includeFemales?: boolean;
   forScreen?: boolean;
+  extraStemSpacing?: boolean;
 }): VerticalPyramidLayoutResult {
   const {
     rootPerson,
     getChildren,
     collapsedNodes = new Set<string>(),
     includeFemales = true,
-    forScreen = false
+    forScreen = false,
+    extraStemSpacing = false
   } = options;
 
   const getFilteredChildren = (personId: string): Person[] => {
@@ -280,10 +282,11 @@ export function computeVerticalPyramidLayout(options: {
   const NODE_W = forScreen ? 214 : totalNodes <= 20 ? 324 : totalNodes <= 55 ? 296 : 272;
   const NODE_H = forScreen ? 94 : totalNodes <= 20 ? 148 : totalNodes <= 55 ? 136 : 126;
 
-  const SPINE_CORRIDOR = forScreen ? 24 : 24; // Compact corridor around the vertical spine line
-  const V_PARENT_TO_CHILDREN = forScreen ? 24 : 24; // Compact vertical gap from parent card bottom to first child tier
-  const V_TIER_GAP = forScreen ? 20 : 20; // Compact vertical gap between stacked subtrees in the same column
-  const BRANCH_DROP = forScreen ? 12 : 12; // Distance above child's top edge where horizontal branch turns down
+  const hasEditStems = forScreen && extraStemSpacing;
+  const SPINE_CORRIDOR = hasEditStems ? 34 : 24; // Compact corridor around the vertical spine line
+  const V_PARENT_TO_CHILDREN = hasEditStems ? 56 : 24; // Vertical gap from parent card bottom to first child tier
+  const V_TIER_GAP = hasEditStems ? 30 : 20; // Vertical gap between stacked subtrees in the same column
+  const BRANCH_DROP = hasEditStems ? 18 : 12; // Distance above child's top edge where horizontal branch turns down
 
   // Maximum combined width for pairing two subtrees side-by-side before switching to single-column stacking
   // This keeps the entire family tree in a clean vertical portrait proportion!
