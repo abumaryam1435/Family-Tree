@@ -44,6 +44,22 @@ export interface CloudRecoverySummary {
   source: 'local_safety' | 'cloud_logs' | 'none';
 }
 
+export interface CloudExactSnapshot {
+  id: string;
+  logId: string;
+  savedAt: string;
+  actor: string;
+  reason: string;
+  persons: Person[];
+  rootsCount: number;
+  rootDetails: Array<{ id: string; fullName: string; branchCount: number }>;
+  maleCount: number;
+  femaleCount: number;
+  wifeLinksCount: number;
+  motherLinksCount: number;
+  notesCount: number;
+}
+
 export interface TimeTravelRestorePoint {
   id: string;
   label: string;
@@ -62,6 +78,7 @@ export interface TimeTravelRestorePoint {
   logsIncludedCount: number;
   isBeforeToday: boolean;
   isHighlighted?: boolean;
+  isExactSnapshot?: boolean;
 }
 
 const VALID_ID_REGEX = /^[a-zA-Z0-9_\-]+$/;
@@ -549,28 +566,46 @@ function linkFathersByArabicLineage(
   options: {
     preferredFatherNameMap?: Map<string, string>;
     preferredFatherIdMap?: Map<string, string>;
+    explicitRootIds?: Set<string>;
     historicalNamesById?: Map<string, Set<string>>;
     deletedNamesSet?: Set<string>;
     bridgeToExistingAncestors?: boolean;
     groupOrphanSiblings?: boolean;
     synthesizeMissingAncestors?: boolean;
+    strictExactOnly?: boolean;
   } = {}
 ): { persons: Person[]; synthesizedCount: number } {
   const {
     preferredFatherNameMap,
     preferredFatherIdMap,
+    explicitRootIds,
     historicalNamesById,
     deletedNamesSet,
-    bridgeToExistingAncestors = false,
-    groupOrphanSiblings = false,
-    synthesizeMissingAncestors = false
+    strictExactOnly = false
   } = options;
+  const bridgeToExistingAncestors = strictExactOnly ? false : (options.bridgeToExistingAncestors ?? false);
+  const groupOrphanSiblings = strictExactOnly ? false : (options.groupOrphanSiblings ?? false);
+  const synthesizeMissingAncestors = strictExactOnly ? false : (options.synthesizeMissingAncestors ?? false);
 
   const list: Person[] = persons.map((p) => ({ ...p }));
   const byId = new Map<string, Person>(list.map((p) => [p.id, p]));
   const maleByNormFullName = new Map<string, Person[]>();
   const malesByNormChainKey = new Map<string, Person[]>();
   const malesByGivenName = new Map<string, Person[]>();
+  const malesByBaseGivenName = new Map<string, Person[]>();
+
+  // Strips trailing tribal surname (e.g. "راشد العبري" -> "راشد", "عبد الرحمن العبري" -> "عبد الرحمن")
+  // while preserving compound first names like "عبد الرحمن" or "ابو بكر".
+  const stripTrailingTribe = (normSeg: string): string => {
+    const words = normSeg.split(/\s+/).filter(Boolean);
+    if (words.length < 2) return normSeg;
+    const last = words[words.length - 1];
+    if (!last.startsWith('ال') || last.length < 4) return normSeg;
+    if (words.length === 2 && /^(عبد|ابو|ام|ال|بن|بنت|ابن)$/.test(words[0])) {
+      return normSeg;
+    }
+    return words.slice(0, -1).join(' ');
+  };
 
   const registerMaleNameVariant = (p: Person, nameVariant: string) => {
     const normFull = normalizeArabic(nameVariant);
@@ -595,6 +630,15 @@ function linkFathersByArabicLineage(
       if (!gArr.some((x) => x.id === p.id)) {
         gArr.push(p);
         malesByGivenName.set(given, gArr);
+      }
+
+      const baseGiven = stripTrailingTribe(given);
+      if (baseGiven) {
+        const bgArr = malesByBaseGivenName.get(baseGiven) || [];
+        if (!bgArr.some((x) => x.id === p.id)) {
+          bgArr.push(p);
+          malesByBaseGivenName.set(baseGiven, bgArr);
+        }
       }
     }
   };
@@ -678,25 +722,77 @@ function linkFathersByArabicLineage(
     );
     if (exactMatches.length === 1) return exactMatches[0];
     if (exactMatches.length > 1) {
-      // Prefer the one whose current fullName matches or who already has a fatherId
-      const currentExact = exactMatches.find((m) => normalizeArabic(m.fullName) === normSuffix);
-      return currentExact || exactMatches[0];
+      const currentExacts = exactMatches.filter((m) => normalizeArabic(m.fullName) === normSuffix);
+      if (currentExacts.length === 1) return currentExacts[0];
+      // In strictExactOnly mode NEVER randomly pick exactMatches[0] when 2+ males share the exact same name!
+      if (strictExactOnly) return null;
+      return currentExacts[0] || exactMatches[0];
     }
 
     // 2. Exact chain key match
     const exactChainMatches = (malesByNormChainKey.get(suffixChain.join('|')) || []).filter(
       (m) => !wouldCreateCycle(childId, m.id)
     );
-    if (exactChainMatches.length > 0) {
+    if (exactChainMatches.length === 1) {
+      return exactChainMatches[0];
+    }
+    if (exactChainMatches.length > 1) {
+      if (strictExactOnly) return null;
       return exactChainMatches[0];
     }
 
-    // 3. Score ALL male candidates whose given name matches `suffixChain[0]`
+    // 3. Score ALL male candidates whose given name matches `suffixChain[0]` (exact or tribal-surname tolerant)
     // Compare against current chain, historical chains, AND live walked ancestor chain!
-    const candidates = (malesByGivenName.get(suffixChain[0]) || []).filter(
-      (m) => !wouldCreateCycle(childId, m.id)
-    );
+    const suffixBaseChain = suffixChain.map((s) => stripTrailingTribe(s));
+    const candMap = new Map<string, Person>();
+    for (const m of malesByGivenName.get(suffixChain[0]) || []) {
+      if (!wouldCreateCycle(childId, m.id)) candMap.set(m.id, m);
+    }
+    for (const m of malesByBaseGivenName.get(suffixBaseChain[0]) || []) {
+      if (!wouldCreateCycle(childId, m.id)) candMap.set(m.id, m);
+    }
+    const candidates = Array.from(candMap.values());
     if (candidates.length === 0) return null;
+
+    // STRICT EXACT MODE (used for Time-Travel / Audit reconstruction):
+    // Zero guessing, zero partial-prefix matching, zero contradicting-tail matching!
+    // Matches ONLY when a strictly unique male has an IDENTICAL full-length chain
+    // (allowing trailing tribal surname tolerance ONLY on the final segment).
+    if (strictExactOnly) {
+      const strictFullMatches = new Map<string, Person>();
+      for (const cand of candidates) {
+        const chainsToCheck: string[][] = [
+          getLiveAncestorChain(cand),
+          splitLineageChain(cand.fullName).map((s) => normalizeArabic(s)).filter(Boolean)
+        ];
+        const hist = historicalNamesById?.get(cand.id);
+        if (hist) {
+          for (const h of hist) {
+            chainsToCheck.push(splitLineageChain(h).map((s) => normalizeArabic(s)).filter(Boolean));
+          }
+        }
+        for (const candChain of chainsToCheck) {
+          if (candChain.length !== suffixChain.length) continue;
+          let allMatch = true;
+          for (let k = 0; k < suffixChain.length; k++) {
+            if (candChain[k] === suffixChain[k]) continue;
+            if (k === suffixChain.length - 1 && stripTrailingTribe(candChain[k]) === suffixBaseChain[k]) {
+              continue;
+            }
+            allMatch = false;
+            break;
+          }
+          if (allMatch) {
+            strictFullMatches.set(cand.id, cand);
+            break;
+          }
+        }
+      }
+      if (strictFullMatches.size === 1) {
+        return Array.from(strictFullMatches.values())[0];
+      }
+      return null;
+    }
 
     if (candidates.length === 1 && suffixChain.length === 1) {
       return candidates[0];
@@ -718,18 +814,27 @@ function linkFathersByArabicLineage(
       }
 
       for (const candChain of chainsToCheck) {
-        if (candChain.length === 0 || candChain[0] !== suffixChain[0]) continue;
+        if (candChain.length === 0) continue;
+        const candBase0 = stripTrailingTribe(candChain[0]);
+        if (candChain[0] !== suffixChain[0] && candBase0 !== suffixBaseChain[0]) continue;
 
         let consecutive = 0;
+        let exactSegs = 0;
         const minLen = Math.min(candChain.length, suffixChain.length);
         for (let k = 0; k < minLen; k++) {
-          if (candChain[k] === suffixChain[k]) consecutive++;
-          else break;
+          if (candChain[k] === suffixChain[k]) {
+            consecutive++;
+            exactSegs++;
+          } else if (stripTrailingTribe(candChain[k]) === suffixBaseChain[k]) {
+            consecutive++;
+          } else {
+            break;
+          }
         }
 
         // Exact full match on live ancestor chain gets highest score
         if (consecutive === suffixChain.length && candChain.length === suffixChain.length) {
-          const score = 10000 + consecutive * 100;
+          const score = 10000 + consecutive * 100 + exactSegs * 15;
           if (score > bestScore) {
             bestScore = score;
             bestCand = cand;
@@ -737,9 +842,9 @@ function linkFathersByArabicLineage(
           continue;
         }
 
-        // Full prefix match (e.g. cand has 1-name root "محمد" or shorter chain before rename, OR suffix truncated at 4 names)
+        // Full prefix match (Excel / interactive import only)
         if (consecutive === minLen && consecutive >= 2) {
-          const score = 5000 + consecutive * 100 - Math.abs(candChain.length - suffixChain.length) * 5;
+          const score = 5000 + consecutive * 100 + exactSegs * 10 - Math.abs(candChain.length - suffixChain.length) * 5;
           if (score > bestScore) {
             bestScore = score;
             bestCand = cand;
@@ -747,19 +852,9 @@ function linkFathersByArabicLineage(
           continue;
         }
 
-        // Father's branch was later renamed/moved above grandfather (e.g., [علي, أحمد, قديم] vs [علي, أحمد, جديد])
-        if (consecutive >= 2) {
-          const score = 3000 + consecutive * 100;
-          if (score > bestScore) {
-            bestScore = score;
-            bestCand = cand;
-          }
-          continue;
-        }
-
-        // Single-name candidate (root originally created with 1 name before getting a father) when it is the ONLY candidate with that given name
+        // Single-name candidate when it is the ONLY candidate with that given name
         if (consecutive === 1 && candChain.length === 1 && candidates.length === 1) {
-          const score = 1500;
+          const score = 1500 + exactSegs * 10;
           if (score > bestScore) {
             bestScore = score;
             bestCand = cand;
@@ -770,15 +865,6 @@ function linkFathersByArabicLineage(
 
     if (bestCand && bestScore >= 1500) {
       return bestCand;
-    }
-
-    // If only 1 male in the entire family has this exact given name and his live chain doesn't contradict suffixChain[1]
-    if (candidates.length === 1 && suffixChain.length >= 2) {
-      const sole = candidates[0];
-      const liveChain = getLiveAncestorChain(sole);
-      if (liveChain.length === 1) {
-        return sole;
-      }
     }
 
     return null;
@@ -812,6 +898,7 @@ function linkFathersByArabicLineage(
   // First pass: apply explicit preferredFatherIdMap (e.g. from merge_operations)
   if (preferredFatherIdMap) {
     for (const p of list) {
+      if (explicitRootIds?.has(p.id)) continue;
       if (!p.fatherId) {
         const prefId = preferredFatherIdMap.get(p.id);
         if (prefId && !wouldCreateCycle(p.id, prefId) && byId.has(prefId)) {
@@ -833,16 +920,30 @@ function linkFathersByArabicLineage(
     return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
   });
 
+  // Chronological guard: do not auto-attach a node `child` under a real logged male `dad`
+  // who was created strictly AFTER `child` was last modified (prevents swallowing an earlier independent root).
+  const isStrictlyNewerUnrelatedMale = (child: Person, dad: Person): boolean => {
+    if (dad.id.startsWith('p_syn_') || dad.id.startsWith('p_af_')) return false;
+    const dadCreated = new Date(dad.createdAt).getTime();
+    const childLastMod = Math.max(
+      new Date(child.createdAt).getTime() || 0,
+      new Date(child.updatedAt).getTime() || 0
+    );
+    if (Number.isNaN(dadCreated) || !childLastMod) return false;
+    return dadCreated - childLastMod > 60_000;
+  };
+
   // Run 2 passes so newly linked live chains help link any remaining nodes
   for (let pass = 0; pass < 2; pass++) {
     let linkedThisPass = 0;
     for (const p of depthOrdered) {
+      if (explicitRootIds?.has(p.id)) continue;
       if (p.fatherId && byId.has(p.fatherId)) continue;
 
       const suffix = getFatherSuffixFromFullName(p.fullName);
       if (suffix) {
         const dad = findExistingMaleForSuffix(suffix, p.id);
-        if (dad && !wouldCreateCycle(p.id, dad.id)) {
+        if (dad && !wouldCreateCycle(p.id, dad.id) && !isStrictlyNewerUnrelatedMale(p, dad)) {
           p.fatherId = dad.id;
           linkedThisPass++;
           continue;
@@ -880,9 +981,9 @@ function linkFathersByArabicLineage(
   // Example: "أحمد بن خالد بن محمد بن راشد" is unlinked, and "محمد بن راشد" exists -> link via missing intermediate "خالد بن محمد بن راشد"
   // (or directly to "محمد بن راشد" if "خالد" was deleted).
   if (bridgeToExistingAncestors || synthesizeMissingAncestors) {
-    const unlinkedSnapshot = depthOrdered.filter((p) => !p.fatherId);
+    const unlinkedSnapshot = depthOrdered.filter((p) => !p.fatherId && !explicitRootIds?.has(p.id));
     for (const p of unlinkedSnapshot) {
-      if (p.fatherId) continue;
+      if (p.fatherId || explicitRootIds?.has(p.id)) continue;
       const suffix = getFatherSuffixFromFullName(p.fullName);
       if (!suffix) continue;
 
@@ -940,7 +1041,7 @@ function linkFathersByArabicLineage(
   if (groupOrphanSiblings) {
     const orphanGroups = new Map<string, { rawSuffix: string; members: Person[] }>();
     for (const p of list) {
-      if (p.fatherId) continue;
+      if (p.fatherId || explicitRootIds?.has(p.id)) continue;
       const suffix = getFatherSuffixFromFullName(p.fullName);
       if (!suffix) continue;
       const norm = normalizeArabic(suffix);
@@ -1398,16 +1499,70 @@ export function loadLocalSafetyBackup(): { savedAt: string; persons: Person[] } 
 }
 
 /**
- * Reconstructs the exact family tree state at a specific point in time (`cutoffMs`)
- * by replaying Firestore `audit_logs` and `merge_operations` strictly up to `cutoffMs`.
- * Optionally enriches recovered records using verified snapshot data (`enrichmentPersons`)
- * for fields not stored in audit_logs (notes, motherId, husbandId, husbandName, and untouched fatherId).
+ * Extracts all 100% Exact Cloud Snapshots stored in Firestore `audit_logs`
+ * (saved automatically before every delete/restore/merge/add_father and manually by the admin).
+ */
+export function extractCloudExactSnapshots(auditLogs: AuditLog[]): CloudExactSnapshot[] {
+  if (!Array.isArray(auditLogs) || auditLogs.length === 0) return [];
+  const snapshots: CloudExactSnapshot[] = [];
+
+  for (const log of auditLogs) {
+    if (!Array.isArray(log.exactSnapshotPersons) || log.exactSnapshotPersons.length === 0) {
+      continue;
+    }
+    const { persons } = sanitizePersonsForRestore(log.exactSnapshotPersons);
+    if (persons.length === 0) continue;
+
+    const { rootsCount, rootDetails } = computeRootDetails(persons);
+    const maleCount = persons.filter((p) => p.gender === 'male').length;
+    const wifeLinksCount = persons.filter(
+      (p) => p.gender === 'female' && (Boolean(p.husbandId) || Boolean(p.husbandName && p.husbandName.trim()))
+    ).length;
+    const motherLinksCount = persons.filter((p) => Boolean(p.motherId)).length;
+    const notesCount = persons.filter((p) => Boolean(p.notes && p.notes.trim())).length;
+
+    const cleanReason = stripAuditMetaTag(log.description || '')
+      .replace(/^نسخة سحابية حقيقية مطابقة 100%\s*:\s*/i, '')
+      .trim();
+
+    snapshots.push({
+      id: `cloud_snap_${log.id}`,
+      logId: log.id,
+      savedAt: log.timestamp,
+      actor: log.actor || 'المشرف',
+      reason: cleanReason || 'نسخة سحابية مطابقة 100%',
+      persons,
+      rootsCount,
+      rootDetails,
+      maleCount,
+      femaleCount: persons.length - maleCount,
+      wifeLinksCount,
+      motherLinksCount,
+      notesCount
+    });
+  }
+
+  snapshots.sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+  return snapshots;
+}
+
+/**
+ * Reconstructs the family tree state at a specific point in time (`cutoffMs`).
+ * - If a 100% Exact Cloud Snapshot exists at or before `cutoffMs`, it is used as the verbatim exact base
+ *   (zero guessing, zero heuristic relinking, 100% exact roots, branches, notes, and wife links).
+ * - For older logs created before exact snapshots existed, strictly exact unambiguous matching ONLY is used
+ *   (NO heuristic guessing, NO fake synthesized ancestors, NO destructive name rewriting).
  */
 export function reconstructAtTimestamp(
   auditLogs: AuditLog[],
   mergeOperations: MergeOperation[],
   cutoffMs: number,
-  options: { ignoreClears?: boolean; enrichmentPersons?: Person[] } = {}
+  options: {
+    ignoreClears?: boolean;
+    enrichmentPersons?: Person[];
+    trustedRootIds?: Set<string>;
+    explicitRootIds?: Set<string>;
+  } = {}
 ): {
   persons: Person[];
   rootsCount: number;
@@ -1420,8 +1575,14 @@ export function reconstructAtTimestamp(
   notesCount: number;
   logsIncludedCount: number;
   lastClearTimestamp: string | null;
+  isExactSnapshot: boolean;
 } {
-  const { ignoreClears = false, enrichmentPersons = [] } = options;
+  const {
+    ignoreClears = false,
+    enrichmentPersons = [],
+    trustedRootIds,
+    explicitRootIds
+  } = options;
 
   const validLogs = [...(auditLogs || [])]
     .filter((l) => !Number.isNaN(new Date(l.timestamp).getTime()))
@@ -1430,9 +1591,64 @@ export function reconstructAtTimestamp(
   const sortedLogs = validLogs.filter((l) => new Date(l.timestamp).getTime() <= cutoffMs);
   const logsAfterCutoff = validLogs.filter((l) => new Date(l.timestamp).getTime() > cutoffMs);
 
-  // Track persons whose structural links were modified AFTER cutoffMs so enrichment never leaks later moves
+  // FIRST: Check if a 100% Exact Cloud Snapshot exists in `sortedLogs` (at or before `cutoffMs`)
+  let latestExactSnapIdx = -1;
+  for (let i = sortedLogs.length - 1; i >= 0; i--) {
+    const candidate = sortedLogs[i];
+    if (Array.isArray(candidate.exactSnapshotPersons) && candidate.exactSnapshotPersons.length > 0) {
+      latestExactSnapIdx = i;
+      break;
+    }
+  }
+
+  if (latestExactSnapIdx !== -1) {
+    const snapLog = sortedLogs[latestExactSnapIdx];
+    const logsAfterSnap = sortedLogs.slice(latestExactSnapIdx + 1);
+    const mutatingAfterSnap = logsAfterSnap.filter((l) =>
+      ['create', 'update', 'delete', 'add_father', 'merge', 'restore'].includes(l.actionType)
+    );
+
+    // If no edits happened between this Exact Cloud Snapshot and `cutoffMs`, return it 100% VERBATIM!
+    if (mutatingAfterSnap.length === 0) {
+      const { persons: verbatim } = sanitizePersonsForRestore(snapLog.exactSnapshotPersons!);
+      const { rootsCount, rootNames, rootDetails } = computeRootDetails(verbatim);
+      const maleCount = verbatim.filter((p) => p.gender === 'male').length;
+      const wifeLinksCount = verbatim.filter(
+        (p) => p.gender === 'female' && (Boolean(p.husbandId) || Boolean(p.husbandName && p.husbandName.trim()))
+      ).length;
+      const motherLinksCount = verbatim.filter((p) => Boolean(p.motherId)).length;
+      const notesCount = verbatim.filter((p) => Boolean(p.notes && p.notes.trim())).length;
+
+      return {
+        persons: verbatim,
+        rootsCount,
+        rootNames,
+        rootDetails,
+        maleCount,
+        femaleCount: verbatim.length - maleCount,
+        wifeLinksCount,
+        motherLinksCount,
+        notesCount,
+        logsIncludedCount: sortedLogs.length,
+        lastClearTimestamp: null,
+        isExactSnapshot: true
+      };
+    }
+  }
+
+  // Track persons whose structural links were modified AFTER cutoffMs so enrichment never leaks later moves.
   const modifiedAfterCutoffIds = new Set<string>();
+  let hasStructuralResetAfterCutoff = false;
   for (const log of logsAfterCutoff) {
+    const desc = (log.description || '').trim();
+    if (
+      log.actionType === 'restore' ||
+      log.actionType === 'add_father' ||
+      log.actionType === 'merge' ||
+      (log.actionType === 'delete' && desc.includes('تفريغ كافة بيانات'))
+    ) {
+      hasStructuralResetAfterCutoff = true;
+    }
     if (
       (log.actionType === 'update' || log.actionType === 'add_father' || log.actionType === 'merge') &&
       log.targetPersonId
@@ -1443,6 +1659,7 @@ export function reconstructAtTimestamp(
   for (const op of mergeOperations || []) {
     const t = new Date(op.timestamp).getTime();
     if (!Number.isNaN(t) && t > cutoffMs) {
+      hasStructuralResetAfterCutoff = true;
       if (op.sourcePersonId) modifiedAfterCutoffIds.add(op.sourcePersonId);
       if (op.targetPersonId) modifiedAfterCutoffIds.add(op.targetPersonId);
       if (Array.isArray(op.movedChildrenIds)) {
@@ -1457,6 +1674,12 @@ export function reconstructAtTimestamp(
     gender: Gender;
     createdAt: string;
     updatedAt: string;
+    logFatherId?: string | 'ROOT';
+    logMotherId?: string | null;
+    logHusbandId?: string | null;
+    logHusbandName?: string;
+    logNotes?: string;
+    logExcludedChildIds?: string[];
   };
 
   let activeMap = new Map<string, TempRecord>();
@@ -1464,6 +1687,33 @@ export function reconstructAtTimestamp(
   let lastClearTimestamp: string | null = null;
   const historicalNamesById = new Map<string, Set<string>>();
   const deletedNamesSet = new Set<string>();
+
+  // If we have an Exact Cloud Snapshot earlier than cutoffMs, seed `activeMap` from it and only replay logs after it!
+  let startReplayIndex = 0;
+  let seededFromExactSnapshot = false;
+  let allReplayedLogsExact = true;
+
+  if (latestExactSnapIdx !== -1) {
+    const snapLog = sortedLogs[latestExactSnapIdx];
+    const { persons: seeded } = sanitizePersonsForRestore(snapLog.exactSnapshotPersons!);
+    for (const sp of seeded) {
+      activeMap.set(sp.id, {
+        id: sp.id,
+        fullName: sp.fullName,
+        gender: sp.gender,
+        createdAt: sp.createdAt,
+        updatedAt: sp.updatedAt,
+        logFatherId: sp.fatherId || 'ROOT',
+        logMotherId: sp.motherId || null,
+        logHusbandId: sp.husbandId || null,
+        logHusbandName: sp.husbandName || '',
+        logNotes: sp.notes || '',
+        logExcludedChildIds: Array.isArray(sp.excludedChildIds) ? sp.excludedChildIds : []
+      });
+    }
+    startReplayIndex = latestExactSnapIdx + 1;
+    seededFromExactSnapshot = true;
+  }
 
   const recordHistoricalName = (id: string, name: string) => {
     if (!id || !name) return;
@@ -1539,9 +1789,20 @@ export function reconstructAtTimestamp(
     return fallback;
   };
 
-  for (const log of sortedLogs) {
-    const desc = (log.description || '').trim();
+  for (let logIdx = startReplayIndex; logIdx < sortedLogs.length; logIdx++) {
+    const log = sortedLogs[logIdx];
+    const rawDesc = (log.description || '').trim();
+    const meta = parseAuditMetaTag(rawDesc);
+    const desc = meta.cleanDesc;
     const ts = log.timestamp || new Date().toISOString();
+
+    if (
+      seededFromExactSnapshot &&
+      (log.actionType === 'restore' || log.actionType === 'add_father' || log.actionType === 'merge' ||
+        ((log.actionType === 'create' || log.actionType === 'update') && !meta.hasMeta))
+    ) {
+      allReplayedLogsExact = false;
+    }
 
     if (log.actionType === 'delete' && desc.includes('تفريغ كافة بيانات')) {
       lastClearTimestamp = ts;
@@ -1570,7 +1831,15 @@ export function reconstructAtTimestamp(
         fullName,
         gender,
         createdAt: ts,
-        updatedAt: ts
+        updatedAt: ts,
+        ...(meta.hasMeta
+          ? {
+              logFatherId: meta.fatherId,
+              logMotherId: meta.motherId || null,
+              logHusbandId: meta.husbandId || null,
+              logHusbandName: meta.husbandName || ''
+            }
+          : {})
       });
       recordHistoricalName(id, fullName);
       deletedNamesSet.delete(normalizeArabic(fullName));
@@ -1588,7 +1857,13 @@ export function reconstructAtTimestamp(
         fullName,
         gender,
         createdAt: existing?.createdAt || ts,
-        updatedAt: ts
+        updatedAt: ts,
+        logFatherId: meta.hasMeta ? meta.fatherId : existing?.logFatherId,
+        logMotherId: meta.hasMeta ? meta.motherId || null : existing?.logMotherId,
+        logHusbandId: meta.hasMeta ? meta.husbandId || null : existing?.logHusbandId,
+        logHusbandName: meta.hasMeta ? meta.husbandName || '' : existing?.logHusbandName,
+        logNotes: existing?.logNotes,
+        logExcludedChildIds: existing?.logExcludedChildIds
       });
       if (oldName) recordHistoricalName(log.targetPersonId, oldName);
       recordHistoricalName(log.targetPersonId, fullName);
@@ -1705,6 +1980,16 @@ export function reconstructAtTimestamp(
           propagateRenameInActiveMap(log.targetPersonId, oldName, newName, ts);
         }
       }
+    } else if (log.actionType === 'restore') {
+      // Restore re-populates Firestore in bulk without emitting per-person create logs.
+      // Re-hydrate pre-clear records so all edits after a clear+restore remain linked to their real trees!
+      if (bestPreClearSnapshot && bestPreClearSnapshot.size > 0 && activeMap.size < bestPreClearSnapshot.size) {
+        for (const [id, rec] of bestPreClearSnapshot.entries()) {
+          if (!activeMap.has(id)) {
+            activeMap.set(id, { ...rec });
+          }
+        }
+      }
     }
   }
 
@@ -1788,6 +2073,8 @@ export function reconstructAtTimestamp(
     }
   }
 
+  const loggedExplicitRootIds = new Set<string>();
+
   const rawPersons: Person[] = Array.from(chosenMap.values()).map((r) => {
     let ep = enrichById.get(r.id) || enrichByNormName.get(normalizeArabic(r.fullName));
     if (!ep) {
@@ -1802,7 +2089,17 @@ export function reconstructAtTimestamp(
       }
     }
 
-    if (
+    if (r.logFatherId === 'ROOT') {
+      loggedExplicitRootIds.add(r.id);
+    } else if (
+      r.logFatherId &&
+      r.logFatherId !== r.id &&
+      chosenMap.has(r.logFatherId) &&
+      !preferredFatherIdMap.has(r.id)
+    ) {
+      preferredFatherIdMap.set(r.id, r.logFatherId);
+    } else if (
+      !hasStructuralResetAfterCutoff &&
       ep &&
       ep.fatherId &&
       ep.fatherId !== r.id &&
@@ -1813,22 +2110,33 @@ export function reconstructAtTimestamp(
       preferredFatherIdMap.set(r.id, ep.fatherId);
     }
 
-    const motherId = ep?.motherId && chosenMap.has(ep.motherId) ? ep.motherId : null;
+    const effectiveMotherSource = r.logMotherId !== undefined ? r.logMotherId : ep?.motherId;
+    const motherId =
+      effectiveMotherSource && chosenMap.has(effectiveMotherSource) ? effectiveMotherSource : null;
+
+    const effectiveHusbandIdSource = r.logHusbandId !== undefined ? r.logHusbandId : ep?.husbandId;
+    const effectiveHusbandNameSource =
+      r.logHusbandName !== undefined ? r.logHusbandName : ep?.husbandName || '';
+
     let husbandId: string | null =
-      ep?.husbandId && chosenMap.has(ep.husbandId) ? ep.husbandId : null;
-    if (!husbandId && ep?.husbandName && ep.husbandName.trim()) {
-      const normH = normalizeArabic(ep.husbandName);
+      effectiveHusbandIdSource && chosenMap.has(effectiveHusbandIdSource)
+        ? effectiveHusbandIdSource
+        : null;
+    if (!husbandId && effectiveHusbandNameSource && effectiveHusbandNameSource.trim()) {
+      const normH = normalizeArabic(effectiveHusbandNameSource);
       if (normH && chosenMaleByNorm.has(normH)) {
         husbandId = chosenMaleByNorm.get(normH)!;
       } else {
-        const hPair = makePairKey(ep.husbandName);
+        const hPair = makePairKey(effectiveHusbandNameSource);
         if (hPair) {
           const hCands = chosenMaleByPair.get(hPair) || [];
           if (hCands.length === 1) husbandId = hCands[0];
         }
       }
     }
-    const excludedChildIds = Array.isArray(ep?.excludedChildIds)
+    const excludedChildIds = Array.isArray(r.logExcludedChildIds)
+      ? r.logExcludedChildIds.filter((cid) => chosenMap.has(cid))
+      : Array.isArray(ep?.excludedChildIds)
       ? ep.excludedChildIds.filter((cid) => chosenMap.has(cid))
       : [];
 
@@ -1839,63 +2147,43 @@ export function reconstructAtTimestamp(
       fatherId: null,
       motherId,
       husbandId,
-      husbandName: ep?.husbandName || '',
+      husbandName: effectiveHusbandNameSource || '',
       excludedChildIds,
-      notes: ep?.notes || '',
+      notes: r.logNotes !== undefined ? r.logNotes : (ep?.notes || ''),
       createdAt: r.createdAt,
       updatedAt: r.updatedAt
     };
   });
 
+  const effectiveExplicitRootIds = new Set<string>([
+    ...(explicitRootIds || []),
+    ...loggedExplicitRootIds
+  ]);
+  if (trustedRootIds) {
+    for (const rid of trustedRootIds) {
+      if (chosenMap.has(rid) && !modifiedAfterCutoffIds.has(rid)) {
+        effectiveExplicitRootIds.add(rid);
+      }
+    }
+  }
+
+  // STRICT EXACT ONLY: Never synthesize fake ancestors, never bridge heuristically,
+  // never group orphans randomly, and never guess between ambiguous candidates!
   const linked = linkFathersByArabicLineage(rawPersons, {
     preferredFatherIdMap,
+    explicitRootIds: effectiveExplicitRootIds.size > 0 ? effectiveExplicitRootIds : undefined,
     historicalNamesById,
     deletedNamesSet,
-    bridgeToExistingAncestors: true,
-    groupOrphanSiblings: true,
+    strictExactOnly: true,
+    bridgeToExistingAncestors: false,
+    groupOrphanSiblings: false,
     synthesizeMissingAncestors: false
   });
 
   const { persons: sanitized } = sanitizePersonsForRestore(linked.persons);
 
-  // Top-down pass to refresh cascaded descendant fullNames cleanly from each root
-  const childrenByFather = new Map<string, Person[]>();
-  const roots: Person[] = [];
-  for (const p of sanitized) {
-    if (p.fatherId) {
-      const arr = childrenByFather.get(p.fatherId) || [];
-      arr.push(p);
-      childrenByFather.set(p.fatherId, arr);
-    } else {
-      roots.push(p);
-    }
-  }
-
-  const visitedCascade = new Set<string>();
-  const queue: Person[] = [...roots];
-  for (const r of roots) visitedCascade.add(r.id);
-
-  while (queue.length > 0) {
-    const parent = queue.shift()!;
-    const kids = childrenByFather.get(parent.id) || [];
-    for (const child of kids) {
-      if (visitedCascade.has(child.id)) continue;
-      visitedCascade.add(child.id);
-      child.fullName = rebuildChildFullName(child.fullName, child.gender, parent.fullName).slice(0, 200);
-      queue.push(child);
-    }
-  }
-
-  // Keep husbandName in sync with updated husband fullName after lineage cascade
-  const sanitizedById = new Map<string, Person>(sanitized.map((p) => [p.id, p]));
-  for (const p of sanitized) {
-    if (p.gender === 'female' && p.husbandId) {
-      const husband = sanitizedById.get(p.husbandId);
-      if (husband) {
-        p.husbandName = husband.fullName;
-      }
-    }
-  }
+  // NOTE: We intentionally DO NOT run destructive top-down `rebuildChildFullName` overwriting here,
+  // so real logged fullNames are preserved 100% as recorded without ever being corrupted.
 
   const { rootsCount, rootNames, rootDetails } = computeRootDetails(sanitized);
   const maleCount = sanitized.filter((p) => p.gender === 'male').length;
@@ -1916,18 +2204,41 @@ export function reconstructAtTimestamp(
     motherLinksCount,
     notesCount,
     logsIncludedCount: sortedLogs.length,
-    lastClearTimestamp
+    lastClearTimestamp,
+    isExactSnapshot: seededFromExactSnapshot && allReplayedLogsExact
+  };
+}
+
+/**
+ * Detaches a person (e.g. an independent ancestor whose patronymic name happens to match another root)
+ * into a standalone root inside a snapshot while preserving fullName, branches, notes, and wife links.
+ */
+export function detachPersonAsRootInSnapshot(
+  point: TimeTravelRestorePoint,
+  targetPersonId: string
+): TimeTravelRestorePoint {
+  const updatedPersons = point.persons.map((p) =>
+    p.id === targetPersonId ? { ...p, fatherId: null } : { ...p }
+  );
+  const { rootsCount, rootNames, rootDetails } = computeRootDetails(updatedPersons);
+  return {
+    ...point,
+    persons: updatedPersons,
+    rootsCount,
+    rootNames,
+    rootDetails
   };
 }
 
 /**
  * Generates automatic Point-in-Time Restore Points from Firestore `audit_logs` & `merge_operations`,
- * including "Before today's edits", before each clear/merge event, and end of each active day.
+ * including before each restore/clear/merge event, before today & before yesterday, and end of each active day.
  */
 export function buildTimeTravelRestorePoints(
   auditLogs: AuditLog[],
   mergeOperations: MergeOperation[],
-  enrichmentPersons: Person[] = []
+  enrichmentPersons: Person[] = [],
+  localSafetySnapshots: LocalSafetySnapshot[] = []
 ): TimeTravelRestorePoint[] {
   if (!auditLogs || auditLogs.length === 0) return [];
 
@@ -1947,6 +2258,7 @@ export function buildTimeTravelRestorePoints(
     0,
     0
   ).getTime();
+  const startOfYesterdayMs = startOfTodayMs - 24 * 60 * 60 * 1000;
 
   const formatArDate = (ms: number) =>
     new Date(ms).toLocaleDateString('ar-SA', {
@@ -1990,15 +2302,60 @@ export function buildTimeTravelRestorePoints(
       cutoffMs: lastPrevMs,
       isBeforeToday: true,
       isHighlighted: true,
-      priority: 100
+      priority: 94
     });
   }
 
-  // 2. Before each mass clear event
+  // 1B. "Before yesterday's edits" — helpful after midnight rollover
+  const logsBeforeYesterday = sortedLogs.filter(
+    (l) => new Date(l.timestamp).getTime() < startOfYesterdayMs
+  );
+  if (logsBeforeYesterday.length > 0) {
+    const lastBeforeYestMs = new Date(
+      logsBeforeYesterday[logsBeforeYesterday.length - 1].timestamp
+    ).getTime();
+    candidates.push({
+      id: `before_yesterday_${lastBeforeYestMs}`,
+      label: 'نسخة ما قبل تعديلات أمس',
+      subLabel: `آخر حالة مسجّلة قبل أمس (${formatArDateTime(lastBeforeYestMs)})`,
+      cutoffMs: lastBeforeYestMs,
+      isBeforeToday: true,
+      isHighlighted: true,
+      priority: 92
+    });
+  }
+
+  // 2. Exact Cloud Snapshots (highest priority: 100% verbatim) AND before restore/clear/merge/add_father
+  let lastAddFatherClusterMs = 0;
+  let restoreCount = 0;
   for (const log of sortedLogs) {
     const desc = (log.description || '').trim();
     const tsMs = new Date(log.timestamp).getTime();
-    if (log.actionType === 'delete' && desc.includes('تفريغ كافة بيانات')) {
+    if (Array.isArray(log.exactSnapshotPersons) && log.exactSnapshotPersons.length > 0) {
+      const cleanReason = stripAuditMetaTag(desc)
+        .replace(/^نسخة سحابية حقيقية مطابقة 100%\s*:\s*/i, '')
+        .trim();
+      candidates.push({
+        id: `exact_snap_${log.id}`,
+        label: `نسخة سحابية حقيقية (100%): ${cleanReason || 'لقطة محفوظة'}`,
+        subLabel: `نسخة أصلية محفوظة حرفياً بدون أي تخمين في ${formatArDateTime(tsMs)}`,
+        cutoffMs: tsMs,
+        isBeforeToday: tsMs < startOfTodayMs,
+        isHighlighted: true,
+        priority: 100
+      });
+    } else if (log.actionType === 'restore') {
+      restoreCount++;
+      candidates.push({
+        id: `pre_restore_${tsMs}_${restoreCount}`,
+        label: 'قبل عملية الاستعادة مباشرة',
+        subLabel: `الحالة قبل الاستعادة في ${formatArDateTime(tsMs)}`,
+        cutoffMs: tsMs - 1,
+        isBeforeToday: tsMs < startOfTodayMs,
+        isHighlighted: true,
+        priority: 97
+      });
+    } else if (log.actionType === 'delete' && desc.includes('تفريغ كافة بيانات')) {
       candidates.push({
         id: `pre_clear_${tsMs}`,
         label: 'قبل عملية تفريغ الشجرة مباشرة',
@@ -2006,7 +2363,7 @@ export function buildTimeTravelRestorePoints(
         cutoffMs: tsMs - 1,
         isBeforeToday: tsMs < startOfTodayMs,
         isHighlighted: logsBeforeToday.length === 0,
-        priority: 90
+        priority: 95
       });
     } else if (log.actionType === 'merge') {
       candidates.push({
@@ -2015,8 +2372,20 @@ export function buildTimeTravelRestorePoints(
         subLabel: `قبل الدمج في ${formatArDateTime(tsMs)}`,
         cutoffMs: tsMs - 1,
         isBeforeToday: tsMs < startOfTodayMs,
-        priority: 75
+        priority: 78
       });
+    } else if (log.actionType === 'add_father') {
+      if (tsMs - lastAddFatherClusterMs >= 15 * 60 * 1000) {
+        lastAddFatherClusterMs = tsMs;
+        candidates.push({
+          id: `pre_add_father_${tsMs}`,
+          label: 'قبل تعديل الأصول / إضافة جد أعلى',
+          subLabel: `قبل عملية ربط الأصل في ${formatArDateTime(tsMs)}`,
+          cutoffMs: tsMs - 1,
+          isBeforeToday: tsMs < startOfTodayMs,
+          priority: 72
+        });
+      }
     }
   }
 
@@ -2038,7 +2407,7 @@ export function buildTimeTravelRestorePoints(
 
   const dayEntries = Array.from(dayLastLogMap.entries())
     .sort((a, b) => b[1].lastMs - a[1].lastMs)
-    .slice(0, 14);
+    .slice(0, 20);
 
   for (const [dayKey, info] of dayEntries) {
     const isBeforeToday = info.lastMs < startOfTodayMs;
@@ -2061,13 +2430,30 @@ export function buildTimeTravelRestorePoints(
   const seenSignatures = new Set<string>();
 
   for (const cand of candidates) {
+    // Only trust root IDs from a local safety snapshot actually saved at or before `cand.cutoffMs`
+    // so today's/post-restore broken structure NEVER leaks back into historical points!
+    const eligibleSnaps = (localSafetySnapshots || [])
+      .filter((s) => {
+        const savedMs = new Date(s.savedAt).getTime();
+        return !Number.isNaN(savedMs) && savedMs <= cand.cutoffMs + 60_000 && s.rootsCount >= 1 && s.rootsCount <= 6;
+      })
+      .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+    const pointTrustedRootIds =
+      eligibleSnaps.length > 0
+        ? new Set<string>(eligibleSnaps[0].rootDetails.map((r) => r.id))
+        : undefined;
+
     const snap = reconstructAtTimestamp(auditLogs, mergeOperations, cand.cutoffMs, {
       ignoreClears: false,
-      enrichmentPersons
+      enrichmentPersons,
+      trustedRootIds: pointTrustedRootIds
     });
     if (snap.persons.length === 0) continue;
 
-    const sig = `${snap.persons.length}|${snap.rootsCount}|${snap.rootNames.slice(0, 5).join(',')}|${snap.logsIncludedCount}`;
+    const sig = `${snap.persons.length}|${snap.rootsCount}|${snap.rootDetails
+      .slice(0, 6)
+      .map((r) => `${r.id}:${r.branchCount}`)
+      .join(',')}|${snap.logsIncludedCount}`;
     if (seenSignatures.has(sig)) continue;
     seenSignatures.add(sig);
 
@@ -2088,7 +2474,8 @@ export function buildTimeTravelRestorePoints(
       notesCount: snap.notesCount,
       logsIncludedCount: snap.logsIncludedCount,
       isBeforeToday: cand.isBeforeToday,
-      isHighlighted: cand.isHighlighted
+      isHighlighted: cand.isHighlighted,
+      isExactSnapshot: snap.isExactSnapshot
     });
   }
 
@@ -2162,6 +2549,47 @@ export function reconstructFromCloudLogs(
     totalLogsAnalyzed: auditLogs.length,
     source: snap.persons.length > 0 ? 'cloud_logs' : 'none'
   };
+}
+
+function parseAuditMetaTag(desc: string): {
+  cleanDesc: string;
+  hasMeta: boolean;
+  fatherId?: string | 'ROOT';
+  motherId?: string;
+  husbandId?: string;
+  husbandName?: string;
+} {
+  const m = desc.match(/\s*\[((?:fid|mid|hid|hname):[^\]]+)\]\s*$/);
+  if (!m) {
+    return { cleanDesc: desc, hasMeta: false };
+  }
+  const cleanDesc = desc.slice(0, m.index).trim();
+  const parts = m[1].split('|').map((s) => s.trim());
+  let fatherId: string | 'ROOT' | undefined;
+  let motherId: string | undefined;
+  let husbandId: string | undefined;
+  let husbandName: string | undefined;
+
+  for (const part of parts) {
+    if (part.startsWith('fid:')) {
+      const val = part.slice(4).trim();
+      if (val === 'ROOT' || VALID_ID_REGEX.test(val)) fatherId = val;
+    } else if (part.startsWith('mid:')) {
+      const val = part.slice(4).trim();
+      if (VALID_ID_REGEX.test(val)) motherId = val;
+    } else if (part.startsWith('hid:')) {
+      const val = part.slice(4).trim();
+      if (VALID_ID_REGEX.test(val)) husbandId = val;
+    } else if (part.startsWith('hname:')) {
+      husbandName = part.slice(6).trim();
+    }
+  }
+
+  return { cleanDesc, hasMeta: true, fatherId, motherId, husbandId, husbandName };
+}
+
+export function stripAuditMetaTag(desc: string): string {
+  return parseAuditMetaTag(desc || '').cleanDesc;
 }
 
 function hashStr(str: string): number {

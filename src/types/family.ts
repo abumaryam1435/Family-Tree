@@ -34,6 +34,7 @@ export interface AuditLog {
   description: string;
   previousData?: unknown;
   newData?: unknown;
+  exactSnapshotPersons?: Person[];
   timestamp: string;
 }
 

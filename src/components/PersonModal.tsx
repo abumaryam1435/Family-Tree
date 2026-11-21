@@ -60,6 +60,7 @@ interface PersonModalProps {
   onQuickAddChild?: (data: { fullName: string; gender: Gender; fatherId: string }) => Promise<void>;
   onLinkWife?: (husbandId: string, wifeId: string) => Promise<void>;
   onUnlinkWife?: (wifeId: string) => Promise<void>;
+  onDetachAsRoot?: (personId: string) => void;
   editingEnabled: boolean;
   isAdmin: boolean;
   getPerson: (id: string) => Person | undefined;
@@ -88,6 +89,7 @@ export const PersonModal: React.FC<PersonModalProps> = ({
   onQuickAddChild,
   onLinkWife,
   onUnlinkWife,
+  onDetachAsRoot,
   editingEnabled,
   isAdmin,
   getPerson,
@@ -1417,6 +1419,18 @@ export const PersonModal: React.FC<PersonModalProps> = ({
                         <ArrowUp className="w-3 h-3 shrink-0" />
                         <span>{father ? 'نقل الفرع لجد أعلى / + جد' : '+ إضافة جد أعلى / نقل لجد'}</span>
                       </button>
+
+                      {onDetachAsRoot && father && person.gender === 'male' && (
+                        <button
+                          type="button"
+                          onClick={() => onDetachAsRoot(person.id)}
+                          className="min-h-[32px] px-2.5 py-1 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-300 text-[11px] font-bold transition flex items-center justify-center gap-1 shrink-0 cursor-pointer"
+                          title="فصل هذا الشخص وفروعه ليكون أصل شجرة مستقلة دون تغيير اسمه أو فروعه أو روابط الزوجات"
+                        >
+                          <GitFork className="w-3 h-3 shrink-0 text-teal-700" />
+                          <span>فصل كشجرة مستقلة</span>
+                        </button>
+                      )}
 
                       {onOpenMergeModal && person.gender === 'male' && (
                         <button

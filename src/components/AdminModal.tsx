@@ -19,9 +19,12 @@ import {
   GitMerge,
   Plus,
   ArrowUp,
-  Users
+  Users,
+  Heart,
+  Search,
+  Cloud
 } from 'lucide-react';
-import { AppSettings, AuditLog, ChangeRequest, MergeOperation } from '../types/family';
+import { AppSettings, AuditLog, ChangeRequest, MergeOperation, Person } from '../types/family';
 import { apiClient } from '../api/client';
 import { ConfirmModal } from './ConfirmModal';
 import {
@@ -29,12 +32,18 @@ import {
   reconstructFromCloudLogs,
   buildTimeTravelRestorePoints,
   reconstructAtTimestamp,
+  detachPersonAsRootInSnapshot,
+  stripAuditMetaTag,
+  computeRootDetails,
   loadLocalSafetyBackups,
+  extractCloudExactSnapshots,
   triggerJsonBackupDownload,
   CloudRecoverySummary,
+  CloudExactSnapshot,
   TimeTravelRestorePoint,
   LocalSafetySnapshot
 } from '../utils/backupRecovery';
+import { normalizeArabic } from '../utils/nameUtils';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -65,7 +74,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   onOpenMergeModal,
   onNavigateToList
 }) => {
-  const [activeTab, setActiveTab] = useState<'status' | 'logs' | 'requests' | 'merges' | 'backup' | 'passcode'>('status');
+  const [activeTab, setActiveTab] = useState<'status' | 'wives' | 'logs' | 'requests' | 'merges' | 'backup' | 'passcode'>('status');
   
   // Login / Passcode state
   const [enteredPasscode, setEnteredPasscode] = useState<string>('');
@@ -88,11 +97,14 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   } | null>(null);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
   const [isDownloadingBackup, setIsDownloadingBackup] = useState<boolean>(false);
+  const [isSavingCloudSnapshot, setIsSavingCloudSnapshot] = useState<boolean>(false);
   const [isRestoring, setIsRestoring] = useState<boolean>(false);
   const [cloudRecovery, setCloudRecovery] = useState<CloudRecoverySummary | null>(null);
+  const [cloudExactSnapshots, setCloudExactSnapshots] = useState<CloudExactSnapshot[]>([]);
   const [localSafetyBackups, setLocalSafetyBackups] = useState<LocalSafetySnapshot[]>([]);
   const [timeTravelPoints, setTimeTravelPoints] = useState<TimeTravelRestorePoint[]>([]);
   const [previewedPointId, setPreviewedPointId] = useState<string | null>(null);
+  const [previewSearch, setPreviewSearch] = useState<string>('');
   const [customDateTime, setCustomDateTime] = useState<string>(() => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
@@ -104,6 +116,36 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [showRecoveryPreview, setShowRecoveryPreview] = useState<boolean>(false);
 
   const [currentPersonsForEnrich, setCurrentPersonsForEnrich] = useState<LocalSafetySnapshot['persons']>([]);
+
+  // Quick Batch Wife-Linking tab state
+  const [wivesFilter, setWivesFilter] = useState<'unlinked' | 'linked' | 'all'>('unlinked');
+  const [wivesSearch, setWivesSearch] = useState<string>('');
+  const [editingWifeId, setEditingWifeId] = useState<string | null>(null);
+  const [husbandQuery, setHusbandQuery] = useState<string>('');
+  const [externalHusbandText, setExternalHusbandText] = useState<string>('');
+  const [wifeSavingId, setWifeSavingId] = useState<string | null>(null);
+  const [wivesNotice, setWivesNotice] = useState<string | null>(null);
+
+  // Interactive Click-to-Restore inside Audit Logs tab
+  const [logsSearch, setLogsSearch] = useState<string>('');
+  const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
+  const [selectedLogMode, setSelectedLogMode] = useState<'at' | 'before'>('at');
+  const [selectedLogPoint, setSelectedLogPoint] = useState<TimeTravelRestorePoint | null>(null);
+  const [showLogPointPreview, setShowLogPointPreview] = useState<boolean>(false);
+  const [logPreviewSearch, setLogPreviewSearch] = useState<string>('');
+
+  const getTrustedRootIdsForCutoff = (snaps: LocalSafetySnapshot[], cutoffMs: number): Set<string> => {
+    // Only use root IDs from a local safety snapshot actually saved at or before `cutoffMs`
+    const cleanCandidates = snaps
+      .filter((s) => {
+        const savedMs = new Date(s.savedAt).getTime();
+        return !Number.isNaN(savedMs) && savedMs <= cutoffMs + 60_000 && s.rootsCount >= 1 && s.rootsCount <= 6;
+      })
+      .sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
+    const chosen = cleanCandidates[0];
+    if (!chosen) return new Set<string>();
+    return new Set<string>(chosen.rootDetails.map((r) => r.id));
+  };
 
   const buildEnrichmentPool = (
     snaps: LocalSafetySnapshot[],
@@ -153,8 +195,20 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     setLoadingData(true);
     try {
       if (activeTab === 'logs') {
-        const logs = await apiClient.getAuditLogs();
+        const localSnaps = loadLocalSafetyBackups();
+        setLocalSafetyBackups(localSnaps);
+        const [logs, merges, livePersons] = await Promise.all([
+          apiClient.getAuditLogs(),
+          apiClient.getMergeOperations(),
+          apiClient.getPersons().catch(() => [])
+        ]);
         setAuditLogs(logs);
+        setMergeOperations(merges);
+        setCloudExactSnapshots(extractCloudExactSnapshots(logs));
+        setCurrentPersonsForEnrich(livePersons);
+      } else if (activeTab === 'wives') {
+        const livePersons = await apiClient.getPersons().catch(() => []);
+        setCurrentPersonsForEnrich(livePersons);
       } else if (activeTab === 'requests') {
         const reqs = await apiClient.getChangeRequests();
         setChangeRequests(reqs);
@@ -173,8 +227,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         const enrichmentPool = buildEnrichmentPool(localSnaps, livePersons);
         setAuditLogs(logs);
         setMergeOperations(merges);
+        setCloudExactSnapshots(extractCloudExactSnapshots(logs));
         setCloudRecovery(reconstructFromCloudLogs(logs, merges));
-        setTimeTravelPoints(buildTimeTravelRestorePoints(logs, merges, enrichmentPool));
+        setTimeTravelPoints(buildTimeTravelRestorePoints(logs, merges, enrichmentPool, localSnaps));
         setCustomPoint(null);
       }
     } catch (err) {
@@ -537,14 +592,120 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     });
   };
 
+  const handleSaveCloudSnapshotNow = async () => {
+    setIsSavingCloudSnapshot(true);
+    setRestoreStatus({
+      type: 'info',
+      message: 'جارٍ حفظ نقطة استعادة سحابية حقيقية مطابقة 100%...'
+    });
+    try {
+      const res = await apiClient.saveCloudExactSnapshot('حفظ يدوي من المشرف');
+      if (res.saved) {
+        setRestoreStatus({
+          type: 'success',
+          message: `تم حفظ نسخة سحابية حقيقية مطابقة 100% (${res.personsCount} فرداً) بنجاح. يمكنك العودة إليها بدقة تامة من أي جهاز في أي وقت.`
+        });
+        await loadAdminData();
+      } else {
+        setRestoreStatus({
+          type: 'warning',
+          message: res.message || 'تعذر حفظ النقطة السحابية المطابقة.'
+        });
+      }
+    } catch (err: any) {
+      setRestoreStatus({
+        type: 'error',
+        message: err?.message || 'حدث خطأ أثناء حفظ النقطة السحابية'
+      });
+    } finally {
+      setIsSavingCloudSnapshot(false);
+    }
+  };
+
+  const handleRestoreCloudExactSnapshot = (snap: CloudExactSnapshot) => {
+    if (!snap || snap.persons.length === 0) return;
+    const savedLabel = new Date(snap.savedAt).toLocaleString('ar-SA', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    setConfirmDialog({
+      isOpen: true,
+      title: 'استعادة نسخة سحابية حقيقية مطابقة 100%',
+      message: `سيتم استعادة النسخة السحابية المحفوظة في (${savedLabel}) والتي تحتوي على ${snap.persons.length} فرداً في ${snap.rootsCount} أصول بكامل تفاصيلها الحقيقية (الآباء، الفروع، الزوجات، الأمهات، الملاحظات) بدون أي تخمين أو تعديل. سيتم حفظ الوضع الحالي تلقائياً قبل الاستعادة.`,
+      isDestructive: false,
+      onConfirm: async () => {
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+        setIsRestoring(true);
+        setRestoreStatus({
+          type: 'info',
+          message: `جارٍ استعادة النسخة السحابية الحقيقية (${snap.persons.length} فرداً)...`
+        });
+        try {
+          const result = await apiClient.restoreBackup(snap.persons, {
+            mode: 'replace',
+            sourceLabel: `نسخة سحابية حقيقية 100% (${savedLabel})`
+          });
+          setRestoreStatus({
+            type: 'success',
+            message: `تمت الاستعادة الحقيقية (100%) بنجاح! (${result.restoredCount} فرداً، ${snap.rootsCount} أصول مطابقة تماماً).`
+          });
+          onDataResetOrRestored();
+          await loadAdminData();
+        } catch (err: any) {
+          setRestoreStatus({
+            type: 'error',
+            message: `حدث خطأ أثناء الاستعادة: ${err.message || 'يرجى المحاولة مرة أخرى'}`
+          });
+        } finally {
+          setIsRestoring(false);
+        }
+      }
+    });
+  };
+
+  const handleDownloadCloudExactSnapshotJson = (snap: CloudExactSnapshot) => {
+    const filename = triggerJsonBackupDownload(
+      {
+        version: 2,
+        source: 'cloud_exact_snapshot',
+        savedAt: snap.savedAt,
+        reason: snap.reason,
+        exportedAt: new Date().toISOString(),
+        personsCount: snap.persons.length,
+        rootsCount: snap.rootsCount,
+        persons: snap.persons
+      },
+      'family_tree_exact_cloud_snapshot'
+    );
+    setRestoreStatus({
+      type: 'success',
+      message: `تم تنزيل النسخة السحابية الحقيقية (${snap.persons.length} فرداً) بصيغة JSON: ${filename}`
+    });
+  };
+
+  const handleDetachInTimeTravelPoint = (pointId: string, personId: string) => {
+    if (customPoint && customPoint.id === pointId) {
+      setCustomPoint((prev) => (prev ? detachPersonAsRootInSnapshot(prev, personId) : prev));
+      return;
+    }
+    setTimeTravelPoints((prev) =>
+      prev.map((pt) => (pt.id === pointId ? detachPersonAsRootInSnapshot(pt, personId) : pt))
+    );
+  };
+
   const handleCheckCustomDateTime = () => {
     if (!customDateTime) return;
     const ms = new Date(customDateTime).getTime();
     if (Number.isNaN(ms)) return;
     const enrichmentPool = buildEnrichmentPool(localSafetyBackups);
+    const trustedRootIds = getTrustedRootIdsForCutoff(localSafetyBackups, ms);
     const snap = reconstructAtTimestamp(auditLogs, mergeOperations, ms, {
       ignoreClears: false,
-      enrichmentPersons: enrichmentPool
+      enrichmentPersons: enrichmentPool,
+      trustedRootIds
     });
     const formatted = new Date(ms).toLocaleString('ar-SA', {
       year: 'numeric',
@@ -569,9 +730,122 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       motherLinksCount: snap.motherLinksCount,
       notesCount: snap.notesCount,
       logsIncludedCount: snap.logsIncludedCount,
-      isBeforeToday: true
+      isBeforeToday: true,
+      isExactSnapshot: snap.isExactSnapshot
     });
     setPreviewedPointId(`custom_${ms}`);
+    setPreviewSearch('');
+  };
+
+  const handleBatchLinkWife = async (wife: Person, husband: Person | null, customExternalName?: string) => {
+    setWifeSavingId(wife.id);
+    setWivesNotice(null);
+    try {
+      if (husband) {
+        await apiClient.updatePerson(wife.id, {
+          husbandId: husband.id,
+          husbandName: husband.fullName
+        });
+        setWivesNotice(`تم ربط «${wife.fullName}» بالزوج «${husband.fullName}» بنجاح`);
+      } else if (customExternalName && customExternalName.trim()) {
+        await apiClient.updatePerson(wife.id, {
+          husbandId: null,
+          husbandName: customExternalName.trim()
+        });
+        setWivesNotice(`تم تسجيل زوج «${wife.fullName}» (${customExternalName.trim()}) بنجاح`);
+      } else {
+        await apiClient.updatePerson(wife.id, {
+          husbandId: null,
+          husbandName: ''
+        });
+        setWivesNotice(`تم فك ارتباط الزوج عن «${wife.fullName}»`);
+      }
+      setEditingWifeId(null);
+      setHusbandQuery('');
+      setExternalHusbandText('');
+      const updated = await apiClient.getPersons().catch(() => []);
+      setCurrentPersonsForEnrich(updated);
+      onSettingsUpdated();
+    } catch (err: any) {
+      setWivesNotice(err.message || 'تعذر حفظ ربط الزوجة');
+    } finally {
+      setWifeSavingId(null);
+    }
+  };
+
+  // Build a Time-Travel Restore Point directly from any clicked Audit Log entry
+  const buildPointForAuditLog = (log: AuditLog, mode: 'at' | 'before'): TimeTravelRestorePoint | null => {
+    const tsMs = new Date(log.timestamp).getTime();
+    if (Number.isNaN(tsMs)) return null;
+    const cutoffMs = mode === 'before' ? tsMs - 1 : tsMs;
+    const enrichmentPool = buildEnrichmentPool(localSafetyBackups, currentPersonsForEnrich);
+    const trustedRootIds = getTrustedRootIdsForCutoff(localSafetyBackups, cutoffMs);
+    const snap = reconstructAtTimestamp(auditLogs, mergeOperations, cutoffMs, {
+      ignoreClears: false,
+      enrichmentPersons: enrichmentPool,
+      trustedRootIds
+    });
+    const formatted = new Date(tsMs).toLocaleString('ar-SA', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+    const cleanDesc = stripAuditMetaTag(log.description);
+    return {
+      id: `log_${log.id}_${mode}`,
+      label:
+        mode === 'before'
+          ? `قبل التعديل مباشرة (${formatted})`
+          : `عند التعديل (${formatted})`,
+      subLabel: cleanDesc,
+      cutoffTimestamp: new Date(cutoffMs).toISOString(),
+      cutoffMs,
+      persons: snap.persons,
+      rootsCount: snap.rootsCount,
+      rootNames: snap.rootNames,
+      rootDetails: snap.rootDetails,
+      maleCount: snap.maleCount,
+      femaleCount: snap.femaleCount,
+      wifeLinksCount: snap.wifeLinksCount,
+      motherLinksCount: snap.motherLinksCount,
+      notesCount: snap.notesCount,
+      logsIncludedCount: snap.logsIncludedCount,
+      isBeforeToday: true,
+      isExactSnapshot: snap.isExactSnapshot
+    };
+  };
+
+  const handleSelectAuditLog = (log: AuditLog) => {
+    if (selectedLogId === log.id) {
+      setSelectedLogId(null);
+      setSelectedLogPoint(null);
+      setShowLogPointPreview(false);
+      setLogPreviewSearch('');
+      return;
+    }
+    const defaultMode: 'at' | 'before' =
+      log.actionType === 'snapshot'
+        ? 'at'
+        : log.actionType === 'delete' || log.actionType === 'restore' || log.actionType === 'merge'
+        ? 'before'
+        : 'at';
+    setSelectedLogId(log.id);
+    setSelectedLogMode(defaultMode);
+    setShowLogPointPreview(false);
+    setLogPreviewSearch('');
+    setSelectedLogPoint(buildPointForAuditLog(log, defaultMode));
+  };
+
+  const handleSwitchSelectedLogMode = (log: AuditLog, mode: 'at' | 'before') => {
+    setSelectedLogMode(mode);
+    setSelectedLogPoint(buildPointForAuditLog(log, mode));
+  };
+
+  const handleDetachInSelectedLogPoint = (personId: string) => {
+    setSelectedLogPoint((prev) => (prev ? detachPersonAsRootInSnapshot(prev, personId) : prev));
   };
 
   // Reset Sample Data
@@ -701,6 +975,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 }`}
               >
                 أدوات المشرف والإدارة
+              </button>
+              <button
+                onClick={() => setActiveTab('wives')}
+                className={`min-h-[36px] px-3 py-1.5 rounded-xl transition whitespace-nowrap flex items-center gap-1 ${
+                  activeTab === 'wives' ? 'bg-rose-700 text-white' : 'text-rose-800 bg-rose-50/70 hover:bg-rose-100'
+                }`}
+              >
+                <Heart className="w-3.5 h-3.5" />
+                <span>ربط الزوجات السريع</span>
               </button>
               <button
                 onClick={() => setActiveTab('logs')}
@@ -864,45 +1147,567 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 </div>
               )}
 
-              {/* Tab 2: Audit Log */}
-              {activeTab === 'logs' && (
-                <div className="p-4 sm:p-6 space-y-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className="text-sm font-bold text-[#0F4C3A]">
-                      سجل التعديلات والعمليات ({auditLogs.length})
-                    </h4>
-                    <button
-                      onClick={loadAdminData}
-                      className="min-h-[34px] px-2.5 py-1 rounded-lg text-xs text-slate-600 hover:text-[#0F4C3A] flex items-center gap-1"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>تحديث</span>
-                    </button>
-                  </div>
+              {/* Quick Batch Wife-Linking Tab */}
+              {activeTab === 'wives' && (() => {
+                const allFemales = currentPersonsForEnrich.filter((p) => p.gender === 'female');
+                const allMales = currentPersonsForEnrich.filter((p) => p.gender === 'male');
+                const linkedCount = allFemales.filter(
+                  (f) => Boolean(f.husbandId) || Boolean(f.husbandName && f.husbandName.trim())
+                ).length;
+                const unlinkedCount = allFemales.length - linkedCount;
+                const normSearch = normalizeArabic(wivesSearch.trim());
+                const filteredFemales = allFemales.filter((f) => {
+                  const isLinked = Boolean(f.husbandId) || Boolean(f.husbandName && f.husbandName.trim());
+                  if (wivesFilter === 'unlinked' && isLinked) return false;
+                  if (wivesFilter === 'linked' && !isLinked) return false;
+                  if (normSearch && !normalizeArabic(f.fullName).includes(normSearch) && !normalizeArabic(f.husbandName || '').includes(normSearch)) {
+                    return false;
+                  }
+                  return true;
+                });
+                const normHQ = normalizeArabic(husbandQuery.trim());
+                const matchedMales = normHQ
+                  ? allMales.filter((m) => normalizeArabic(m.fullName).includes(normHQ)).slice(0, 12)
+                  : allMales.slice(0, 12);
 
-                  <div className="border border-slate-200 rounded-2xl max-h-96 overflow-y-auto divide-y divide-slate-100 bg-white">
-                    {auditLogs.length === 0 ? (
-                      <div className="p-8 text-center text-xs text-slate-400">
-                        لا توجد سجلات مسجلة بعد
+                return (
+                  <div className="p-4 sm:p-6 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <h4 className="text-sm font-bold text-rose-900 flex items-center gap-1.5">
+                          <Heart className="w-4 h-4 text-rose-600" />
+                          <span>ربط الزوجات السريع ({linkedCount} مربوطة · {unlinkedCount} غير مربوطة)</span>
+                        </h4>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          اربط بنات العائلة بأزواجهن بسرعة من مكان واحد — كل ربط يُحفظ تلقائياً في قاعدة البيانات وسجل الاستعادة السحابي.
+                        </p>
                       </div>
-                    ) : (
-                      auditLogs.map((log) => (
-                        <div key={log.id} className="p-3 hover:bg-slate-50 text-xs space-y-1">
-                          <div className="flex items-center justify-between gap-2 flex-wrap text-slate-500">
-                            <span className="font-semibold text-slate-700">
-                              {log.actor}: {log.actionType}
-                            </span>
-                            <span className="text-[10px] tabular-nums">
-                              {new Date(log.timestamp).toLocaleString('ar-SA')}
-                            </span>
-                          </div>
-                          <p className="text-slate-900 font-medium leading-relaxed break-words">{log.description}</p>
-                        </div>
-                      ))
+                      <button
+                        type="button"
+                        onClick={loadAdminData}
+                        className="self-start sm:self-center min-h-[34px] px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-xs text-slate-600 hover:text-[#0F4C3A] flex items-center gap-1"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${loadingData ? 'animate-spin' : ''}`} />
+                        <span>تحديث</span>
+                      </button>
+                    </div>
+
+                    {wivesNotice && (
+                      <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-bold flex items-center gap-1.5">
+                        <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>{wivesNotice}</span>
+                      </div>
                     )}
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                      <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-bold shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setWivesFilter('unlinked')}
+                          className={`px-2.5 py-1 rounded-lg transition ${
+                            wivesFilter === 'unlinked' ? 'bg-rose-700 text-white' : 'text-slate-600 hover:bg-white'
+                          }`}
+                        >
+                          غير مربوطات ({unlinkedCount})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWivesFilter('linked')}
+                          className={`px-2.5 py-1 rounded-lg transition ${
+                            wivesFilter === 'linked' ? 'bg-emerald-700 text-white' : 'text-slate-600 hover:bg-white'
+                          }`}
+                        >
+                          مربوطات ({linkedCount})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWivesFilter('all')}
+                          className={`px-2.5 py-1 rounded-lg transition ${
+                            wivesFilter === 'all' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-white'
+                          }`}
+                        >
+                          الكل ({allFemales.length})
+                        </button>
+                      </div>
+
+                      <div className="relative flex-1">
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={wivesSearch}
+                          onChange={(e) => setWivesSearch(e.target.value)}
+                          placeholder="ابحث باسم البنت أو الزوج..."
+                          className="w-full h-9 pr-8 pl-3 rounded-xl border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-rose-600"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="border border-slate-200 rounded-2xl max-h-96 overflow-y-auto divide-y divide-slate-100 bg-white">
+                      {filteredFemales.length === 0 ? (
+                        <div className="p-8 text-center text-xs text-slate-400">
+                          لا توجد نتائج مطابقة حالياً
+                        </div>
+                      ) : (
+                        filteredFemales.map((f) => {
+                          const isEditing = editingWifeId === f.id;
+                          const isSaving = wifeSavingId === f.id;
+                          const linkedHusband = f.husbandId
+                            ? allMales.find((m) => m.id === f.husbandId)
+                            : null;
+                          const displayHusband = linkedHusband?.fullName || f.husbandName || '';
+                          return (
+                            <div key={f.id} className="p-3 space-y-2 text-xs">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="font-bold text-slate-900 break-words">{f.fullName}</div>
+                                  {displayHusband ? (
+                                    <div className="text-[11px] text-rose-700 font-semibold mt-0.5">
+                                      الزوج: {displayHusband}
+                                    </div>
+                                  ) : (
+                                    <div className="text-[11px] text-slate-400 mt-0.5">غير مربوطة بزوج بعد</div>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    type="button"
+                                    disabled={isSaving}
+                                    onClick={() => {
+                                      if (isEditing) {
+                                        setEditingWifeId(null);
+                                      } else {
+                                        setEditingWifeId(f.id);
+                                        setHusbandQuery('');
+                                        setExternalHusbandText(linkedHusband ? '' : f.husbandName || '');
+                                      }
+                                    }}
+                                    className="min-h-[32px] px-3 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 font-bold text-[11px] transition cursor-pointer"
+                                  >
+                                    {isEditing ? 'إغلاق' : displayHusband ? 'تغيير الزوج' : '+ ربط بزوج'}
+                                  </button>
+                                  {displayHusband && (
+                                    <button
+                                      type="button"
+                                      disabled={isSaving}
+                                      onClick={() => handleBatchLinkWife(f, null)}
+                                      className="min-h-[32px] px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-700 font-bold text-[11px] transition cursor-pointer"
+                                    >
+                                      فك الربط
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {isEditing && (
+                                <div className="p-3 rounded-xl bg-rose-50/50 border border-rose-200 space-y-2.5">
+                                  <div className="space-y-1.5">
+                                    <label className="block text-[11px] font-bold text-rose-900">
+                                      اختر الزوج من أفراد الشجرة:
+                                    </label>
+                                    <input
+                                      type="text"
+                                      autoFocus
+                                      value={husbandQuery}
+                                      onChange={(e) => setHusbandQuery(e.target.value)}
+                                      placeholder="اكتب اسم الزوج للبحث السريع..."
+                                      className="w-full h-9 px-3 rounded-xl border border-rose-200 bg-white text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-rose-600"
+                                    />
+                                    <div className="max-h-36 overflow-y-auto rounded-xl border border-rose-200 bg-white divide-y divide-slate-100">
+                                      {matchedMales.map((m) => (
+                                        <button
+                                          key={m.id}
+                                          type="button"
+                                          disabled={isSaving}
+                                          onClick={() => handleBatchLinkWife(f, m)}
+                                          className="w-full px-3 py-1.5 text-right hover:bg-emerald-50 flex items-center justify-between gap-2 transition cursor-pointer"
+                                        >
+                                          <span className="font-semibold text-slate-800 truncate">{m.fullName}</span>
+                                          <span className="px-2 py-0.5 rounded-md bg-emerald-700 text-white text-[10px] font-bold shrink-0">
+                                            ربط
+                                          </span>
+                                        </button>
+                                      ))}
+                                      {matchedMales.length === 0 && (
+                                        <div className="p-2.5 text-center text-[11px] text-slate-400">
+                                          لا يوجد ذكر مطابق بهذا الاسم في الشجرة
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="pt-2 border-t border-rose-200/70 flex items-center gap-2">
+                                    <input
+                                      type="text"
+                                      value={externalHusbandText}
+                                      onChange={(e) => setExternalHusbandText(e.target.value)}
+                                      placeholder="أو اكتب اسم زوج من خارج الشجرة..."
+                                      className="flex-1 h-8 px-2.5 rounded-lg border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-rose-600"
+                                    />
+                                    <button
+                                      type="button"
+                                      disabled={isSaving || !externalHusbandText.trim()}
+                                      onClick={() => handleBatchLinkWife(f, null, externalHusbandText)}
+                                      className="h-8 px-3 rounded-lg bg-rose-700 hover:bg-rose-800 disabled:opacity-50 text-white text-[11px] font-bold transition shrink-0"
+                                    >
+                                      حفظ كزوج خارجي
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
+
+              {/* Tab 2: Audit Log (Interactive Click-to-Restore on Any Edit) */}
+              {activeTab === 'logs' && (() => {
+                const actionLabelMap: Record<string, { label: string; cls: string }> = {
+                  snapshot: { label: 'نسخة حقيقية 100%', cls: 'bg-emerald-700 text-white' },
+                  create: { label: 'إضافة', cls: 'bg-emerald-100 text-emerald-800' },
+                  update: { label: 'تعديل', cls: 'bg-blue-100 text-blue-800' },
+                  delete: { label: 'حذف', cls: 'bg-red-100 text-red-800' },
+                  add_father: { label: 'إضافة أصل/جد', cls: 'bg-amber-100 text-amber-900' },
+                  merge: { label: 'دمج', cls: 'bg-purple-100 text-purple-800' },
+                  restore: { label: 'استعادة', cls: 'bg-teal-100 text-teal-800' },
+                  settings_change: { label: 'إعدادات', cls: 'bg-slate-100 text-slate-700' },
+                  request_approved: { label: 'طلب تعديل', cls: 'bg-indigo-100 text-indigo-800' }
+                };
+
+                const normLogQuery = normalizeArabic(logsSearch.trim());
+                const filteredLogs = normLogQuery
+                  ? auditLogs.filter((log) => {
+                      const clean = stripAuditMetaTag(log.description);
+                      const dateStr = new Date(log.timestamp).toLocaleString('ar-SA');
+                      return (
+                        normalizeArabic(clean).includes(normLogQuery) ||
+                        normalizeArabic(log.targetPersonName || '').includes(normLogQuery) ||
+                        normalizeArabic(dateStr).includes(normLogQuery) ||
+                        normalizeArabic(actionLabelMap[log.actionType]?.label || log.actionType).includes(normLogQuery)
+                      );
+                    })
+                  : auditLogs;
+
+                return (
+                  <div className="p-4 sm:p-6 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <h4 className="text-sm font-bold text-[#0F4C3A]">
+                          سجل التعديلات والعمليات ({auditLogs.length})
+                        </h4>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          اضغط على أي سجل تعديل لمعاينة الأشجار والأصول عند تلك اللحظة أو قبلها مباشرة، ثم استعادتها بضغطة واحدة.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={loadAdminData}
+                        className="self-start sm:self-center min-h-[34px] px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-xs text-slate-600 hover:text-[#0F4C3A] flex items-center gap-1"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${loadingData ? 'animate-spin' : ''}`} />
+                        <span>تحديث</span>
+                      </button>
+                    </div>
+
+                    {restoreStatus && (
+                      <div
+                        className={`p-3 rounded-xl border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                          restoreStatus.type === 'success'
+                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                            : restoreStatus.type === 'error'
+                            ? 'bg-red-50 border-red-200 text-red-800'
+                            : 'bg-amber-50 border-amber-200 text-amber-900'
+                        }`}
+                      >
+                        <span className="font-semibold leading-relaxed">{restoreStatus.message}</span>
+                        {restoreStatus.type === 'success' && (
+                          <button
+                            type="button"
+                            onClick={onClose}
+                            className="self-start sm:self-center px-3 py-1 rounded-lg bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white text-[11px] font-bold transition shrink-0 cursor-pointer"
+                          >
+                            إغلاق وعرض الشجرة الآن
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={logsSearch}
+                        onChange={(e) => setLogsSearch(e.target.value)}
+                        placeholder="ابحث داخل سجل التعديلات بالاسم أو نوع العملية أو التاريخ..."
+                        className="w-full h-9 pr-8 pl-3 rounded-xl border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]"
+                      />
+                    </div>
+
+                    <div className="border border-slate-200 rounded-2xl max-h-[28rem] overflow-y-auto divide-y divide-slate-100 bg-white">
+                      {filteredLogs.length === 0 ? (
+                        <div className="p-8 text-center text-xs text-slate-400">
+                          {auditLogs.length === 0 ? 'لا توجد سجلات مسجلة بعد' : 'لا توجد سجلات مطابقة للبحث'}
+                        </div>
+                      ) : (
+                        filteredLogs.map((log) => {
+                          const isSelected = selectedLogId === log.id;
+                          const badge = actionLabelMap[log.actionType] || {
+                            label: log.actionType,
+                            cls: 'bg-slate-100 text-slate-700'
+                          };
+                          const cleanDesc = stripAuditMetaTag(log.description);
+
+                          return (
+                            <div
+                              key={log.id}
+                              className={`transition ${isSelected ? 'bg-emerald-50/60' : 'hover:bg-slate-50'}`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleSelectAuditLog(log)}
+                                className="w-full p-3 text-right text-xs space-y-1 cursor-pointer block"
+                              >
+                                <div className="flex items-center justify-between gap-2 flex-wrap text-slate-500">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${badge.cls}`}>
+                                      {badge.label}
+                                    </span>
+                                    <span className="font-semibold text-slate-700">{log.actor}</span>
+                                    <span className="text-[10px] text-[#0F4C3A] font-bold">
+                                      {isSelected ? '▲ إغلاق خيارات الاستعادة' : '▼ اضغط للاستعادة لهذا السجل'}
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] tabular-nums">
+                                    {new Date(log.timestamp).toLocaleString('ar-SA')}
+                                  </span>
+                                </div>
+                                <p className="text-slate-900 font-medium leading-relaxed break-words">
+                                  {cleanDesc}
+                                </p>
+                              </button>
+
+                              {isSelected && selectedLogPoint && (
+                                <div className="px-3 pb-3.5 pt-1">
+                                  <div className="p-3.5 rounded-2xl bg-white border-2 border-[#0F4C3A]/30 space-y-3 shadow-xs text-xs">
+                                    {/* Toggle: At this edit vs Right before this edit */}
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-[11px] font-bold">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSwitchSelectedLogMode(log, 'at')}
+                                          className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                                            selectedLogMode === 'at'
+                                              ? 'bg-[#0F4C3A] text-white'
+                                              : 'text-slate-700 hover:bg-white'
+                                          }`}
+                                        >
+                                          الحالة عند هذا التعديل (شاملةً له)
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSwitchSelectedLogMode(log, 'before')}
+                                          className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                                            selectedLogMode === 'before'
+                                              ? 'bg-amber-700 text-white'
+                                              : 'text-slate-700 hover:bg-white'
+                                          }`}
+                                        >
+                                          الحالة قبل هذا التعديل مباشرة
+                                        </button>
+                                      </div>
+
+                                      <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-[#0F4C3A] text-[10px] font-bold">
+                                        {selectedLogPoint.rootsCount}{' '}
+                                        {selectedLogPoint.rootsCount === 1
+                                          ? 'شجرة'
+                                          : selectedLogPoint.rootsCount === 2
+                                          ? 'شجرتان'
+                                          : selectedLogPoint.rootsCount <= 10
+                                          ? 'أشجار'
+                                          : 'شجرة'}{' '}
+                                        · {selectedLogPoint.persons.length} فرداً
+                                      </span>
+                                    </div>
+
+                                    {selectedLogPoint.persons.length > 0 && (
+                                      selectedLogPoint.isExactSnapshot ? (
+                                        <div className="px-2.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-[11px] font-semibold">
+                                          ✓ نسخة سحابية حقيقية مطابقة 100% — محفوظة بكامل الأصول والفروع وروابط الزوجات بدون أي تخمين.
+                                        </div>
+                                      ) : (
+                                        <div className="px-2.5 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
+                                          <strong>تنبيه دقة:</strong> هذا السجل قديم (قبل تفعيل النسخ السحابية المطابقة 100%) ولم يكن يحفظ معرّف الأب أو روابط الزوجات؛ لذلك تم تعطيل أي تخمين أو توزيع عشوائي والاكتفاء بالتطابق التام فقط.
+                                        </div>
+                                      )
+                                    )}
+
+                                    {selectedLogPoint.persons.length === 0 ? (
+                                      <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px]">
+                                        كانت الشجرة فارغة تماماً في هذه اللحظة (0 أفراد). جرّب التبديل إلى «الحالة قبل هذا التعديل مباشرة» أو اختيار سجل أقدم/أحدث.
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                          <span>
+                                            ({selectedLogPoint.maleCount} ذكور · {selectedLogPoint.femaleCount} إناث)
+                                          </span>
+                                          <span
+                                            className={
+                                              selectedLogPoint.wifeLinksCount > 0
+                                                ? 'font-bold text-rose-700'
+                                                : 'text-slate-400'
+                                            }
+                                          >
+                                            · روابط الزوجات: {selectedLogPoint.wifeLinksCount}
+                                          </span>
+                                          {selectedLogPoint.motherLinksCount > 0 && (
+                                            <span className="font-bold text-emerald-700">
+                                              · الأمهات: {selectedLogPoint.motherLinksCount}
+                                            </span>
+                                          )}
+                                          {selectedLogPoint.notesCount > 0 && (
+                                            <span className="font-bold text-amber-700">
+                                              · الملاحظات: {selectedLogPoint.notesCount}
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        {selectedLogPoint.rootDetails.length > 0 && (
+                                          <div className="text-[11px] text-slate-700 bg-slate-50 px-2.5 py-2 rounded-xl border border-slate-100 space-y-1">
+                                            <div className="font-bold text-[#0F4C3A]">
+                                              أصول الأشجار عند هذه اللحظة ({selectedLogPoint.rootsCount}):
+                                            </div>
+                                            <div className="flex flex-wrap gap-1.5">
+                                              {selectedLogPoint.rootDetails.slice(0, 8).map((r) => (
+                                                <span
+                                                  key={r.id}
+                                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-800 font-semibold"
+                                                >
+                                                  <span>{r.fullName}</span>
+                                                  <span className="text-[10px] text-emerald-700 font-bold">
+                                                    ({r.branchCount} فرداً)
+                                                  </span>
+                                                </span>
+                                              ))}
+                                              {selectedLogPoint.rootDetails.length > 8 && (
+                                                <span className="px-2 py-0.5 text-[10px] text-slate-500 font-semibold">
+                                                  +{selectedLogPoint.rootDetails.length - 8} أصول أخرى
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <button
+                                            type="button"
+                                            disabled={isRestoring}
+                                            onClick={() => handleRestoreTimeTravelPoint(selectedLogPoint)}
+                                            className="min-h-[36px] px-3.5 py-1.5 rounded-xl bg-[#0F4C3A] hover:bg-[#0c3c2e] disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                                          >
+                                            <RotateCcw className="w-3.5 h-3.5 text-[#D4AF37]" />
+                                            <span>
+                                              {selectedLogMode === 'before'
+                                                ? 'استعادة الشجرة لما قبل هذا التعديل'
+                                                : 'استعادة الشجرة لهذا التعديل'}
+                                            </span>
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setShowLogPointPreview((v) => !v);
+                                              setLogPreviewSearch('');
+                                            }}
+                                            className="min-h-[36px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition cursor-pointer"
+                                          >
+                                            {showLogPointPreview ? 'إخفاء الأسماء' : 'معاينة / فصل أصول'}
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDownloadTimeTravelJson(selectedLogPoint)}
+                                            className="min-h-[36px] px-3 py-1.5 rounded-xl border border-[#0F4C3A]/30 bg-white hover:bg-emerald-50 text-[#0F4C3A] text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+                                          >
+                                            <Download className="w-3.5 h-3.5" />
+                                            <span>حفظ JSON</span>
+                                          </button>
+                                        </div>
+
+                                        {showLogPointPreview && (() => {
+                                          const normPQ = normalizeArabic(logPreviewSearch.trim());
+                                          const previewFiltered = normPQ
+                                            ? selectedLogPoint.persons.filter((p) =>
+                                                normalizeArabic(p.fullName).includes(normPQ)
+                                              )
+                                            : selectedLogPoint.persons;
+                                          return (
+                                            <div className="space-y-2 pt-1">
+                                              <input
+                                                type="text"
+                                                value={logPreviewSearch}
+                                                onChange={(e) => setLogPreviewSearch(e.target.value)}
+                                                placeholder="ابحث بالاسم (مثال: علي بن راشد) لفصله كشجرة مستقلة قبل الاستعادة..."
+                                                className="w-full h-9 px-3 rounded-xl border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]"
+                                              />
+                                              <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 divide-y divide-slate-100 text-xs">
+                                                {previewFiltered.slice(0, 120).map((p, idx) => (
+                                                  <div
+                                                    key={p.id}
+                                                    className="px-3 py-1.5 flex items-center justify-between gap-2"
+                                                  >
+                                                    <span className="font-semibold text-slate-800 truncate">
+                                                      {idx + 1}. {p.fullName}
+                                                    </span>
+                                                    <div className="flex items-center gap-1.5 shrink-0">
+                                                      {p.gender === 'male' && p.fatherId && (
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => handleDetachInSelectedLogPoint(p.id)}
+                                                          className="px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold transition cursor-pointer"
+                                                        >
+                                                          فصل كشجرة مستقلة
+                                                        </button>
+                                                      )}
+                                                      <span
+                                                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 ${
+                                                          p.gender === 'female'
+                                                            ? 'bg-rose-50 text-rose-700'
+                                                            : 'bg-emerald-50 text-emerald-700'
+                                                        }`}
+                                                      >
+                                                        {p.gender === 'female' ? 'أنثى' : 'ذكر'}
+                                                        {!p.fatherId ? ' · أصل شجرة' : ''}
+                                                      </span>
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                                {previewFiltered.length === 0 && (
+                                                  <div className="px-3 py-3 text-center text-[11px] text-slate-500">
+                                                    لا توجد نتائج مطابقة
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          );
+                                        })()}
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Tab 3: Change Requests */}
               {activeTab === 'requests' && (
@@ -1006,6 +1811,197 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               {/* Tab 5: Backup & Restore */}
               {activeTab === 'backup' && (
                 <div className="p-4 sm:p-6 space-y-5 sm:space-y-6">
+                  {/* Live Database Current Roots Summary + 1-Click Cloud Exact Snapshot Button */}
+                  {currentPersonsForEnrich.length > 0 && (() => {
+                    const liveStats = computeRootDetails(currentPersonsForEnrich);
+                    return (
+                      <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50/80 space-y-2 text-xs">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="font-bold text-slate-800">
+                            الأشجار الموجودة حالياً في قاعدة البيانات الآن ({liveStats.rootsCount} {liveStats.rootsCount === 1 ? 'شجرة' : liveStats.rootsCount === 2 ? 'شجرتان' : liveStats.rootsCount <= 10 ? 'أشجار' : 'شجرة'} · {currentPersonsForEnrich.length} فرداً):
+                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              disabled={isSavingCloudSnapshot}
+                              onClick={handleSaveCloudSnapshotNow}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer"
+                            >
+                              <Cloud className="w-3.5 h-3.5 text-[#D4AF37]" />
+                              <span>
+                                {isSavingCloudSnapshot
+                                  ? 'جارٍ الحفظ السحابي...'
+                                  : 'حفظ نقطة استعادة سحابية حقيقية (100%) الآن'}
+                              </span>
+                            </button>
+                            {restoreStatus?.type === 'success' && (
+                              <button
+                                type="button"
+                                onClick={onClose}
+                                className="px-3 py-1.5 rounded-lg bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white text-[11px] font-bold transition cursor-pointer"
+                              >
+                                إغلاق وعرض الشجرة الآن
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {liveStats.rootDetails.slice(0, 8).map((r) => (
+                            <span
+                              key={r.id}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-800 font-semibold text-[11px]"
+                            >
+                              <span>{r.fullName}</span>
+                              <span className="text-[10px] text-emerald-700 font-bold">({r.branchCount} فرداً)</span>
+                            </span>
+                          ))}
+                          {liveStats.rootDetails.length > 8 && (
+                            <span className="text-[10px] text-slate-500 font-semibold px-1">
+                              +{liveStats.rootDetails.length - 8} أصول أخرى
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Cloud Exact 100% Verbatim Snapshots (Stored in Firestore across all devices) */}
+                  {cloudExactSnapshots.length > 0 && (
+                    <div className="p-4 sm:p-5 rounded-2xl border-2 border-[#0F4C3A] bg-gradient-to-br from-emerald-50 via-white to-emerald-50/40 space-y-3.5 shadow-xs">
+                      <div className="flex items-start gap-2.5 text-[#0F4C3A]">
+                        <div className="w-9 h-9 rounded-xl bg-[#0F4C3A] text-[#D4AF37] flex items-center justify-center shrink-0">
+                          <Cloud className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-sm text-[#0F4C3A]">
+                            النسخ السحابية الحقيقية المطابقة 100% ({cloudExactSnapshots.length})
+                          </h4>
+                          <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                            نسخ كاملة محفوظة في قاعدة البيانات السحابية قبل كل حذف أو دمج أو تعديل أصل أو عند الحفظ اليدوي — تُستعاد حرفياً كما كانت 100% بكامل الأصول والفروع والزوجات والملاحظات بدون أي تخمين.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2.5 max-h-72 overflow-y-auto pr-0.5">
+                        {cloudExactSnapshots.map((snap) => {
+                          const isPreviewOpen = previewedPointId === snap.id;
+                          const savedFormatted = new Date(snap.savedAt).toLocaleString('ar-SA', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          });
+                          return (
+                            <div
+                              key={snap.id}
+                              className="p-3.5 rounded-2xl border border-emerald-300 bg-white space-y-2.5 shadow-xs"
+                            >
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="px-2 py-0.5 rounded-md bg-emerald-700 text-white text-[10px] font-bold">
+                                    نسخة سحابية حقيقية 100%
+                                  </span>
+                                  <span className="font-bold text-xs sm:text-sm text-[#0F4C3A]">
+                                    {snap.reason}
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-[#0F4C3A] text-[10px] font-bold">
+                                    {snap.rootsCount} {snap.rootsCount === 1 ? 'شجرة' : snap.rootsCount === 2 ? 'شجرتان' : snap.rootsCount <= 10 ? 'أشجار' : 'شجرة'} · {snap.persons.length} فرداً
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                  <span>تاريخ الحفظ: {savedFormatted} ({snap.maleCount} ذكور · {snap.femaleCount} إناث)</span>
+                                  <span className="font-bold text-rose-700">· روابط الزوجات: {snap.wifeLinksCount}</span>
+                                  <span className="font-bold text-emerald-700">· الأمهات: {snap.motherLinksCount}</span>
+                                  <span className="font-bold text-amber-700">· الملاحظات: {snap.notesCount}</span>
+                                </div>
+                                {snap.rootDetails.length > 0 && (
+                                  <div className="text-[11px] text-slate-700 bg-slate-50 px-2.5 py-2 rounded-lg border border-slate-100 space-y-1">
+                                    <div className="font-bold text-[#0F4C3A]">
+                                      أصول الأشجار في هذه النسخة ({snap.rootsCount}):
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {snap.rootDetails.slice(0, 8).map((r) => (
+                                        <span
+                                          key={r.id}
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-emerald-200 text-slate-800 font-semibold"
+                                        >
+                                          <span>{r.fullName}</span>
+                                          <span className="text-[10px] text-emerald-700 font-bold">
+                                            ({r.branchCount} فرداً)
+                                          </span>
+                                        </span>
+                                      ))}
+                                      {snap.rootDetails.length > 8 && (
+                                        <span className="px-2 py-0.5 text-[10px] text-slate-500 font-semibold">
+                                          +{snap.rootDetails.length - 8} أصول أخرى
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                                <button
+                                  type="button"
+                                  disabled={isRestoring}
+                                  onClick={() => handleRestoreCloudExactSnapshot(snap)}
+                                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#0F4C3A] hover:bg-[#0c3c2e] disabled:opacity-60 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5 text-[#D4AF37]" />
+                                  <span>استعادة هذه النسخة الحقيقية (100%) الآن</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewedPointId(isPreviewOpen ? null : snap.id)}
+                                  className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition cursor-pointer"
+                                >
+                                  {isPreviewOpen ? 'إخفاء الأسماء' : 'معاينة الأسماء'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadCloudExactSnapshotJson(snap)}
+                                  className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#0F4C3A]/30 bg-white hover:bg-emerald-50 text-[#0F4C3A] text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                  <span>حفظ JSON</span>
+                                </button>
+                              </div>
+
+                              {isPreviewOpen && (
+                                <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 divide-y divide-slate-100 text-xs">
+                                  {snap.persons.slice(0, 120).map((p, idx) => (
+                                    <div key={p.id} className="px-3 py-1.5 flex items-center justify-between gap-2">
+                                      <span className="font-semibold text-slate-800 truncate">
+                                        {idx + 1}. {p.fullName}
+                                      </span>
+                                      <span
+                                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 ${
+                                          p.gender === 'female'
+                                            ? 'bg-rose-50 text-rose-700'
+                                            : 'bg-emerald-50 text-emerald-700'
+                                        }`}
+                                      >
+                                        {p.gender === 'female' ? 'أنثى' : 'ذكر'}
+                                        {!p.fatherId ? ' · أصل شجرة' : ''}
+                                      </span>
+                                    </div>
+                                  ))}
+                                  {snap.persons.length > 120 && (
+                                    <div className="px-3 py-1.5 text-center text-[11px] text-slate-500">
+                                      ... و {snap.persons.length - 120} فرداً آخرين
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Local Automatic Full-Fidelity Safety Snapshots (Saved on this device before any restore/clear) */}
                   {localSafetyBackups.length > 0 && (
                     <div className="p-4 sm:p-5 rounded-2xl border-2 border-emerald-500/70 bg-gradient-to-br from-emerald-50 via-white to-teal-50/60 space-y-3.5 shadow-xs">
@@ -1160,10 +2156,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         </div>
                         <div>
                           <h4 className="font-bold text-sm text-[#0F4C3A]">
-                            الاستعادة الزمنية — العودة لنسخة ما قبل تعديلات اليوم أو أي تاريخ سابق
+                            الاستعادة الزمنية — النقاط السحابية وسجل التعديلات
                           </h4>
                           <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                            يقرأ النظام سجل التعديلات السحابي ويعيد تجميع الأشجار والفروع في أصولها الأصلية بدقة، مع دمج الملاحظات وروابط الأمهات والزوجات تلقائياً عند توفر نسخة أمان محلية.
+                            النقاط الموسومة بـ <strong>«نسخة حقيقية 100%»</strong> محفوظة حرفياً بدون أي تخمين. أما السجلات القديمة التي سبقت تفعيل النسخ السحابية المطابقة فلم تكن تخزّن معرّفات الآباء أو الزوجات، ولذلك تم إلغاء أي تخمين أو توزيع عشوائي تماماً والاكتفاء بالتطابق التام فقط.
                           </p>
                         </div>
                       </div>
@@ -1201,9 +2197,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
                                   <div className="space-y-1.5 min-w-0 w-full">
                                     <div className="flex items-center gap-1.5 flex-wrap">
-                                      {pt.isHighlighted && (
-                                        <span className="px-2 py-0.5 rounded-md bg-[#D4AF37]/25 text-[#78570A] text-[10px] font-black">
-                                          موصى به
+                                      {pt.isExactSnapshot ? (
+                                        <span className="px-2 py-0.5 rounded-md bg-emerald-700 text-white text-[10px] font-bold">
+                                          نسخة حقيقية مطابقة 100%
+                                        </span>
+                                      ) : (
+                                        <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold">
+                                          سجل قديم (تطابق تام فقط — بدون تخمين)
                                         </span>
                                       )}
                                       <span className="font-bold text-xs sm:text-sm text-[#0F4C3A]">
@@ -1270,12 +2270,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
                                   <button
                                     type="button"
-                                    onClick={() =>
-                                      setPreviewedPointId(isPreviewOpen ? null : pt.id)
-                                    }
+                                    onClick={() => {
+                                      setPreviewedPointId(isPreviewOpen ? null : pt.id);
+                                      setPreviewSearch('');
+                                    }}
                                     className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition"
                                   >
-                                    {isPreviewOpen ? 'إخفاء الأسماء' : 'معاينة الأسماء'}
+                                    {isPreviewOpen ? 'إخفاء الأسماء' : 'معاينة / فصل أصول'}
                                   </button>
 
                                   <button
@@ -1288,32 +2289,64 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                   </button>
                                 </div>
 
-                                {isPreviewOpen && (
-                                  <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 divide-y divide-slate-100 text-xs">
-                                    {pt.persons.slice(0, 120).map((p, idx) => (
-                                      <div key={p.id} className="px-3 py-1.5 flex items-center justify-between gap-2">
-                                        <span className="font-semibold text-slate-800 truncate">
-                                          {idx + 1}. {p.fullName}
-                                        </span>
-                                        <span
-                                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 ${
-                                            p.gender === 'female'
-                                              ? 'bg-rose-50 text-rose-700'
-                                              : 'bg-emerald-50 text-emerald-700'
-                                          }`}
-                                        >
-                                          {p.gender === 'female' ? 'أنثى' : 'ذكر'}
-                                          {!p.fatherId ? ' · أصل شجرة' : ''}
-                                        </span>
+                                {isPreviewOpen && (() => {
+                                  const normQ = normalizeArabic(previewSearch.trim());
+                                  const filtered = normQ
+                                    ? pt.persons.filter((p) => normalizeArabic(p.fullName).includes(normQ))
+                                    : pt.persons;
+                                  return (
+                                    <div className="space-y-2 pt-1">
+                                      <input
+                                        type="text"
+                                        value={previewSearch}
+                                        onChange={(e) => setPreviewSearch(e.target.value)}
+                                        placeholder="ابحث بالاسم داخل النسخة (مثال: علي بن راشد) لفصله كشجرة مستقلة قبل الاستعادة..."
+                                        className="w-full h-9 px-3 rounded-xl border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]"
+                                      />
+                                      <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 divide-y divide-slate-100 text-xs">
+                                        {filtered.slice(0, 120).map((p, idx) => (
+                                          <div key={p.id} className="px-3 py-1.5 flex items-center justify-between gap-2">
+                                            <span className="font-semibold text-slate-800 truncate">
+                                              {idx + 1}. {p.fullName}
+                                            </span>
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                              {p.gender === 'male' && p.fatherId && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleDetachInTimeTravelPoint(pt.id, p.id)}
+                                                  className="px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold transition cursor-pointer"
+                                                  title="فصل هذا الشخص وفروعه ليكون أصل شجرة مستقلة في هذه النسخة قبل الاستعادة"
+                                                >
+                                                  فصل كشجرة مستقلة
+                                                </button>
+                                              )}
+                                              <span
+                                                className={`px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 ${
+                                                  p.gender === 'female'
+                                                    ? 'bg-rose-50 text-rose-700'
+                                                    : 'bg-emerald-50 text-emerald-700'
+                                                }`}
+                                              >
+                                                {p.gender === 'female' ? 'أنثى' : 'ذكر'}
+                                                {!p.fatherId ? ' · أصل شجرة' : ''}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                        {filtered.length === 0 && (
+                                          <div className="px-3 py-3 text-center text-[11px] text-slate-500">
+                                            لا توجد نتائج مطابقة لهذا الاسم في هذه النسخة
+                                          </div>
+                                        )}
+                                        {filtered.length > 120 && (
+                                          <div className="px-3 py-1.5 text-center text-[11px] text-slate-500">
+                                            ... و {filtered.length - 120} فرداً آخرين (استخدم مربع البحث أعلاه)
+                                          </div>
+                                        )}
                                       </div>
-                                    ))}
-                                    {pt.persons.length > 120 && (
-                                      <div className="px-3 py-1.5 text-center text-[11px] text-slate-500">
-                                        ... و {pt.persons.length - 120} فرداً آخرين
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             );
                           })}
@@ -1345,8 +2378,19 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                             <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 space-y-2 text-xs">
                               {customPoint.persons.length > 0 ? (
                                 <>
-                                  <div className="font-bold text-[#0F4C3A]">
-                                    {customPoint.label}: تم العثور على {customPoint.rootsCount} {customPoint.rootsCount === 1 ? 'شجرة' : customPoint.rootsCount === 2 ? 'شجرتين' : customPoint.rootsCount <= 10 ? 'أشجار' : 'شجرة'} و {customPoint.persons.length} فرداً ({customPoint.maleCount} ذكور · {customPoint.femaleCount} إناث)
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {customPoint.isExactSnapshot ? (
+                                      <span className="px-2 py-0.5 rounded-md bg-emerald-700 text-white text-[10px] font-bold">
+                                        نسخة حقيقية مطابقة 100%
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold">
+                                        سجل قديم (تطابق تام فقط — بدون تخمين)
+                                      </span>
+                                    )}
+                                    <span className="font-bold text-[#0F4C3A]">
+                                      {customPoint.label}: تم العثور على {customPoint.rootsCount} {customPoint.rootsCount === 1 ? 'شجرة' : customPoint.rootsCount === 2 ? 'شجرتين' : customPoint.rootsCount <= 10 ? 'أشجار' : 'شجرة'} و {customPoint.persons.length} فرداً ({customPoint.maleCount} ذكور · {customPoint.femaleCount} إناث)
+                                    </span>
                                   </div>
                                   {customPoint.rootDetails.length > 0 && (
                                     <div className="flex flex-wrap gap-1.5 text-[11px]">

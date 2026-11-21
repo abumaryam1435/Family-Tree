@@ -71,6 +71,7 @@ export default function App() {
   const [changeRequestTarget, setChangeRequestTarget] = useState<Person | null>(null);
   const [printPersonId, setPrintPersonId] = useState<string | null>(null);
   const [personToDelete, setPersonToDelete] = useState<Person | null>(null);
+  const [personToDetach, setPersonToDetach] = useState<Person | null>(null);
   const [personHistory, setPersonHistory] = useState<string[]>([]);
   const [lineagePersonId, setLineagePersonId] = useState<string | null>(null);
 
@@ -255,6 +256,28 @@ export default function App() {
     } catch (err: any) {
       showToast(err.message, 'error');
       throw err;
+    }
+  };
+
+  // Detach a male person and his entire subtree into an independent root tree
+  const handleDetachAsRoot = (personId: string) => {
+    if (!isAdmin) return;
+    const target = getPerson(personId);
+    if (!target || !target.fatherId) return;
+    setPersonToDetach(target);
+  };
+
+  const confirmDetachAsRoot = async () => {
+    if (!personToDetach || !isAdmin) return;
+    const target = personToDetach;
+    setPersonToDetach(null);
+    try {
+      await apiClient.updatePerson(target.id, { fatherId: null });
+      showToast(`تم فصل «${target.fullName}» كشجرة مستقلة بنجاح.`);
+      await fetchData(true);
+      setSelectedTreeRootId(target.id);
+    } catch (err: any) {
+      showToast(err.message || 'تعذر فصل الفرع كشجرة مستقلة', 'error');
     }
   };
 
@@ -530,6 +553,7 @@ export default function App() {
           onQuickAddChild={handleQuickAddChild}
           onLinkWife={handleLinkWife}
           onUnlinkWife={handleUnlinkWife}
+          onDetachAsRoot={handleDetachAsRoot}
           editingEnabled={isAdmin}
           isAdmin={isAdmin}
           getPerson={getPerson}
@@ -604,6 +628,9 @@ export default function App() {
             await fetchData(true);
           }}
           onDataResetOrRestored={async () => {
+            setSelectedTreeRootId(null);
+            setSelectedPersonId(null);
+            setPersonHistory([]);
             await fetchData();
             showToast('تم تحديث بيانات الشجرة بنجاح');
           }}
@@ -656,6 +683,22 @@ export default function App() {
         isDestructive={true}
         onConfirm={confirmDeletePerson}
         onCancel={() => setPersonToDelete(null)}
+      />
+
+      {/* 9. Detach as Independent Root Tree Confirmation Modal */}
+      <ConfirmModal
+        isOpen={!!personToDetach}
+        title="فصل كشجرة مستقلة"
+        message={
+          personToDetach
+            ? `سيتم فصل «${personToDetach.fullName}» وكافة فروعه ليصبح أصل شجرة مستقلة (بدون أب)، مع الحفاظ على اسمه الكامل وكافة فروعه وملاحظاته وروابط الزوجات كما هي تماماً. هل ترغب بالمتابعة؟`
+            : ''
+        }
+        confirmText="نعم، فصل كشجرة مستقلة"
+        cancelText="إلغاء"
+        isDestructive={false}
+        onConfirm={confirmDetachAsRoot}
+        onCancel={() => setPersonToDetach(null)}
       />
 
       {/* Offline Status Alert */}

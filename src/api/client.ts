@@ -297,6 +297,13 @@ export const apiClient = {
     return { filename, personsCount: snapshot.personsCount };
   },
 
+  async saveCloudExactSnapshot(
+    reason = 'حفظ يدوي من المشرف'
+  ): Promise<{ saved: boolean; personsCount: number; logId?: string; message?: string }> {
+    const actor = this.getAdminToken() ? 'المشرف' : 'مستخدم';
+    return await familyFirebase.saveCloudExactSnapshot(reason, actor);
+  },
+
   async restoreBackup(
     payload: any,
     options: { mode?: 'replace' | 'merge'; sourceLabel?: string } = {}

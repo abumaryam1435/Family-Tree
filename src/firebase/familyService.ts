@@ -186,7 +186,7 @@ export const familyFirebase = {
     });
   },
 
-  // Add audit log
+  // Add audit log (always truncated safely under Firestore 1000-char rule)
   async addAuditLog(actor: 'مستخدم' | 'المشرف', actionType: string, desc: string, targetId?: string, targetName?: string) {
     try {
       const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -196,12 +196,99 @@ export const familyFirebase = {
         actionType,
         ...(targetId ? { targetPersonId: targetId } : {}),
         ...(targetName ? { targetPersonName: targetName } : {}),
-        description: desc,
+        description: desc.slice(0, 980),
         timestamp: new Date().toISOString()
       };
       await setDoc(doc(db, 'audit_logs', logId), logData);
     } catch {
       // Non-blocking audit log
+    }
+  },
+
+  buildAuditMetaSuffix(info: {
+    fatherId?: string | null;
+    motherId?: string | null;
+    husbandId?: string | null;
+    husbandName?: string | null;
+  }): string {
+    const parts: string[] = [];
+    parts.push(info.fatherId ? `fid:${info.fatherId}` : 'fid:ROOT');
+    if (info.motherId) parts.push(`mid:${info.motherId}`);
+    if (info.husbandId) parts.push(`hid:${info.husbandId}`);
+    if (info.husbandName && info.husbandName.trim()) {
+      parts.push(`hname:${info.husbandName.trim().replace(/[\]|]/g, ' ').slice(0, 120)}`);
+    }
+    return parts.length > 0 ? ` [${parts.join(' | ')}]` : '';
+  },
+
+  // Save a 100% exact verbatim snapshot of the entire `persons` collection inside `audit_logs`
+  // so future restores from Backup or Audit Log are 100% exact with zero guessing or heuristic relinking.
+  async saveCloudExactSnapshot(
+    reason: string,
+    actor: 'مستخدم' | 'المشرف' = 'المشرف',
+    preloadedPersons?: Person[]
+  ): Promise<{ saved: boolean; personsCount: number; logId?: string; message?: string }> {
+    try {
+      const sourcePersons =
+        preloadedPersons !== undefined
+          ? preloadedPersons
+          : (await getDocs(collection(db, 'persons'))).docs.map((d) => d.data() as Person);
+
+      if (!sourcePersons || sourcePersons.length === 0) {
+        return {
+          saved: false,
+          personsCount: 0,
+          message: 'لا توجد بيانات أفراد حالياً لحفظ نقطة استعادة.'
+        };
+      }
+
+      const compactPersons: Person[] = sourcePersons.map((p) => ({
+        id: p.id,
+        fullName: p.fullName,
+        gender: p.gender,
+        fatherId: p.fatherId || null,
+        motherId: p.motherId || null,
+        husbandId: p.gender === 'female' ? (p.husbandId || null) : null,
+        husbandName: p.gender === 'female' ? (p.husbandName || '') : '',
+        excludedChildIds:
+          p.gender === 'female' && Array.isArray(p.excludedChildIds) ? p.excludedChildIds : [],
+        notes: p.notes || '',
+        createdAt: p.createdAt || new Date().toISOString(),
+        updatedAt: p.updatedAt || new Date().toISOString()
+      }));
+
+      // Always save a local safety copy too
+      saveLocalSafetyBackup(compactPersons, reason);
+
+      // Guard strictly under Firestore's 1 MiB single-document limit (~850 KB UTF-8 budget)
+      const byteSize = new TextEncoder().encode(JSON.stringify(compactPersons)).length;
+      if (byteSize > 850_000) {
+        return {
+          saved: false,
+          personsCount: compactPersons.length,
+          message:
+            'تم حفظ نسخة أمان على جهازك، لكن حجم الشجرة يتجاوز حد اللقطة السحابية الواحدة؛ يرجى استخدام تنزيل JSON الكامل.'
+        };
+      }
+
+      const logId = `log_snap_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const logData: AuditLog = {
+        id: logId,
+        actor,
+        actionType: 'snapshot',
+        description: `نسخة سحابية حقيقية مطابقة 100%: ${reason} (${compactPersons.length} فرداً)`.slice(0, 980),
+        exactSnapshotPersons: compactPersons,
+        timestamp: new Date().toISOString()
+      };
+      await setDoc(doc(db, 'audit_logs', logId), logData);
+      return { saved: true, personsCount: compactPersons.length, logId };
+    } catch (err: any) {
+      console.error('Failed to save cloud exact snapshot:', err);
+      return {
+        saved: false,
+        personsCount: 0,
+        message: err?.message || 'تعذر حفظ النسخة السحابية المطابقة'
+      };
     }
   },
 
@@ -287,7 +374,19 @@ export const familyFirebase = {
       }
     }
 
-    await this.addAuditLog(payload.actor || 'مستخدم', 'create', `إضافة ${newPerson.gender === 'male' ? 'ابن' : 'ابنة'}: ${newPerson.fullName}`, newPerson.id, newPerson.fullName);
+    const createMeta = this.buildAuditMetaSuffix({
+      fatherId: newPerson.fatherId,
+      motherId: newPerson.motherId,
+      husbandId: newPerson.husbandId,
+      husbandName: newPerson.husbandName
+    });
+    await this.addAuditLog(
+      payload.actor || 'مستخدم',
+      'create',
+      `إضافة ${newPerson.gender === 'male' ? 'ابن' : 'ابنة'}: ${newPerson.fullName}${createMeta}`,
+      newPerson.id,
+      newPerson.fullName
+    );
     return newPerson;
   },
 
@@ -435,10 +534,30 @@ export const familyFirebase = {
       }
     }
 
+    const effectiveMotherId = updates.motherId !== undefined ? updates.motherId : current.motherId;
+    const effectiveHusbandId =
+      targetGender === 'female'
+        ? updates.husbandId !== undefined
+          ? updates.husbandId
+          : current.husbandId
+        : null;
+    const effectiveHusbandName =
+      targetGender === 'female'
+        ? updates.husbandName !== undefined
+          ? updates.husbandName
+          : current.husbandName
+        : '';
+    const updateMeta = this.buildAuditMetaSuffix({
+      fatherId: effectiveFatherId,
+      motherId: effectiveMotherId,
+      husbandId: effectiveHusbandId,
+      husbandName: effectiveHusbandName
+    });
+
     await this.addAuditLog(
       updates.actor || 'مستخدم',
       'update',
-      `تعديل بيانات: ${finalFullName}`,
+      `تعديل بيانات: ${finalFullName}${updateMeta}`,
       id,
       finalFullName
     );
@@ -460,6 +579,13 @@ export const familyFirebase = {
 
     const child = allPersons.find(p => p.id === personId);
     if (!child) throw new Error('الفرد غير موجود');
+
+    // Save 100% exact cloud snapshot before structural ancestry change
+    await this.saveCloudExactSnapshot(
+      `قبل تعديل الأصل الأعلى لـ (${child.fullName})`,
+      fatherData.actor || 'المشرف',
+      allPersons
+    ).catch(() => {});
 
     // Collect all descendants of `personId` to prevent circular ancestry
     const descendantIds = new Set<string>([personId]);
@@ -617,6 +743,13 @@ export const familyFirebase = {
     const person = snap.data() as Person;
 
     const allPersonsSnap = await getDocs(collection(db, 'persons'));
+    const allPersonsBeforeDelete = allPersonsSnap.docs.map(d => d.data() as Person);
+    await this.saveCloudExactSnapshot(
+      `قبل حذف (${person.fullName})`,
+      actor,
+      allPersonsBeforeDelete
+    ).catch(() => {});
+
     const batch = writeBatch(db);
 
     allPersonsSnap.forEach((d) => {
@@ -655,6 +788,12 @@ export const familyFirebase = {
 
     const allPersonsSnap = await getDocs(collection(db, 'persons'));
     const allPersons = allPersonsSnap.docs.map(d => d.data() as Person);
+    await this.saveCloudExactSnapshot(
+      `قبل دمج (${sourcePerson.fullName}) في (${targetPerson.fullName})`,
+      actor,
+      allPersons
+    ).catch(() => {});
+
     const now = new Date().toISOString();
     const batch = writeBatch(db);
     const movedIds: string[] = [];
@@ -861,10 +1000,12 @@ export const familyFirebase = {
       const existingSnap = await getDocs(collection(db, 'persons'));
       const existingDocs = existingSnap.docs;
       if (existingDocs.length > 0) {
-        saveLocalSafetyBackup(
-          existingDocs.map(d => d.data() as Person),
-          `نسخة تلقائية قبل: ${sourceLabel}`
-        );
+        const existingPersonsList = existingDocs.map(d => d.data() as Person);
+        await this.saveCloudExactSnapshot(
+          `قبل استعادة (${sourceLabel})`,
+          actor,
+          existingPersonsList
+        ).catch(() => {});
         for (let i = 0; i < existingDocs.length; i += BATCH_LIMIT) {
           const batch = writeBatch(db);
           const chunk = existingDocs.slice(i, i + BATCH_LIMIT);
@@ -892,15 +1033,17 @@ export const familyFirebase = {
     return { restoredCount: persons.length, warnings };
   },
 
-  // Clear all data (Saves automatic local safety backup first, then deletes in safe batches)
+  // Clear all data (Saves automatic 100% exact cloud + local safety backup first, then deletes in safe batches)
   async clearAllData(): Promise<void> {
     const allPersons = await getDocs(collection(db, 'persons'));
     const docsList = allPersons.docs;
     if (docsList.length > 0) {
-      saveLocalSafetyBackup(
-        docsList.map(d => d.data() as Person),
-        'نسخة تلقائية قبل تفريغ الشجرة'
-      );
+      const existingList = docsList.map(d => d.data() as Person);
+      await this.saveCloudExactSnapshot(
+        'قبل تفريغ الشجرة',
+        'المشرف',
+        existingList
+      ).catch(() => {});
       const BATCH_LIMIT = 400;
       for (let i = 0; i < docsList.length; i += BATCH_LIMIT) {
         const batch = writeBatch(db);
