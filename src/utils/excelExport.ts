@@ -1149,9 +1149,13 @@ export function generateTreeExcelBlob(options: ExportTreeExcelOptions): {
 /**
  * Generates and immediately downloads the formatted RTL Excel (.xlsx) file for a tree or combined trees
  */
-export function exportTreeToExcel(options: ExportTreeExcelOptions) {
+export function exportTreeToExcel(options: ExportTreeExcelOptions): {
+  blob: Blob;
+  filename: string;
+} {
   const { blob, filename } = generateTreeExcelBlob(options);
   triggerExcelDownload(blob, filename);
+  return { blob, filename };
 }
 
 /**

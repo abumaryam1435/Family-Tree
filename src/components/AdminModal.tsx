@@ -1,48 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import {
   X,
-  Lock,
-  Unlock,
-  Key,
   Shield,
-  History,
-  FileText,
   Download,
   Upload,
   RotateCcw,
   RefreshCw,
-  Trash2,
   CheckCircle,
-  AlertCircle,
-  Clock,
-  Sparkles,
   GitMerge,
   Plus,
   ArrowUp,
   Users,
   Heart,
   Search,
-  Cloud
+  FileSpreadsheet,
+  FileCode,
+  FileJson
 } from 'lucide-react';
 import { AppSettings, AuditLog, ChangeRequest, MergeOperation, Person } from '../types/family';
 import { apiClient } from '../api/client';
 import { ConfirmModal } from './ConfirmModal';
 import {
   parseBackupFile,
-  reconstructFromCloudLogs,
-  buildTimeTravelRestorePoints,
   reconstructAtTimestamp,
   detachPersonAsRootInSnapshot,
   stripAuditMetaTag,
-  computeRootDetails,
   loadLocalSafetyBackups,
-  extractCloudExactSnapshots,
   triggerJsonBackupDownload,
-  CloudRecoverySummary,
-  CloudExactSnapshot,
   TimeTravelRestorePoint,
   LocalSafetySnapshot
 } from '../utils/backupRecovery';
+import { exportTreeToExcel } from '../utils/excelExport';
+import { exportTreeToInteractiveHtml } from '../utils/htmlExport';
 import { normalizeArabic } from '../utils/nameUtils';
 
 interface AdminModalProps {
@@ -74,7 +63,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   onOpenMergeModal,
   onNavigateToList
 }) => {
-  const [activeTab, setActiveTab] = useState<'status' | 'wives' | 'logs' | 'requests' | 'merges' | 'backup' | 'passcode'>('status');
+  const [activeTab, setActiveTab] = useState<'status' | 'wives' | 'logs' | 'requests' | 'backup' | 'passcode'>('status');
   
   // Login / Passcode state
   const [enteredPasscode, setEnteredPasscode] = useState<string>('');
@@ -96,24 +85,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     message: string;
   } | null>(null);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
-  const [isDownloadingBackup, setIsDownloadingBackup] = useState<boolean>(false);
-  const [isSavingCloudSnapshot, setIsSavingCloudSnapshot] = useState<boolean>(false);
+  const [downloadingFormat, setDownloadingFormat] = useState<'json' | 'html' | 'excel' | null>(null);
   const [isRestoring, setIsRestoring] = useState<boolean>(false);
-  const [cloudRecovery, setCloudRecovery] = useState<CloudRecoverySummary | null>(null);
-  const [cloudExactSnapshots, setCloudExactSnapshots] = useState<CloudExactSnapshot[]>([]);
   const [localSafetyBackups, setLocalSafetyBackups] = useState<LocalSafetySnapshot[]>([]);
-  const [timeTravelPoints, setTimeTravelPoints] = useState<TimeTravelRestorePoint[]>([]);
-  const [previewedPointId, setPreviewedPointId] = useState<string | null>(null);
-  const [previewSearch, setPreviewSearch] = useState<string>('');
-  const [customDateTime, setCustomDateTime] = useState<string>(() => {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    yesterday.setHours(23, 59, 0, 0);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}T${pad(yesterday.getHours())}:${pad(yesterday.getMinutes())}`;
-  });
-  const [customPoint, setCustomPoint] = useState<TimeTravelRestorePoint | null>(null);
-  const [showRecoveryPreview, setShowRecoveryPreview] = useState<boolean>(false);
 
   const [currentPersonsForEnrich, setCurrentPersonsForEnrich] = useState<LocalSafetySnapshot['persons']>([]);
 
@@ -204,7 +178,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         ]);
         setAuditLogs(logs);
         setMergeOperations(merges);
-        setCloudExactSnapshots(extractCloudExactSnapshots(logs));
         setCurrentPersonsForEnrich(livePersons);
       } else if (activeTab === 'wives') {
         const livePersons = await apiClient.getPersons().catch(() => []);
@@ -212,25 +185,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       } else if (activeTab === 'requests') {
         const reqs = await apiClient.getChangeRequests();
         setChangeRequests(reqs);
-      } else if (activeTab === 'merges') {
-        const merges = await apiClient.getMergeOperations();
-        setMergeOperations(merges);
-      } else if (activeTab === 'backup') {
-        const localSnaps = loadLocalSafetyBackups();
-        setLocalSafetyBackups(localSnaps);
-        const [logs, merges, livePersons] = await Promise.all([
-          apiClient.getAuditLogs(),
-          apiClient.getMergeOperations(),
-          apiClient.getPersons().catch(() => [])
-        ]);
-        setCurrentPersonsForEnrich(livePersons);
-        const enrichmentPool = buildEnrichmentPool(localSnaps, livePersons);
-        setAuditLogs(logs);
-        setMergeOperations(merges);
-        setCloudExactSnapshots(extractCloudExactSnapshots(logs));
-        setCloudRecovery(reconstructFromCloudLogs(logs, merges));
-        setTimeTravelPoints(buildTimeTravelRestorePoints(logs, merges, enrichmentPool, localSnaps));
-        setCustomPoint(null);
       }
     } catch (err) {
       console.error(err);
@@ -329,38 +283,60 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
-  // Undo Merge
-  const handleUndoMerge = (mergeOpId: string) => {
-    setConfirmDialog({
-      isOpen: true,
-      title: 'التراجع عن عملية الدمج',
-      message: 'هل أنت متأكد من التراجع عن عملية الدمج واستعادة الشجرة السابقة وإعادة ربط الفروع؟',
-      isDestructive: false,
-      onConfirm: async () => {
-        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
-        try {
-          await apiClient.undoMerge(mergeOpId);
-          await loadAdminData();
-          onDataResetOrRestored();
-          setActionMessage('تم التراجع عن عملية الدمج بنجاح');
-        } catch (err: any) {
-          setActionMessage(err.message || 'فشل التراجع عن عملية الدمج');
-        }
-      }
-    });
-  };
-
-  // Real Firestore JSON Backup Download (never downloads HTML)
-  const handleDownloadBackup = async () => {
-    setIsDownloadingBackup(true);
+  // Export Backup in 3 formats: Excel (.xlsx), Interactive HTML (.html), or JSON (.json)
+  const handleDownloadBackup = async (format: 'json' | 'html' | 'excel') => {
+    setDownloadingFormat(format);
     setBackupStatus(null);
     try {
-      const res = await apiClient.downloadBackupJson();
-      setBackupStatus(`تم تنزيل النسخة الاحتياطية بنجاح (${res.personsCount} فرداً) في الملف: ${res.filename}`);
+      if (format === 'json') {
+        const res = await apiClient.downloadBackupJson();
+        setBackupStatus(`تم تصدير النسخة الاحتياطية (JSON) بنجاح (${res.personsCount} فرداً): ${res.filename}`);
+        return;
+      }
+
+      const persons = await apiClient.getPersons();
+      if (persons.length === 0) {
+        setBackupStatus('لا توجد بيانات في الشجرة لتصديرها.');
+        return;
+      }
+
+      const byId = new Map<string, Person>(persons.map((p) => [p.id, p]));
+      const childrenByFather = new Map<string, Person[]>();
+      for (const p of persons) {
+        if (p.fatherId && byId.has(p.fatherId)) {
+          const list = childrenByFather.get(p.fatherId) || [];
+          list.push(p);
+          childrenByFather.set(p.fatherId, list);
+        }
+      }
+      const roots = persons.filter((p) => !p.fatherId || !byId.has(p.fatherId));
+      const effectiveRoots = roots.length > 0 ? roots : [persons[0]];
+      const getChildren = (personId: string) => childrenByFather.get(personId) || [];
+
+      if (format === 'excel') {
+        const { filename } = exportTreeToExcel({
+          rootPerson: effectiveRoots[0],
+          rootPersons: effectiveRoots,
+          getChildren,
+          allPersons: persons,
+          includeFemales: true
+        });
+        setBackupStatus(`تم تصدير النسخة الاحتياطية (إكسل) بنجاح (${persons.length} فرداً): ${filename}`);
+      } else {
+        const { filename } = await exportTreeToInteractiveHtml({
+          rootPerson: effectiveRoots[0],
+          rootPersons: effectiveRoots,
+          getChildren,
+          getAllPersons: () => persons,
+          mode: 'classic',
+          includeFemales: true
+        });
+        setBackupStatus(`تم تصدير النسخة الاحتياطية (HTML) بنجاح (${persons.length} فرداً): ${filename}`);
+      }
     } catch (err: any) {
-      setBackupStatus(`تعذر إنشاء النسخة الاحتياطية: ${err.message || 'خطأ غير متوقع'}`);
+      setBackupStatus(`تعذر تصدير النسخة الاحتياطية: ${err.message || 'خطأ غير متوقع'}`);
     } finally {
-      setIsDownloadingBackup(false);
+      setDownloadingFormat(null);
     }
   };
 
@@ -371,7 +347,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     if (!file) return;
 
     setIsRestoring(true);
-    setRestoreStatus({ type: 'info', message: 'جارٍ قراءة الملف وفحص العلاقات والأنساب...' });
+    setRestoreStatus({ type: 'info', message: 'جارٍ قراءة الملف واستعادة البيانات...' });
 
     try {
       const parsed = await parseBackupFile(file);
@@ -379,9 +355,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       if (parsed.isEmptyAppShellHtml) {
         setRestoreStatus({
           type: 'warning',
-          message:
-            parsed.diagnostics ||
-            'هذا الملف لا يحتوي على بيانات العائلة. استخدم أداة «الاستعادة الطارئة من سجل التعديلات السحابي» بالأسفل.'
+          message: parsed.diagnostics || 'هذا الملف لا يحتوي على بيانات العائلة.'
         });
         return;
       }
@@ -395,7 +369,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         result.warnings.length > 0 ? ` (${result.warnings.join(' · ')})` : '';
       setRestoreStatus({
         type: 'success',
-        message: `تمت الاستعادة بنجاح من ${parsed.sourceLabel}: تم استرداد ${result.restoredCount} فرداً إلى قاعدة البيانات السحابية.${warnSuffix}`
+        message: `تمت الاستعادة بنجاح (${result.restoredCount} فرداً).${warnSuffix}`
       });
       onDataResetOrRestored();
       await loadAdminData();
@@ -409,74 +383,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
-  // Emergency Recovery from Cloud Audit Logs / Local Safety Snapshot
-  const handleCloudEmergencyRestore = () => {
-    if (!cloudRecovery || cloudRecovery.persons.length === 0) return;
-
-    setConfirmDialog({
-      isOpen: true,
-      title: 'استعادة البيانات المحذوفة إلى الشجرة',
-      message: `سيتم استعادة ${cloudRecovery.persons.length} فرداً (${cloudRecovery.maleCount} ذكور و ${cloudRecovery.femaleCount} إناث) وإعادة بناء روابط الآباء والأجداد تلقائياً في قاعدة البيانات السحابية. هل ترغب بالمتابعة؟`,
-      isDestructive: false,
-      onConfirm: async () => {
-        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
-        setIsRestoring(true);
-        setRestoreStatus({
-          type: 'info',
-          message: `جارٍ استعادة ${cloudRecovery.persons.length} فرداً إلى قاعدة البيانات السحابية...`
-        });
-        try {
-          const sourceLabel =
-            cloudRecovery.source === 'local_safety'
-              ? 'نسخة الأمان التلقائية'
-              : 'سجل التعديلات السحابي';
-          const result = await apiClient.restoreBackup(cloudRecovery.persons, {
-            mode: 'replace',
-            sourceLabel
-          });
-          setRestoreStatus({
-            type: 'success',
-            message: `تمت الاستعادة الطارئة بنجاح! تم استرجاع ${result.restoredCount} فرداً إلى شجرة العائلة.`
-          });
-          onDataResetOrRestored();
-          await loadAdminData();
-        } catch (err: any) {
-          setRestoreStatus({
-            type: 'error',
-            message: `حدث خطأ أثناء الاستعادة الطارئة: ${err.message || 'يرجى المحاولة مرة أخرى'}`
-          });
-        } finally {
-          setIsRestoring(false);
-        }
-      }
-    });
-  };
-
-  const handleDownloadRecoveredJson = () => {
-    if (!cloudRecovery || cloudRecovery.persons.length === 0) return;
-    const filename = triggerJsonBackupDownload(
-      {
-        version: 2,
-        source: cloudRecovery.source,
-        exportedAt: new Date().toISOString(),
-        personsCount: cloudRecovery.persons.length,
-        persons: cloudRecovery.persons
-      },
-      'family_tree_recovered'
-    );
-    setRestoreStatus({
-      type: 'success',
-      message: `تم حفظ البيانات المستخرجة (${cloudRecovery.persons.length} فرداً) كملف JSON آمن: ${filename}`
-    });
-  };
-
-  // Restore a specific Time-Travel point
+  // Restore a specific point from Audit Log
   const handleRestoreTimeTravelPoint = (point: TimeTravelRestorePoint) => {
     if (!point || point.persons.length === 0) return;
     setConfirmDialog({
       isOpen: true,
-      title: `العودة بالزمن: ${point.label}`,
-      message: `سيتم استبدال البيانات الحالية بنسخة «${point.label}» التي تحتوي على ${point.rootsCount} شجرة/أصل (${point.persons.length} فرداً: ${point.maleCount} ذكور و ${point.femaleCount} إناث) مع حفظ نسخة أمان تلقائية للوضع الحالي. هل ترغب بالمتابعة؟`,
+      title: `استعادة: ${point.label}`,
+      message: `سيتم استبدال البيانات الحالية بنسخة «${point.label}» التي تحتوي على ${point.rootsCount} شجرة/أصل (${point.persons.length} فرداً: ${point.maleCount} ذكور و ${point.femaleCount} إناث). هل ترغب بالمتابعة؟`,
       isDestructive: false,
       onConfirm: async () => {
         setConfirmDialog(prev => ({ ...prev, isOpen: false }));
@@ -488,18 +401,18 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         try {
           const result = await apiClient.restoreBackup(point.persons, {
             mode: 'replace',
-            sourceLabel: `استعادة زمنية: ${point.label}`
+            sourceLabel: `استعادة من سجل التعديلات: ${point.label}`
           });
           setRestoreStatus({
             type: 'success',
-            message: `تمت الاستعادة الزمنية بنجاح! عادت الشجرة إلى حالة «${point.label}» (${result.restoredCount} فرداً، ${point.rootsCount} أشجار).`
+            message: `تمت الاستعادة بنجاح (${result.restoredCount} فرداً، ${point.rootsCount} أشجار).`
           });
           onDataResetOrRestored();
           await loadAdminData();
         } catch (err: any) {
           setRestoreStatus({
             type: 'error',
-            message: `حدث خطأ أثناء الاستعادة الزمنية: ${err.message || 'يرجى المحاولة مرة أخرى'}`
+            message: `حدث خطأ أثناء الاستعادة: ${err.message || 'يرجى المحاولة مرة أخرى'}`
           });
         } finally {
           setIsRestoring(false);
@@ -512,7 +425,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     const filename = triggerJsonBackupDownload(
       {
         version: 2,
-        source: 'time_travel_point',
+        source: 'audit_log_point',
         pointLabel: point.label,
         cutoffTimestamp: point.cutoffTimestamp,
         exportedAt: new Date().toISOString(),
@@ -520,221 +433,12 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         rootsCount: point.rootsCount,
         persons: point.persons
       },
-      'family_tree_point_in_time'
+      'family_tree_backup'
     );
     setRestoreStatus({
       type: 'success',
-      message: `تم تنزيل نسخة «${point.label}» (${point.persons.length} فرداً) بصيغة JSON: ${filename}`
+      message: `تم تنزيل نسخة «${point.label}» (${point.persons.length} فرداً): ${filename}`
     });
-  };
-
-  const handleRestoreLocalSafety = (snap: LocalSafetySnapshot) => {
-    if (!snap || snap.persons.length === 0) return;
-    const savedLabel = new Date(snap.savedAt).toLocaleString('ar-SA', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-    setConfirmDialog({
-      isOpen: true,
-      title: 'استعادة نسخة الأمان الكاملة من جهازك',
-      message: `سيتم استعادة النسخة التلقائية المحفوظة في (${savedLabel}) والتي تحتوي على ${snap.persons.length} فرداً في ${snap.rootsCount} أصول بكامل تفاصيلها وروابطها وملاحظاتها. سيتم حفظ الوضع الحالي تلقائياً قبل التغيير.`,
-      isDestructive: false,
-      onConfirm: async () => {
-        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
-        setIsRestoring(true);
-        setRestoreStatus({
-          type: 'info',
-          message: `جارٍ استعادة نسخة الأمان الكاملة (${snap.persons.length} فرداً)...`
-        });
-        try {
-          const result = await apiClient.restoreBackup(snap.persons, {
-            mode: 'replace',
-            sourceLabel: `نسخة أمان تلقائية كاملة (${savedLabel})`
-          });
-          setRestoreStatus({
-            type: 'success',
-            message: `تمت استعادة النسخة الكاملة بنجاح! (${result.restoredCount} فرداً، ${snap.rootsCount} أصول بكامل التفاصيل).`
-          });
-          onDataResetOrRestored();
-          await loadAdminData();
-        } catch (err: any) {
-          setRestoreStatus({
-            type: 'error',
-            message: `حدث خطأ أثناء الاستعادة: ${err.message || 'يرجى المحاولة مرة أخرى'}`
-          });
-        } finally {
-          setIsRestoring(false);
-        }
-      }
-    });
-  };
-
-  const handleDownloadLocalSafetyJson = (snap: LocalSafetySnapshot) => {
-    const filename = triggerJsonBackupDownload(
-      {
-        version: 2,
-        source: 'local_safety_snapshot',
-        savedAt: snap.savedAt,
-        reason: snap.reason,
-        exportedAt: new Date().toISOString(),
-        personsCount: snap.persons.length,
-        rootsCount: snap.rootsCount,
-        persons: snap.persons
-      },
-      'family_tree_safety_backup'
-    );
-    setRestoreStatus({
-      type: 'success',
-      message: `تم تنزيل نسخة الأمان الكاملة (${snap.persons.length} فرداً) بصيغة JSON: ${filename}`
-    });
-  };
-
-  const handleSaveCloudSnapshotNow = async () => {
-    setIsSavingCloudSnapshot(true);
-    setRestoreStatus({
-      type: 'info',
-      message: 'جارٍ حفظ نقطة استعادة سحابية حقيقية مطابقة 100%...'
-    });
-    try {
-      const res = await apiClient.saveCloudExactSnapshot('حفظ يدوي من المشرف');
-      if (res.saved) {
-        setRestoreStatus({
-          type: 'success',
-          message: `تم حفظ نسخة سحابية حقيقية مطابقة 100% (${res.personsCount} فرداً) بنجاح. يمكنك العودة إليها بدقة تامة من أي جهاز في أي وقت.`
-        });
-        await loadAdminData();
-      } else {
-        setRestoreStatus({
-          type: 'warning',
-          message: res.message || 'تعذر حفظ النقطة السحابية المطابقة.'
-        });
-      }
-    } catch (err: any) {
-      setRestoreStatus({
-        type: 'error',
-        message: err?.message || 'حدث خطأ أثناء حفظ النقطة السحابية'
-      });
-    } finally {
-      setIsSavingCloudSnapshot(false);
-    }
-  };
-
-  const handleRestoreCloudExactSnapshot = (snap: CloudExactSnapshot) => {
-    if (!snap || snap.persons.length === 0) return;
-    const savedLabel = new Date(snap.savedAt).toLocaleString('ar-SA', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-    setConfirmDialog({
-      isOpen: true,
-      title: 'استعادة نسخة سحابية حقيقية مطابقة 100%',
-      message: `سيتم استعادة النسخة السحابية المحفوظة في (${savedLabel}) والتي تحتوي على ${snap.persons.length} فرداً في ${snap.rootsCount} أصول بكامل تفاصيلها الحقيقية (الآباء، الفروع، الزوجات، الأمهات، الملاحظات) بدون أي تخمين أو تعديل. سيتم حفظ الوضع الحالي تلقائياً قبل الاستعادة.`,
-      isDestructive: false,
-      onConfirm: async () => {
-        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
-        setIsRestoring(true);
-        setRestoreStatus({
-          type: 'info',
-          message: `جارٍ استعادة النسخة السحابية الحقيقية (${snap.persons.length} فرداً)...`
-        });
-        try {
-          const result = await apiClient.restoreBackup(snap.persons, {
-            mode: 'replace',
-            sourceLabel: `نسخة سحابية حقيقية 100% (${savedLabel})`
-          });
-          setRestoreStatus({
-            type: 'success',
-            message: `تمت الاستعادة الحقيقية (100%) بنجاح! (${result.restoredCount} فرداً، ${snap.rootsCount} أصول مطابقة تماماً).`
-          });
-          onDataResetOrRestored();
-          await loadAdminData();
-        } catch (err: any) {
-          setRestoreStatus({
-            type: 'error',
-            message: `حدث خطأ أثناء الاستعادة: ${err.message || 'يرجى المحاولة مرة أخرى'}`
-          });
-        } finally {
-          setIsRestoring(false);
-        }
-      }
-    });
-  };
-
-  const handleDownloadCloudExactSnapshotJson = (snap: CloudExactSnapshot) => {
-    const filename = triggerJsonBackupDownload(
-      {
-        version: 2,
-        source: 'cloud_exact_snapshot',
-        savedAt: snap.savedAt,
-        reason: snap.reason,
-        exportedAt: new Date().toISOString(),
-        personsCount: snap.persons.length,
-        rootsCount: snap.rootsCount,
-        persons: snap.persons
-      },
-      'family_tree_exact_cloud_snapshot'
-    );
-    setRestoreStatus({
-      type: 'success',
-      message: `تم تنزيل النسخة السحابية الحقيقية (${snap.persons.length} فرداً) بصيغة JSON: ${filename}`
-    });
-  };
-
-  const handleDetachInTimeTravelPoint = (pointId: string, personId: string) => {
-    if (customPoint && customPoint.id === pointId) {
-      setCustomPoint((prev) => (prev ? detachPersonAsRootInSnapshot(prev, personId) : prev));
-      return;
-    }
-    setTimeTravelPoints((prev) =>
-      prev.map((pt) => (pt.id === pointId ? detachPersonAsRootInSnapshot(pt, personId) : pt))
-    );
-  };
-
-  const handleCheckCustomDateTime = () => {
-    if (!customDateTime) return;
-    const ms = new Date(customDateTime).getTime();
-    if (Number.isNaN(ms)) return;
-    const enrichmentPool = buildEnrichmentPool(localSafetyBackups);
-    const trustedRootIds = getTrustedRootIdsForCutoff(localSafetyBackups, ms);
-    const snap = reconstructAtTimestamp(auditLogs, mergeOperations, ms, {
-      ignoreClears: false,
-      enrichmentPersons: enrichmentPool,
-      trustedRootIds
-    });
-    const formatted = new Date(ms).toLocaleString('ar-SA', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-    setCustomPoint({
-      id: `custom_${ms}`,
-      label: `حالة الشجرة في ${formatted}`,
-      subLabel: `بناءً على ${snap.logsIncludedCount} عملية حتى هذا الوقت المحدد`,
-      cutoffTimestamp: new Date(ms).toISOString(),
-      cutoffMs: ms,
-      persons: snap.persons,
-      rootsCount: snap.rootsCount,
-      rootNames: snap.rootNames,
-      rootDetails: snap.rootDetails,
-      maleCount: snap.maleCount,
-      femaleCount: snap.femaleCount,
-      wifeLinksCount: snap.wifeLinksCount,
-      motherLinksCount: snap.motherLinksCount,
-      notesCount: snap.notesCount,
-      logsIncludedCount: snap.logsIncludedCount,
-      isBeforeToday: true,
-      isExactSnapshot: snap.isExactSnapshot
-    });
-    setPreviewedPointId(`custom_${ms}`);
-    setPreviewSearch('');
   };
 
   const handleBatchLinkWife = async (wife: Person, husband: Person | null, customExternalName?: string) => {
@@ -991,15 +695,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   activeTab === 'logs' ? 'bg-[#0F4C3A] text-white' : 'text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                سجل التعديلات (Audit)
-              </button>
-              <button
-                onClick={() => setActiveTab('merges')}
-                className={`min-h-[36px] px-3 py-1.5 rounded-xl transition whitespace-nowrap ${
-                  activeTab === 'merges' ? 'bg-[#0F4C3A] text-white' : 'text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                العمليات الأخيرة والتراجع
+                سجل التعديلات
               </button>
               <button
                 onClick={() => setActiveTab('backup')}
@@ -1533,16 +1229,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                       </span>
                                     </div>
 
-                                    {selectedLogPoint.persons.length > 0 && (
-                                      selectedLogPoint.isExactSnapshot ? (
-                                        <div className="px-2.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-[11px] font-semibold">
-                                          ✓ نسخة سحابية حقيقية مطابقة 100% — محفوظة بكامل الأصول والفروع وروابط الزوجات بدون أي تخمين.
-                                        </div>
-                                      ) : (
-                                        <div className="px-2.5 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
-                                          <strong>تنبيه دقة:</strong> هذا السجل قديم (قبل تفعيل النسخ السحابية المطابقة 100%) ولم يكن يحفظ معرّف الأب أو روابط الزوجات؛ لذلك تم تعطيل أي تخمين أو توزيع عشوائي والاكتفاء بالتطابق التام فقط.
-                                        </div>
-                                      )
+                                    {selectedLogPoint.persons.length > 0 && selectedLogPoint.isExactSnapshot && (
+                                      <div className="px-2.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-[11px] font-semibold">
+                                        ✓ نسخة محفوظة بالكامل (الأصول والفروع وروابط الزوجات).
+                                      </div>
                                     )}
 
                                     {selectedLogPoint.persons.length === 0 ? (
@@ -1770,763 +1460,68 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 </div>
               )}
 
-              {/* Tab 4: Merge Operations & Rollback */}
-              {activeTab === 'merges' && (
-                <div className="p-4 sm:p-6 space-y-4">
-                  <h4 className="text-sm font-bold text-[#0F4C3A]">
-                    سجل عمليات الدمج وإمكانية التراجع الآمن ({mergeOperations.length})
-                  </h4>
-
-                  <div className="space-y-3 max-h-96 overflow-y-auto">
-                    {mergeOperations.length === 0 ? (
-                      <div className="p-8 text-center text-xs text-slate-400 border border-slate-200 rounded-2xl">
-                        لم يتم تنفيذ أي عملية دمج حتى الآن
-                      </div>
-                    ) : (
-                      mergeOperations.map((m) => (
-                        <div key={m.id} className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                          <div className="min-w-0">
-                            <div className="font-bold text-slate-900 leading-snug break-words">
-                              دمج: {m.sourcePersonName} في {m.targetPersonName}
-                            </div>
-                            <div className="text-slate-500 text-[11px] mt-0.5">
-                              تم نقل {m.movedChildrenIds.length} فروع · {new Date(m.timestamp).toLocaleString('ar-SA')}
-                            </div>
-                          </div>
-
-                          <button
-                            onClick={() => handleUndoMerge(m.id)}
-                            className="w-full sm:w-auto min-h-[38px] px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition shrink-0"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span>التراجع عن هذا الدمج</span>
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Tab 5: Backup & Restore */}
+              {/* Tab 4: Backup & Restore (Simple & Direct) */}
               {activeTab === 'backup' && (
-                <div className="p-4 sm:p-6 space-y-5 sm:space-y-6">
-                  {/* Live Database Current Roots Summary + 1-Click Cloud Exact Snapshot Button */}
-                  {currentPersonsForEnrich.length > 0 && (() => {
-                    const liveStats = computeRootDetails(currentPersonsForEnrich);
-                    return (
-                      <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50/80 space-y-2 text-xs">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <span className="font-bold text-slate-800">
-                            الأشجار الموجودة حالياً في قاعدة البيانات الآن ({liveStats.rootsCount} {liveStats.rootsCount === 1 ? 'شجرة' : liveStats.rootsCount === 2 ? 'شجرتان' : liveStats.rootsCount <= 10 ? 'أشجار' : 'شجرة'} · {currentPersonsForEnrich.length} فرداً):
-                          </span>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <button
-                              type="button"
-                              disabled={isSavingCloudSnapshot}
-                              onClick={handleSaveCloudSnapshotNow}
-                              className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer"
-                            >
-                              <Cloud className="w-3.5 h-3.5 text-[#D4AF37]" />
-                              <span>
-                                {isSavingCloudSnapshot
-                                  ? 'جارٍ الحفظ السحابي...'
-                                  : 'حفظ نقطة استعادة سحابية حقيقية (100%) الآن'}
-                              </span>
-                            </button>
-                            {restoreStatus?.type === 'success' && (
-                              <button
-                                type="button"
-                                onClick={onClose}
-                                className="px-3 py-1.5 rounded-lg bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white text-[11px] font-bold transition cursor-pointer"
-                              >
-                                إغلاق وعرض الشجرة الآن
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {liveStats.rootDetails.slice(0, 8).map((r) => (
-                            <span
-                              key={r.id}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-800 font-semibold text-[11px]"
-                            >
-                              <span>{r.fullName}</span>
-                              <span className="text-[10px] text-emerald-700 font-bold">({r.branchCount} فرداً)</span>
-                            </span>
-                          ))}
-                          {liveStats.rootDetails.length > 8 && (
-                            <span className="text-[10px] text-slate-500 font-semibold px-1">
-                              +{liveStats.rootDetails.length - 8} أصول أخرى
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Cloud Exact 100% Verbatim Snapshots (Stored in Firestore across all devices) */}
-                  {cloudExactSnapshots.length > 0 && (
-                    <div className="p-4 sm:p-5 rounded-2xl border-2 border-[#0F4C3A] bg-gradient-to-br from-emerald-50 via-white to-emerald-50/40 space-y-3.5 shadow-xs">
-                      <div className="flex items-start gap-2.5 text-[#0F4C3A]">
-                        <div className="w-9 h-9 rounded-xl bg-[#0F4C3A] text-[#D4AF37] flex items-center justify-center shrink-0">
-                          <Cloud className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-sm text-[#0F4C3A]">
-                            النسخ السحابية الحقيقية المطابقة 100% ({cloudExactSnapshots.length})
-                          </h4>
-                          <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                            نسخ كاملة محفوظة في قاعدة البيانات السحابية قبل كل حذف أو دمج أو تعديل أصل أو عند الحفظ اليدوي — تُستعاد حرفياً كما كانت 100% بكامل الأصول والفروع والزوجات والملاحظات بدون أي تخمين.
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2.5 max-h-72 overflow-y-auto pr-0.5">
-                        {cloudExactSnapshots.map((snap) => {
-                          const isPreviewOpen = previewedPointId === snap.id;
-                          const savedFormatted = new Date(snap.savedAt).toLocaleString('ar-SA', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          });
-                          return (
-                            <div
-                              key={snap.id}
-                              className="p-3.5 rounded-2xl border border-emerald-300 bg-white space-y-2.5 shadow-xs"
-                            >
-                              <div className="space-y-1.5">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="px-2 py-0.5 rounded-md bg-emerald-700 text-white text-[10px] font-bold">
-                                    نسخة سحابية حقيقية 100%
-                                  </span>
-                                  <span className="font-bold text-xs sm:text-sm text-[#0F4C3A]">
-                                    {snap.reason}
-                                  </span>
-                                  <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-[#0F4C3A] text-[10px] font-bold">
-                                    {snap.rootsCount} {snap.rootsCount === 1 ? 'شجرة' : snap.rootsCount === 2 ? 'شجرتان' : snap.rootsCount <= 10 ? 'أشجار' : 'شجرة'} · {snap.persons.length} فرداً
-                                  </span>
-                                </div>
-                                <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                                  <span>تاريخ الحفظ: {savedFormatted} ({snap.maleCount} ذكور · {snap.femaleCount} إناث)</span>
-                                  <span className="font-bold text-rose-700">· روابط الزوجات: {snap.wifeLinksCount}</span>
-                                  <span className="font-bold text-emerald-700">· الأمهات: {snap.motherLinksCount}</span>
-                                  <span className="font-bold text-amber-700">· الملاحظات: {snap.notesCount}</span>
-                                </div>
-                                {snap.rootDetails.length > 0 && (
-                                  <div className="text-[11px] text-slate-700 bg-slate-50 px-2.5 py-2 rounded-lg border border-slate-100 space-y-1">
-                                    <div className="font-bold text-[#0F4C3A]">
-                                      أصول الأشجار في هذه النسخة ({snap.rootsCount}):
-                                    </div>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {snap.rootDetails.slice(0, 8).map((r) => (
-                                        <span
-                                          key={r.id}
-                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-emerald-200 text-slate-800 font-semibold"
-                                        >
-                                          <span>{r.fullName}</span>
-                                          <span className="text-[10px] text-emerald-700 font-bold">
-                                            ({r.branchCount} فرداً)
-                                          </span>
-                                        </span>
-                                      ))}
-                                      {snap.rootDetails.length > 8 && (
-                                        <span className="px-2 py-0.5 text-[10px] text-slate-500 font-semibold">
-                                          +{snap.rootDetails.length - 8} أصول أخرى
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                                <button
-                                  type="button"
-                                  disabled={isRestoring}
-                                  onClick={() => handleRestoreCloudExactSnapshot(snap)}
-                                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#0F4C3A] hover:bg-[#0c3c2e] disabled:opacity-60 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
-                                >
-                                  <RotateCcw className="w-3.5 h-3.5 text-[#D4AF37]" />
-                                  <span>استعادة هذه النسخة الحقيقية (100%) الآن</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setPreviewedPointId(isPreviewOpen ? null : snap.id)}
-                                  className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition cursor-pointer"
-                                >
-                                  {isPreviewOpen ? 'إخفاء الأسماء' : 'معاينة الأسماء'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDownloadCloudExactSnapshotJson(snap)}
-                                  className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#0F4C3A]/30 bg-white hover:bg-emerald-50 text-[#0F4C3A] text-xs font-bold flex items-center gap-1 transition cursor-pointer"
-                                >
-                                  <Download className="w-3.5 h-3.5" />
-                                  <span>حفظ JSON</span>
-                                </button>
-                              </div>
-
-                              {isPreviewOpen && (
-                                <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 divide-y divide-slate-100 text-xs">
-                                  {snap.persons.slice(0, 120).map((p, idx) => (
-                                    <div key={p.id} className="px-3 py-1.5 flex items-center justify-between gap-2">
-                                      <span className="font-semibold text-slate-800 truncate">
-                                        {idx + 1}. {p.fullName}
-                                      </span>
-                                      <span
-                                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 ${
-                                          p.gender === 'female'
-                                            ? 'bg-rose-50 text-rose-700'
-                                            : 'bg-emerald-50 text-emerald-700'
-                                        }`}
-                                      >
-                                        {p.gender === 'female' ? 'أنثى' : 'ذكر'}
-                                        {!p.fatherId ? ' · أصل شجرة' : ''}
-                                      </span>
-                                    </div>
-                                  ))}
-                                  {snap.persons.length > 120 && (
-                                    <div className="px-3 py-1.5 text-center text-[11px] text-slate-500">
-                                      ... و {snap.persons.length - 120} فرداً آخرين
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Local Automatic Full-Fidelity Safety Snapshots (Saved on this device before any restore/clear) */}
-                  {localSafetyBackups.length > 0 && (
-                    <div className="p-4 sm:p-5 rounded-2xl border-2 border-emerald-500/70 bg-gradient-to-br from-emerald-50 via-white to-teal-50/60 space-y-3.5 shadow-xs">
-                      <div className="flex items-start gap-2.5 text-[#0F4C3A]">
-                        <div className="w-9 h-9 rounded-xl bg-emerald-700 text-white flex items-center justify-center shrink-0">
-                          <Shield className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-sm text-[#0F4C3A]">
-                            نسخ الأمان التلقائية المحفوظة على جهازك (بكامل التفاصيل الأصلية)
-                          </h4>
-                          <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                            حفظ النظام تلقائياً نسخة كاملة مطابقة تماماً قبل كل عملية استعادة أو تفريغ — تتضمن جميع الأصول والفروع والروابط والملاحظات والزوجات والأمهات كما كانت تماماً.
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2.5 max-h-72 overflow-y-auto pr-0.5">
-                        {localSafetyBackups.map((snap) => {
-                          const isPreviewOpen = previewedPointId === snap.id;
-                          const savedFormatted = new Date(snap.savedAt).toLocaleString('ar-SA', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          });
-                          return (
-                            <div
-                              key={snap.id}
-                              className="p-3.5 rounded-2xl border border-emerald-200 bg-white space-y-2.5 shadow-xs"
-                            >
-                              <div className="space-y-1.5">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="px-2 py-0.5 rounded-md bg-emerald-700 text-white text-[10px] font-bold">
-                                    نسخة كاملة مطابقة
-                                  </span>
-                                  <span className="font-bold text-xs sm:text-sm text-[#0F4C3A]">
-                                    {snap.reason || 'نسخة أمان تلقائية'}
-                                  </span>
-                                  <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-[#0F4C3A] text-[10px] font-bold">
-                                    {snap.rootsCount} {snap.rootsCount === 1 ? 'شجرة' : snap.rootsCount === 2 ? 'شجرتان' : snap.rootsCount <= 10 ? 'أشجار' : 'شجرة'} · {snap.persons.length} فرداً
-                                  </span>
-                                </div>
-                                <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                                  <span>تاريخ الحفظ: {savedFormatted} ({snap.maleCount} ذكور · {snap.femaleCount} إناث)</span>
-                                  <span className="font-bold text-rose-700">
-                                    · روابط الزوجات: {snap.wifeLinksCount}
-                                  </span>
-                                  <span className="font-bold text-emerald-700">
-                                    · الأمهات: {snap.motherLinksCount}
-                                  </span>
-                                  <span className="font-bold text-amber-700">
-                                    · الملاحظات: {snap.notesCount}
-                                  </span>
-                                </div>
-                                {snap.rootDetails.length > 0 && (
-                                  <div className="text-[11px] text-slate-700 bg-slate-50 px-2.5 py-2 rounded-lg border border-slate-100 space-y-1">
-                                    <div className="font-bold text-[#0F4C3A]">
-                                      أصول الأشجار في هذه النسخة ({snap.rootsCount}):
-                                    </div>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {snap.rootDetails.slice(0, 8).map((r) => (
-                                        <span
-                                          key={r.id}
-                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-emerald-200 text-slate-800 font-semibold"
-                                        >
-                                          <span>{r.fullName}</span>
-                                          <span className="text-[10px] text-emerald-700 font-bold">
-                                            ({r.branchCount} فرداً)
-                                          </span>
-                                        </span>
-                                      ))}
-                                      {snap.rootDetails.length > 8 && (
-                                        <span className="px-2 py-0.5 text-[10px] text-slate-500 font-semibold">
-                                          +{snap.rootDetails.length - 8} أصول أخرى
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                                <button
-                                  type="button"
-                                  disabled={isRestoring}
-                                  onClick={() => handleRestoreLocalSafety(snap)}
-                                  className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition"
-                                >
-                                  <RotateCcw className="w-3.5 h-3.5 text-[#D4AF37]" />
-                                  <span>استعادة هذه النسخة الكاملة الآن</span>
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => setPreviewedPointId(isPreviewOpen ? null : snap.id)}
-                                  className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition"
-                                >
-                                  {isPreviewOpen ? 'إخفاء الأسماء' : 'معاينة الأسماء'}
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleDownloadLocalSafetyJson(snap)}
-                                  className="min-h-[38px] px-3 py-1.5 rounded-xl border border-emerald-700/30 bg-white hover:bg-emerald-50 text-[#0F4C3A] text-xs font-bold flex items-center gap-1 transition"
-                                >
-                                  <Download className="w-3.5 h-3.5" />
-                                  <span>حفظ JSON</span>
-                                </button>
-                              </div>
-
-                              {isPreviewOpen && (
-                                <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 divide-y divide-slate-100 text-xs">
-                                  {snap.persons.slice(0, 120).map((p, idx) => (
-                                    <div key={p.id} className="px-3 py-1.5 flex items-center justify-between gap-2">
-                                      <span className="font-semibold text-slate-800 truncate">
-                                        {idx + 1}. {p.fullName}
-                                      </span>
-                                      <span
-                                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 ${
-                                          p.gender === 'female'
-                                            ? 'bg-rose-50 text-rose-700'
-                                            : 'bg-emerald-50 text-emerald-700'
-                                        }`}
-                                      >
-                                        {p.gender === 'female' ? 'أنثى' : 'ذكر'}
-                                        {!p.fatherId ? ' · أصل شجرة' : ''}
-                                      </span>
-                                    </div>
-                                  ))}
-                                  {snap.persons.length > 120 && (
-                                    <div className="px-3 py-1.5 text-center text-[11px] text-slate-500">
-                                      ... و {snap.persons.length - 120} فرداً آخرين
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Time-Travel Point-in-Time Recovery Card (Restore to Before Today / Any Prior Date) */}
-                  <div className="p-4 sm:p-5 rounded-2xl border-2 border-[#D4AF37]/70 bg-gradient-to-br from-emerald-50/90 via-[#FBF9F5] to-amber-50/70 space-y-4 shadow-xs">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="flex items-center gap-2.5 text-[#0F4C3A]">
-                        <div className="w-9 h-9 rounded-xl bg-[#0F4C3A] text-[#D4AF37] flex items-center justify-center shrink-0">
-                          <Clock className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-sm text-[#0F4C3A]">
-                            الاستعادة الزمنية — النقاط السحابية وسجل التعديلات
-                          </h4>
-                          <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                            النقاط الموسومة بـ <strong>«نسخة حقيقية 100%»</strong> محفوظة حرفياً بدون أي تخمين. أما السجلات القديمة التي سبقت تفعيل النسخ السحابية المطابقة فلم تكن تخزّن معرّفات الآباء أو الزوجات، ولذلك تم إلغاء أي تخمين أو توزيع عشوائي تماماً والاكتفاء بالتطابق التام فقط.
-                          </p>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={loadAdminData}
-                        disabled={loadingData}
-                        className="self-start sm:self-center min-h-[34px] px-3 py-1.5 rounded-xl border border-emerald-200 bg-white hover:bg-emerald-50 text-xs font-bold text-[#0F4C3A] flex items-center gap-1.5 transition shrink-0"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${loadingData ? 'animate-spin' : ''}`} />
-                        <span>تحديث النقاط الزمنية</span>
-                      </button>
-                    </div>
-
-                    {loadingData ? (
-                      <div className="text-xs text-slate-600 bg-white/80 p-3 rounded-xl border border-slate-200 flex items-center gap-2">
-                        <RefreshCw className="w-4 h-4 animate-spin text-[#0F4C3A]" />
-                        <span>جارٍ تحليل السجل السحابي واستخراج نقاط الاستعادة الزمنية...</span>
-                      </div>
-                    ) : timeTravelPoints.length > 0 ? (
-                      <div className="space-y-3">
-                        <div className="space-y-2.5 max-h-80 overflow-y-auto pr-0.5">
-                          {timeTravelPoints.map((pt) => {
-                            const isPreviewOpen = previewedPointId === pt.id;
-                            return (
-                              <div
-                                key={pt.id}
-                                className={`p-3.5 rounded-2xl border space-y-2.5 transition ${
-                                  pt.isHighlighted
-                                    ? 'bg-white border-emerald-400 shadow-xs'
-                                    : 'bg-white/90 border-slate-200'
-                                }`}
-                              >
-                                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-                                  <div className="space-y-1.5 min-w-0 w-full">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      {pt.isExactSnapshot ? (
-                                        <span className="px-2 py-0.5 rounded-md bg-emerald-700 text-white text-[10px] font-bold">
-                                          نسخة حقيقية مطابقة 100%
-                                        </span>
-                                      ) : (
-                                        <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold">
-                                          سجل قديم (تطابق تام فقط — بدون تخمين)
-                                        </span>
-                                      )}
-                                      <span className="font-bold text-xs sm:text-sm text-[#0F4C3A]">
-                                        {pt.label}
-                                      </span>
-                                      <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-[#0F4C3A] text-[10px] font-bold">
-                                        {pt.rootsCount} {pt.rootsCount === 1 ? 'شجرة' : pt.rootsCount === 2 ? 'شجرتان' : pt.rootsCount <= 10 ? 'أشجار' : 'شجرة'} · {pt.persons.length} فرداً
-                                      </span>
-                                    </div>
-                                    <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                                      <span>{pt.subLabel} ({pt.maleCount} ذكور · {pt.femaleCount} إناث)</span>
-                                      <span className={pt.wifeLinksCount > 0 ? 'font-bold text-rose-700' : 'text-slate-400'}>
-                                        · روابط الزوجات: {pt.wifeLinksCount}
-                                      </span>
-                                      {pt.motherLinksCount > 0 && (
-                                        <span className="font-bold text-emerald-700">
-                                          · الأمهات: {pt.motherLinksCount}
-                                        </span>
-                                      )}
-                                      {pt.notesCount > 0 && (
-                                        <span className="font-bold text-amber-700">
-                                          · الملاحظات: {pt.notesCount}
-                                        </span>
-                                      )}
-                                    </div>
-                                    {pt.rootDetails.length > 0 && (
-                                      <div className="text-[11px] text-slate-700 bg-slate-50 px-2.5 py-2 rounded-lg border border-slate-100 space-y-1">
-                                        <div className="font-bold text-[#0F4C3A]">
-                                          أصول الأشجار في هذه النسخة ({pt.rootsCount}):
-                                        </div>
-                                        <div className="flex flex-wrap gap-1.5">
-                                          {pt.rootDetails.slice(0, 8).map((r) => (
-                                            <span
-                                              key={r.id}
-                                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-800 font-semibold"
-                                            >
-                                              <span>{r.fullName}</span>
-                                              <span className="text-[10px] text-emerald-700 font-bold">
-                                                ({r.branchCount} فرداً)
-                                              </span>
-                                            </span>
-                                          ))}
-                                          {pt.rootDetails.length > 8 && (
-                                            <span className="px-2 py-0.5 text-[10px] text-slate-500 font-semibold">
-                                              +{pt.rootDetails.length - 8} أصول أخرى
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-
-                                <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                                  <button
-                                    type="button"
-                                    disabled={isRestoring}
-                                    onClick={() => handleRestoreTimeTravelPoint(pt)}
-                                    className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#0F4C3A] hover:bg-[#0c3c2e] disabled:opacity-60 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition"
-                                  >
-                                    <RotateCcw className="w-3.5 h-3.5 text-[#D4AF37]" />
-                                    <span>استعادة هذه النسخة الآن</span>
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setPreviewedPointId(isPreviewOpen ? null : pt.id);
-                                      setPreviewSearch('');
-                                    }}
-                                    className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition"
-                                  >
-                                    {isPreviewOpen ? 'إخفاء الأسماء' : 'معاينة / فصل أصول'}
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDownloadTimeTravelJson(pt)}
-                                    className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#0F4C3A]/30 bg-white hover:bg-emerald-50 text-[#0F4C3A] text-xs font-bold flex items-center gap-1 transition"
-                                  >
-                                    <Download className="w-3.5 h-3.5" />
-                                    <span>حفظ JSON</span>
-                                  </button>
-                                </div>
-
-                                {isPreviewOpen && (() => {
-                                  const normQ = normalizeArabic(previewSearch.trim());
-                                  const filtered = normQ
-                                    ? pt.persons.filter((p) => normalizeArabic(p.fullName).includes(normQ))
-                                    : pt.persons;
-                                  return (
-                                    <div className="space-y-2 pt-1">
-                                      <input
-                                        type="text"
-                                        value={previewSearch}
-                                        onChange={(e) => setPreviewSearch(e.target.value)}
-                                        placeholder="ابحث بالاسم داخل النسخة (مثال: علي بن راشد) لفصله كشجرة مستقلة قبل الاستعادة..."
-                                        className="w-full h-9 px-3 rounded-xl border border-slate-300 bg-white text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]"
-                                      />
-                                      <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/50 divide-y divide-slate-100 text-xs">
-                                        {filtered.slice(0, 120).map((p, idx) => (
-                                          <div key={p.id} className="px-3 py-1.5 flex items-center justify-between gap-2">
-                                            <span className="font-semibold text-slate-800 truncate">
-                                              {idx + 1}. {p.fullName}
-                                            </span>
-                                            <div className="flex items-center gap-1.5 shrink-0">
-                                              {p.gender === 'male' && p.fatherId && (
-                                                <button
-                                                  type="button"
-                                                  onClick={() => handleDetachInTimeTravelPoint(pt.id, p.id)}
-                                                  className="px-2 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold transition cursor-pointer"
-                                                  title="فصل هذا الشخص وفروعه ليكون أصل شجرة مستقلة في هذه النسخة قبل الاستعادة"
-                                                >
-                                                  فصل كشجرة مستقلة
-                                                </button>
-                                              )}
-                                              <span
-                                                className={`px-2 py-0.5 rounded-md text-[10px] font-bold shrink-0 ${
-                                                  p.gender === 'female'
-                                                    ? 'bg-rose-50 text-rose-700'
-                                                    : 'bg-emerald-50 text-emerald-700'
-                                                }`}
-                                              >
-                                                {p.gender === 'female' ? 'أنثى' : 'ذكر'}
-                                                {!p.fatherId ? ' · أصل شجرة' : ''}
-                                              </span>
-                                            </div>
-                                          </div>
-                                        ))}
-                                        {filtered.length === 0 && (
-                                          <div className="px-3 py-3 text-center text-[11px] text-slate-500">
-                                            لا توجد نتائج مطابقة لهذا الاسم في هذه النسخة
-                                          </div>
-                                        )}
-                                        {filtered.length > 120 && (
-                                          <div className="px-3 py-1.5 text-center text-[11px] text-slate-500">
-                                            ... و {filtered.length - 120} فرداً آخرين (استخدم مربع البحث أعلاه)
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        {/* Custom Date/Time Picker for Exact Rollback */}
-                        <div className="p-3.5 rounded-2xl bg-white border border-slate-200 space-y-2.5">
-                          <div className="text-xs font-bold text-slate-800">
-                            أو اختر تاريخاً وساعة محددة للعودة إليها بالضبط:
-                          </div>
-                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                            <input
-                              type="datetime-local"
-                              value={customDateTime}
-                              onChange={(e) => setCustomDateTime(e.target.value)}
-                              className="flex-1 h-10 px-3 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0F4C3A]"
-                              dir="ltr"
-                            />
-                            <button
-                              type="button"
-                              onClick={handleCheckCustomDateTime}
-                              className="min-h-[40px] px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold transition shrink-0"
-                            >
-                              فحص حالة الشجرة في هذا الوقت
-                            </button>
-                          </div>
-
-                          {customPoint && (
-                            <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 space-y-2 text-xs">
-                              {customPoint.persons.length > 0 ? (
-                                <>
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    {customPoint.isExactSnapshot ? (
-                                      <span className="px-2 py-0.5 rounded-md bg-emerald-700 text-white text-[10px] font-bold">
-                                        نسخة حقيقية مطابقة 100%
-                                      </span>
-                                    ) : (
-                                      <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold">
-                                        سجل قديم (تطابق تام فقط — بدون تخمين)
-                                      </span>
-                                    )}
-                                    <span className="font-bold text-[#0F4C3A]">
-                                      {customPoint.label}: تم العثور على {customPoint.rootsCount} {customPoint.rootsCount === 1 ? 'شجرة' : customPoint.rootsCount === 2 ? 'شجرتين' : customPoint.rootsCount <= 10 ? 'أشجار' : 'شجرة'} و {customPoint.persons.length} فرداً ({customPoint.maleCount} ذكور · {customPoint.femaleCount} إناث)
-                                    </span>
-                                  </div>
-                                  {customPoint.rootDetails.length > 0 && (
-                                    <div className="flex flex-wrap gap-1.5 text-[11px]">
-                                      {customPoint.rootDetails.slice(0, 8).map((r) => (
-                                        <span
-                                          key={r.id}
-                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-emerald-200 text-slate-800 font-semibold"
-                                        >
-                                          <span>{r.fullName}</span>
-                                          <span className="text-[10px] text-emerald-700 font-bold">
-                                            ({r.branchCount} فرداً)
-                                          </span>
-                                        </span>
-                                      ))}
-                                      {customPoint.rootDetails.length > 8 && (
-                                        <span className="px-2 py-0.5 text-[10px] text-slate-500 font-semibold">
-                                          +{customPoint.rootDetails.length - 8} أصول أخرى
-                                        </span>
-                                      )}
-                                    </div>
-                                  )}
-                                  <div className="flex flex-wrap items-center gap-2 pt-1">
-                                    <button
-                                      type="button"
-                                      disabled={isRestoring}
-                                      onClick={() => handleRestoreTimeTravelPoint(customPoint)}
-                                      className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white text-xs font-bold flex items-center gap-1.5 transition"
-                                    >
-                                      <RotateCcw className="w-3.5 h-3.5 text-[#D4AF37]" />
-                                      <span>استعادة هذه اللحظة الآن</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDownloadTimeTravelJson(customPoint)}
-                                      className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#0F4C3A]/30 bg-white hover:bg-emerald-50 text-[#0F4C3A] text-xs font-bold flex items-center gap-1 transition"
-                                    >
-                                      <Download className="w-3.5 h-3.5" />
-                                      <span>حفظ JSON</span>
-                                    </button>
-                                  </div>
-                                </>
-                              ) : (
-                                <div className="text-amber-900">
-                                  لم تكن هناك سجلات مضافة قبل هذا التاريخ والوقت المحدد. جرّب اختيار تاريخ أحدث قليلاً.
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ) : cloudRecovery && cloudRecovery.persons.length > 0 ? (
-                      <div className="space-y-3">
-                        <div className="p-3 rounded-xl bg-white border border-emerald-200 text-xs space-y-1">
-                          <div className="font-bold text-[#0F4C3A] flex items-center gap-1.5 flex-wrap">
-                            <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
-                            <span>
-                              تم العثور على {cloudRecovery.persons.length} فرداً قابلاً للاستعادة
-                              ({cloudRecovery.maleCount} ذكور · {cloudRecovery.femaleCount} إناث · {cloudRecovery.rootsCount} أصل شجرة)
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            disabled={isRestoring}
-                            onClick={handleCloudEmergencyRestore}
-                            className="min-h-[42px] px-4 py-2 rounded-xl bg-[#0F4C3A] hover:bg-[#0c3c2e] disabled:opacity-60 text-white text-xs font-bold flex items-center justify-center gap-2 transition shadow-xs"
-                          >
-                            <RotateCcw className="w-4 h-4 text-[#D4AF37]" />
-                            <span>
-                              {isRestoring ? 'جارٍ الاستعادة...' : `استعادة الـ ${cloudRecovery.persons.length} فرداً الآن إلى الشجرة`}
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleDownloadRecoveredJson}
-                            className="min-h-[42px] px-3.5 py-2 rounded-xl border border-[#0F4C3A]/30 bg-white hover:bg-emerald-50 text-[#0F4C3A] text-xs font-bold flex items-center justify-center gap-1.5 transition"
-                          >
-                            <Download className="w-4 h-4" />
-                            <span>حفظها كملف JSON</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setShowRecoveryPreview(prev => !prev)}
-                            className="min-h-[42px] px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition"
-                          >
-                            {showRecoveryPreview ? 'إخفاء المعاينة' : 'معاينة الأسماء'}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-xs text-slate-600 bg-white/80 p-3 rounded-xl border border-slate-200 leading-relaxed">
-                        لم يتم العثور على نقاط زمنية سابقة في السجل السحابي. إذا كان لديك ملف <strong>شجرة تفاعلية (HTML)</strong> أو ملف <strong>إكسل (XLSX)</strong> سبق تصديره، يمكنك رفعه مباشرة في خانة «استعادة نسخة احتياطية» بالأسفل.
-                      </div>
-                    )}
-                  </div>
-
+                <div className="p-4 sm:p-6 space-y-5">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Backup Card */}
+                    {/* Save / Export Backup Card */}
                     <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
                       <div className="flex items-center gap-2 text-[#0F4C3A]">
                         <Download className="w-5 h-5 text-[#D4AF37]" />
-                        <h4 className="font-bold text-sm">تنزيل نسخة احتياطية (JSON)</h4>
+                        <h4 className="font-bold text-sm">تصدير نسخة احتياطية</h4>
                       </div>
                       <p className="text-xs text-slate-500 leading-relaxed">
-                        تصدير مباشر لكامل بيانات الشجرة والأفراد من قاعدة البيانات السحابية في ملف JSON حقيقي وآمن وخالٍ من كلمات المرور.
+                        حفظ نسخة احتياطية كاملة من بيانات الشجرة بالصيغة التي تناسبك.
                       </p>
-                      <button
-                        type="button"
-                        disabled={isDownloadingBackup}
-                        onClick={handleDownloadBackup}
-                        className="w-full sm:w-auto min-h-[42px] inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-[#0F4C3A] text-white hover:bg-[#0c3c2e] disabled:opacity-60 text-xs font-bold transition shadow-xs"
-                      >
-                        <Download className="w-4 h-4" />
-                        <span>{isDownloadingBackup ? 'جارٍ تجهيز ملف JSON...' : 'تنزيل النسخة الاحتياطية الآن (JSON)'}</span>
-                      </button>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          disabled={downloadingFormat !== null}
+                          onClick={() => handleDownloadBackup('excel')}
+                          className="min-h-[42px] inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-700 text-white hover:bg-emerald-800 disabled:opacity-60 text-xs font-bold transition shadow-xs cursor-pointer"
+                        >
+                          <FileSpreadsheet className="w-4 h-4 shrink-0" />
+                          <span>{downloadingFormat === 'excel' ? 'جارٍ...' : 'إكسل'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={downloadingFormat !== null}
+                          onClick={() => handleDownloadBackup('html')}
+                          className="min-h-[42px] inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-sky-700 text-white hover:bg-sky-800 disabled:opacity-60 text-xs font-bold transition shadow-xs cursor-pointer"
+                        >
+                          <FileCode className="w-4 h-4 shrink-0" />
+                          <span>{downloadingFormat === 'html' ? 'جارٍ...' : 'HTML'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={downloadingFormat !== null}
+                          onClick={() => handleDownloadBackup('json')}
+                          className="min-h-[42px] inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-[#0F4C3A] text-white hover:bg-[#0c3c2e] disabled:opacity-60 text-xs font-bold transition shadow-xs cursor-pointer"
+                        >
+                          <FileJson className="w-4 h-4 shrink-0" />
+                          <span>{downloadingFormat === 'json' ? 'جارٍ...' : 'JSON'}</span>
+                        </button>
+                      </div>
 
                       {backupStatus && (
-                        <div className="text-xs font-semibold text-[#0F4C3A] bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 leading-relaxed">
+                        <div className="text-xs font-semibold text-[#0F4C3A] bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 leading-relaxed break-words">
                           {backupStatus}
                         </div>
                       )}
                     </div>
 
-                    {/* Restore Card */}
+                    {/* Restore Backup Card */}
                     <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
                       <div className="flex items-center gap-2 text-[#0F4C3A]">
                         <Upload className="w-5 h-5 text-[#D4AF37]" />
-                        <h4 className="font-bold text-sm">استعادة نسخة احتياطية (JSON / HTML / Excel)</h4>
+                        <h4 className="font-bold text-sm">استعادة نسخة احتياطية</h4>
                       </div>
                       <p className="text-xs text-slate-500 leading-relaxed">
-                        يدعم رفع ملف النسخة الاحتياطية <strong>JSON</strong>، أو ملف الشجرة التفاعلية <strong>HTML</strong>، أو ملف الإكسل <strong>XLSX</strong> المصدَّر سابقاً مع فحص تلقائي للعلاقات.
+                        استيراد ملف نسخة احتياطية محفوظ مسبقاً (JSON أو HTML أو Excel).
                       </p>
                       <label className="w-full sm:w-auto min-h-[42px] inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-slate-800 text-white hover:bg-slate-900 text-xs font-bold transition cursor-pointer">
                         <Upload className="w-4 h-4" />
-                        <span>{isRestoring ? 'جارٍ الاستعادة...' : 'اختيار ملف (JSON أو HTML أو XLSX)'}</span>
+                        <span>{isRestoring ? 'جارٍ الاستعادة...' : 'اختيار ملف للاستعادة'}</span>
                         <input
                           type="file"
                           accept=".json,.html,.htm,.xlsx"
@@ -2538,7 +1533,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
                       {restoreStatus && (
                         <div
-                          className={`text-xs font-semibold p-3 rounded-xl border leading-relaxed ${
+                          className={`text-xs font-semibold p-3 rounded-xl border leading-relaxed flex flex-col gap-2 ${
                             restoreStatus.type === 'success'
                               ? 'text-emerald-900 bg-emerald-50 border-emerald-200'
                               : restoreStatus.type === 'warning'
@@ -2548,32 +1543,38 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                               : 'text-slate-700 bg-slate-50 border-slate-200'
                           }`}
                         >
-                          {restoreStatus.message}
+                          <span>{restoreStatus.message}</span>
+                          {restoreStatus.type === 'success' && (
+                            <button
+                              type="button"
+                              onClick={onClose}
+                              className="self-start px-3 py-1 rounded-lg bg-[#0F4C3A] hover:bg-[#0c3c2e] text-white text-[11px] font-bold transition cursor-pointer"
+                            >
+                              إغلاق وعرض الشجرة
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
                   </div>
 
                   {/* Sample / Reset Section */}
-                  <div className="p-4 sm:p-5 rounded-2xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div>
-                      <h5 className="text-xs font-bold text-slate-900">إدارة البيانات النموذجية</h5>
-                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                        يمكنك إعادة تحميل بيانات عائلية نموذجية للتجربة، أو تفريغ الشجرة تماماً لبدء العمل الحقيقي.
-                      </p>
-                    </div>
+                  <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <h5 className="text-xs font-bold text-slate-800">إدارة البيانات</h5>
                     <div className="grid grid-cols-1 sm:flex items-center gap-2 shrink-0 w-full sm:w-auto">
                       <button
+                        type="button"
                         onClick={handleResetSample}
-                        className="min-h-[40px] px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 transition"
+                        className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 transition cursor-pointer"
                       >
                         تحميل عينة نموذجية
                       </button>
                       <button
+                        type="button"
                         onClick={handleClearAll}
-                        className="min-h-[40px] px-3 py-2 rounded-xl border border-red-300 bg-white text-red-600 hover:bg-red-50 text-xs font-semibold transition"
+                        className="min-h-[38px] px-3 py-1.5 rounded-xl border border-red-300 bg-white text-red-600 hover:bg-red-50 text-xs font-semibold transition cursor-pointer"
                       >
-                        تفريغ الشجرة لبدء عائلتك
+                        تفريغ الشجرة
                       </button>
                     </div>
                   </div>

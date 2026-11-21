@@ -413,8 +413,8 @@ export function parseHtmlBackupText(htmlText: string): ParsedBackupResult {
     warnings: [],
     isEmptyAppShellHtml: true,
     diagnostics: looksLikeAppShell
-      ? 'هذا الملف هو صفحة التطبيق الفارغة (index.html) التي نزلت بسبب خلل سابق في رابط النسخ الاحتياطي ولا يحتوي على أسماء العائلة. لا تقلق: يمكنك استرجاع بياناتك مباشرة من أداة «الاستعادة الطارئة من سجل التعديلات السحابي» بالأسفل، أو برفع ملف شجرة تفاعلية (HTML) أو ملف إكسل (XLSX) سبق تصديره.'
-      : 'لم يتم العثور على بيانات شجرة عائلة مدمجة داخل ملف HTML هذا. يرجى تجربة الاستعادة من سجل التعديلات السحابي بالأسفل، أو رفع ملف شجرة تفاعلية HTML أو ملف إكسل XLSX.'
+      ? 'هذا الملف لا يحتوي على بيانات العائلة. يرجى اختيار ملف نسخة احتياطية صالح (JSON أو HTML أو Excel).'
+      : 'لم يتم العثور على بيانات شجرة عائلة داخل ملف HTML هذا.'
   };
 }
 
@@ -2338,7 +2338,7 @@ export function buildTimeTravelRestorePoints(
       candidates.push({
         id: `exact_snap_${log.id}`,
         label: `نسخة سحابية حقيقية (100%): ${cleanReason || 'لقطة محفوظة'}`,
-        subLabel: `نسخة أصلية محفوظة حرفياً بدون أي تخمين في ${formatArDateTime(tsMs)}`,
+        subLabel: `نسخة محفوظة بالكامل في ${formatArDateTime(tsMs)}`,
         cutoffMs: tsMs,
         isBeforeToday: tsMs < startOfTodayMs,
         isHighlighted: true,
